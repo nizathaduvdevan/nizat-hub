@@ -2078,6 +2078,50 @@ function managerChip(comp, name){
   const textColor = contrastTextColor(hex);
   return `<span class="mgr-chip" style="background:${hex};color:${textColor};border-color:${textColor==='#ffffff'?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.15)'};">${name}</span>`;
 }
+/* קורא את טבלת האקסל הגולמית (ערכים + צבעי רקע כפי שהם בקובץ) כדי להציג אותה
+   בדיוק כמו שמחלקת השיווק רגילה לשלוח במייל היומי — בלי לפרש/לעצב מחדש.
+   טווח העמודות: מעמודה A (רצועת צבע הקבוצה) ועד עמודת מנהל אזור, לפי כל הכותרות שנמצאו. */
+function extractRawSalesTable(rows, sheet, headers){
+  if(!headers || !headers.length) return null;
+  const h0 = headers[0];
+  const colTypes = {};
+  colTypes[h0.targetCol] = 'int';
+  colTypes[h0.salesCol] = 'money';
+  colTypes[h0.pctCol] = 'pct';
+  const colStart = 0;
+  const colEnd = Math.max(...headers.map(h=>h.managerCol));
+  const rowStart = h0.rowIndex;
+  let rowEnd = rows.length - 1;
+  while(rowEnd > rowStart){
+    const row = rows[rowEnd];
+    const hasVal = row && row.slice(colStart, colEnd+1).some(v=>v!==null && v!==undefined && v!=='');
+    if(hasVal) break;
+    rowEnd--;
+  }
+  const tableRows = [];
+  for(let ri=rowStart; ri<=rowEnd; ri++){
+    const row = rows[ri] || [];
+    const cells = [];
+    for(let ci=colStart; ci<=colEnd; ci++){
+      const raw = row[ci];
+      let text = '';
+      if(raw!==undefined && raw!==null && raw!==''){
+        if(typeof raw === 'number'){
+          const type = colTypes[ci];
+          if(type==='pct') text = (raw*100).toFixed(1)+'%';
+          else if(type==='money') text = raw.toLocaleString('he-IL', {maximumFractionDigits:0});
+          else if(type==='int') text = raw.toLocaleString('he-IL');
+          else text = raw.toString();
+        } else {
+          text = raw.toString();
+        }
+      }
+      cells.push({text, bg: cellFillHex(sheet, ri, ci)});
+    }
+    tableRows.push({cells});
+  }
+  return tableRows;
+}
 function parseCompetitionSheet(rows, sheet){
   const HEADER_NAME = 'שם חנות';
   const groupLabelRe = /^קבוצה\s*(\d+)/;
@@ -2162,6 +2206,7 @@ function parseCompetitionSheet(rows, sheet){
   groups.sort((a,b)=>a.groupNum-b.groupNum);
   if(!groups.length) return null;
   groups.managerColors = managerColors;
+  groups.rawTable = extractRawSalesTable(rows, sheet, headers);
   return groups;
 }
 function matchBranchInCompetition(comp, directoryEntry){
@@ -2189,6 +2234,7 @@ function matchBranchInCompetition(comp, directoryEntry){
 /* ---- Excel attach + logo attach, both live inside the single add/edit competition form ---- */
 let pendingImportGroups = null;
 let pendingImportManagerColors = null;
+let pendingImportRawTable = null;
 let pendingLogoDataUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new logo
 let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicitly removed, string = new Cloudinary URL
 let pendingHeroMobileUrl = undefined;
@@ -2242,6 +2288,7 @@ function handleFormExcelFile(evt){
       }
       pendingImportGroups = groups;
       pendingImportManagerColors = groups.managerColors || {};
+      pendingImportRawTable = groups.rawTable || null;
       const totalBranches = groups.reduce((s,g)=>s+g.branches.length,0);
       const missingPrizes = groups.filter(g=>!g.prizes.length).length;
       const statusEl = document.getElementById('f-excel-status');
@@ -2789,6 +2836,32 @@ function renderAreaManagerSummary(c){
   `;
 }
 /* ---------- עטיפת שלושת הטאבים ---------- */
+function renderRawSalesTable(c){
+  if(!c.rawTable || !c.rawTable.length) return '';
+  const rowsHtml = c.rawTable.map(row=>`
+    <tr>${(row.cells||[]).map(cell=>{
+      const bg = cell.bg || 'transparent';
+      const color = cell.bg ? contrastTextColor(cell.bg) : 'inherit';
+      return `<td style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);white-space:nowrap;font-size:12.5px;">${cell.text || ''}</td>`;
+    }).join('')}</tr>
+  `).join('');
+  return `
+    <div class="comp-foot" style="margin-top:14px;border-top:1px solid var(--gridline);padding-top:12px;">
+      <button class="link-btn" onclick="toggleRawSalesTable('${c.id}')">📄 טבלת האקסל המקורית (כפי שהתקבלה משיווק) <span id="raw-table-arrow-${c.id}">▾</span></button>
+    </div>
+    <div id="raw-table-${c.id}" style="display:none;overflow-x:auto;margin-top:8px;">
+      <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
+    </div>
+  `;
+}
+function toggleRawSalesTable(compId){
+  const el = document.getElementById('raw-table-'+compId);
+  const arrow = document.getElementById('raw-table-arrow-'+compId);
+  if(!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if(arrow) arrow.textContent = isOpen ? '▾' : '▴';
+}
 function renderCompetitionTabs(c){
   return `
     <div class="comp-tabs-nav">
@@ -2796,7 +2869,7 @@ function renderCompetitionTabs(c){
       <button class="comp-tab-btn" data-ctab="area" id="ctab-btn-area-${c.id}" onclick="switchCompTab('${c.id}','area')">תצוגה לפי איזור</button>
       <button class="comp-tab-btn" data-ctab="summary" id="ctab-btn-summary-${c.id}" onclick="switchCompTab('${c.id}','summary')">סיכום איזורי כללי</button>
     </div>
-    <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}</div>
+    <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}${renderRawSalesTable(c)}</div>
     <div class="comp-tab-content" id="ctab-area-${c.id}" style="display:none;">${renderByAreaManager(c)}</div>
     <div class="comp-tab-content" id="ctab-summary-${c.id}" style="display:none;">${renderAreaManagerSummary(c)}</div>
   `;
@@ -4165,6 +4238,7 @@ function openForm(type, editId){
   } else if(type==='competitions'){
     pendingImportGroups = null;
     pendingImportManagerColors = null;
+    pendingImportRawTable = null;
     pendingLogoDataUrl = undefined;
     pendingHeroDesktopUrl = undefined;
     pendingHeroMobileUrl = undefined;
@@ -4304,6 +4378,7 @@ function saveForm(){
       leaderboard: existing ? existing.leaderboard : [],
       groups: pendingImportGroups!==null ? pendingImportGroups : (existing ? (existing.groups || []) : []),
       managerColors: pendingImportGroups!==null ? (pendingImportManagerColors || {}) : (existing ? (existing.managerColors || {}) : {}),
+      rawTable: pendingImportGroups!==null ? (pendingImportRawTable || null) : (existing ? (existing.rawTable || null) : null),
       logoDataUrl: pendingLogoDataUrl!==undefined ? pendingLogoDataUrl : (existing ? (existing.logoDataUrl || null) : null),
       heroDesktopUrl: pendingHeroDesktopUrl!==undefined ? pendingHeroDesktopUrl : (existing ? (existing.heroDesktopUrl || null) : null),
       heroMobileUrl: pendingHeroMobileUrl!==undefined ? pendingHeroMobileUrl : (existing ? (existing.heroMobileUrl || null) : null),
@@ -4311,6 +4386,7 @@ function saveForm(){
     };
     pendingImportGroups = null;
     pendingImportManagerColors = null;
+    pendingImportRawTable = null;
     pendingLogoDataUrl = undefined;
     pendingHeroDesktopUrl = undefined;
     pendingHeroMobileUrl = undefined;
@@ -4381,6 +4457,7 @@ function closeModal(){
   document.getElementById('modal-overlay').classList.remove('open');
   pendingImportGroups = null;
   pendingImportManagerColors = null;
+  pendingImportRawTable = null;
   pendingLogoDataUrl = undefined;
   pendingHeroDesktopUrl = undefined;
   pendingHeroMobileUrl = undefined;
