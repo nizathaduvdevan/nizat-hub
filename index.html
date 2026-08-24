@@ -352,6 +352,25 @@
     box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden;
   }
   .comp-card{padding:18px 20px;}
+
+  /* Competition hero banner — full-bleed image at the top of the card that
+     fades into the card's own background (var(--surface-1)) instead of
+     ending in a hard edge. Using the card's surface variable (rather than a
+     fixed color) means the fade is automatically correct in dark mode too. */
+  .comp-hero{
+    position:relative; margin:-18px -20px 16px; overflow:hidden;
+    border-radius:var(--radius) var(--radius) 0 0;
+    aspect-ratio:21/9;
+  }
+  .comp-hero picture, .comp-hero img{display:block;width:100%;height:100%;}
+  .comp-hero img{object-fit:cover;object-position:center;}
+  .comp-hero-fade{
+    position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(to bottom, transparent 55%, var(--surface-1) 100%);
+  }
+  @media (max-width: 640px){
+    .comp-hero{aspect-ratio:4/5;}
+  }
   .comp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;}
   .comp-title{font-size:17.5px;font-weight:500;margin:0 0 4px;}
   .comp-meta{font-size:13.5px;color:var(--muted);}
@@ -1998,6 +2017,8 @@ function matchBranchInCompetition(comp, directoryEntry){
 let pendingImportGroups = null;
 let pendingImportManagerColors = null;
 let pendingLogoDataUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new logo
+let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicitly removed, string = new Cloudinary URL
+let pendingHeroMobileUrl = undefined;
 let formCurrentLogo = null; // logo currently on the item being edited (or null for a new item)
 let pendingMaterialFile = null; // {url, type, size} set after a successful Cloudinary upload this form session
 function triggerCompetitionImport(){
@@ -2115,6 +2136,22 @@ function handleLogoFileChange(evt){
 function clearLogoField(){
   pendingLogoDataUrl = null;
   renderLogoPreview();
+}
+function handleHeroFileChange(evt, which){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById(`f-hero-${which}-status`);
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    if(which==='desktop') pendingHeroDesktopUrl = result.secure_url;
+    else pendingHeroMobileUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+  evt.target.value = '';
 }
 function handleMaterialFileChange(evt){
   const file = evt.target.files[0];
@@ -2322,7 +2359,15 @@ function compCard(c){
     }
   }
   return `
-  <div class="card comp-card">
+  <div class="card comp-card" style="overflow:hidden;">
+    ${(c.heroDesktopUrl || c.heroMobileUrl) ? `
+    <div class="comp-hero">
+      <picture>
+        ${c.heroMobileUrl ? `<source media="(max-width: 640px)" srcset="${c.heroMobileUrl}">` : ''}
+        <img src="${c.heroDesktopUrl || c.heroMobileUrl}" alt="" loading="lazy">
+      </picture>
+      <div class="comp-hero-fade"></div>
+    </div>` : ''}
     <div class="comp-top">
       <div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
@@ -3769,6 +3814,8 @@ function openForm(type, editId){
     pendingImportGroups = null;
     pendingImportManagerColors = null;
     pendingLogoDataUrl = undefined;
+    pendingHeroDesktopUrl = undefined;
+    pendingHeroMobileUrl = undefined;
     formCurrentLogo = item && item.logoDataUrl ? item.logoDataUrl : null;
     const totalBranches = item && item.groups ? item.groups.reduce((s,g)=>s+g.branches.length,0) : 0;
     fieldsHtml = `
@@ -3796,6 +3843,18 @@ function openForm(type, editId){
             <p class="field-hint">הלוגו יוצג לסניפים בראש דף התחרות. מומלץ קובץ עם רקע שקוף (PNG).</p>
           </div>
         </div>
+      </div>
+      <div class="field">
+        <label>תמונת קידום — דסקטופ (רחבה)</label>
+        <button type="button" class="btn-import" onclick="document.getElementById('f-hero-desktop-input').click()">🖼 בחירת תמונה רחבה</button>
+        <input type="file" id="f-hero-desktop-input" accept="image/*" style="display:none;" onchange="handleHeroFileChange(event,'desktop')">
+        <div class="field-hint" id="f-hero-desktop-status">${item?.heroDesktopUrl ? '✓ תמונה קיימת. בחרו קובץ כדי להחליף.' : 'תמונה רחבה (כמו קרוסלת מוצרים) שתוצג כבאנר בראש עמוד התחרות במחשב.'}</div>
+      </div>
+      <div class="field">
+        <label>תמונת קידום — מובייל (סטורי, אנכית)</label>
+        <button type="button" class="btn-import" onclick="document.getElementById('f-hero-mobile-input').click()">📱 בחירת תמונת סטורי</button>
+        <input type="file" id="f-hero-mobile-input" accept="image/*" style="display:none;" onchange="handleHeroFileChange(event,'mobile')">
+        <div class="field-hint" id="f-hero-mobile-status">${item?.heroMobileUrl ? '✓ תמונה קיימת. בחרו קובץ כדי להחליף.' : 'אותו קמפיין, בפורמט סטורי אנכי — יוצג רק בטלפון, במקום התמונה הרחבה.'}</div>
       </div>
       <div class="field">
         <label>קבוצות, יעדים וסניפים מאקסל (אופציונלי)</label>
@@ -3867,11 +3926,15 @@ function saveForm(){
       groups: pendingImportGroups!==null ? pendingImportGroups : (existing ? (existing.groups || []) : []),
       managerColors: pendingImportGroups!==null ? (pendingImportManagerColors || {}) : (existing ? (existing.managerColors || {}) : {}),
       logoDataUrl: pendingLogoDataUrl!==undefined ? pendingLogoDataUrl : (existing ? (existing.logoDataUrl || null) : null),
+      heroDesktopUrl: pendingHeroDesktopUrl!==undefined ? pendingHeroDesktopUrl : (existing ? (existing.heroDesktopUrl || null) : null),
+      heroMobileUrl: pendingHeroMobileUrl!==undefined ? pendingHeroMobileUrl : (existing ? (existing.heroMobileUrl || null) : null),
       salesUpdatedAt: existing ? (existing.salesUpdatedAt || null) : null
     };
     pendingImportGroups = null;
     pendingImportManagerColors = null;
     pendingLogoDataUrl = undefined;
+    pendingHeroDesktopUrl = undefined;
+    pendingHeroMobileUrl = undefined;
   } else if(type==='instructions'){
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
@@ -3925,6 +3988,8 @@ function closeModal(){
   pendingImportGroups = null;
   pendingImportManagerColors = null;
   pendingLogoDataUrl = undefined;
+  pendingHeroDesktopUrl = undefined;
+  pendingHeroMobileUrl = undefined;
   pendingMaterialFile = null;
 }
 
