@@ -360,16 +360,16 @@
   .comp-hero{
     position:relative; margin:-18px -20px 16px; overflow:hidden;
     border-radius:var(--radius) var(--radius) 0 0;
-    aspect-ratio:21/9;
+    aspect-ratio:1/1; background:var(--surface-1);
   }
   .comp-hero picture, .comp-hero img{display:block;width:100%;height:100%;}
-  .comp-hero img{object-fit:cover;object-position:center;}
+  .comp-hero img{object-fit:contain;object-position:center;}
   .comp-hero-fade{
     position:absolute;inset:0;pointer-events:none;
-    background:linear-gradient(to bottom, transparent 55%, var(--surface-1) 100%);
+    background:linear-gradient(to bottom, transparent 80%, var(--surface-1) 100%);
   }
   @media (max-width: 640px){
-    .comp-hero{aspect-ratio:4/5;}
+    .comp-hero{aspect-ratio:9/16;}
   }
   .comp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;}
   .comp-title{font-size:17.5px;font-weight:500;margin:0 0 4px;}
@@ -1533,6 +1533,7 @@ function enterApp(role, payload){
   document.getElementById('user-avatar').textContent = avatarText;
 
   ui.view = role==='marketing' ? 'admin' : (role==='area' ? 'areaOverview' : 'dashboard');
+  history.replaceState({nizatHubView: ui.view}, '', '#' + ui.view);
   renderNav();
   renderContent();
   renderNotifPanel();
@@ -1623,12 +1624,24 @@ function closeMobileMore(){
   document.getElementById('mobile-more-sheet').classList.remove('open');
   document.getElementById('mobile-more-backdrop').classList.remove('open');
 }
+let suppressHistoryPush = false;
 function goTo(view){
   ui.view = view;
   renderNav();
   renderContent();
   window.scrollTo({top:0, behavior:'smooth'});
+  if(!suppressHistoryPush){
+    // כל שינוי מסך נרשם כערך היסטוריה אמיתי — כך שכפתור "חזרה" (בדפדפן, במובייל,
+    // או במחוות ה-swipe) מנווט בין המסכים בתוך ה-HUB במקום לצאת מהאתר לגמרי.
+    history.pushState({nizatHubView: view}, '', '#' + view);
+  }
 }
+window.addEventListener('popstate', function(e){
+  const view = (e.state && e.state.nizatHubView) || 'dashboard';
+  suppressHistoryPush = true;
+  goTo(view);
+  suppressHistoryPush = false;
+});
 
 /* ============================================================
    CONTENT ROUTER
