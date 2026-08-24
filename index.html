@@ -525,6 +525,28 @@
   .instr-title{font-size:16px;font-weight:500;margin:0;}
   .instr-meta{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--muted);}
   .instr-body{display:none;font-size:14.5px;color:var(--text-secondary);line-height:1.7;margin-top:12px;border-top:1px solid var(--gridline);padding-top:12px;}
+
+  /* משימות ביצוע — הרחבה של ההוראות */
+  .instr-task-area{
+    margin-top:14px;padding:14px 16px;background:var(--page);border-radius:var(--radius-sm);
+  }
+  html[data-theme="dark"] .instr-task-area{background:#1f1f1d;}
+  .instr-task-head{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:6px;}
+  .instr-task-due{font-size:13px;color:var(--text-secondary);margin-bottom:8px;}
+  .instr-task-done{font-size:13.5px;font-weight:500;color:var(--good);margin-bottom:4px;}
+  .instr-task-area .btn-import, .instr-task-area .btn-confirm{min-height:44px;}
+  .instr-filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .instr-branch-list{display:flex;flex-direction:column;gap:6px;}
+  .instr-branch-row{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;
+    background:var(--surface-1);border-radius:var(--radius-sm);font-size:13.5px;
+  }
+  .ibr-name{flex:1;min-width:100px;font-weight:500;color:var(--text-primary);}
+  .ibr-photo{flex:none;}
+  .ibr-date{flex:none;color:var(--muted);font-size:12.5px;}
+  @media (max-width:640px){
+    .instr-branch-row{justify-content:space-between;}
+  }
   .instr-body.open{display:block;}
   .unread-dot{width:7px;height:7px;border-radius:50%;background:var(--blue);flex:none;}
 
@@ -1147,6 +1169,7 @@ let unsubMaterials = null;
 let unsubEvents = null;
 let unsubStandCampaigns = null;
 let unsubStandConfirmations = null;
+let unsubInstructionCompletions = null;
 let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
 function initFirestoreSync(){
@@ -1259,6 +1282,20 @@ function initFirestoreSync(){
       console.error('Firestore sync error (stand confirmations):', err);
     });
 
+  /* ביצועי משימות "נדרש ביצוע" — קולקציה נפרדת, מסמך אחד לכל צירוף הוראה+סניף
+     (בדיוק כמו standConfirmations), כדי לא להחזיק מערך של כל הסניפים בתוך
+     מסמך ההוראה עצמו. */
+  if (unsubInstructionCompletions) unsubInstructionCompletions();
+  unsubInstructionCompletions = db.collection('instructionCompletions')
+    .onSnapshot(function(snap){
+      appData.instructionCompletions = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (instruction completions):', err);
+    });
+
   if (unsubSiteTexts) unsubSiteTexts();
   unsubSiteTexts = db.collection('siteTexts').doc('main')
     .onSnapshot(function(doc){
@@ -1320,6 +1357,7 @@ function getTotalBranches(){ return BRANCH_DIRECTORY.length; }
 let appData = {
   siteTexts: {},
   standConfirmations: [],
+  instructionCompletions: [],
   competitions: [
     {
       id: 1,
@@ -1687,11 +1725,20 @@ function viewDashboard(){
   const unreadMsgCount = isBranch
     ? appData.privateMessages.filter(m=>m.branchName===session.branchName && !m.deletedForBranch && m.unreadForBranch).length
     : 0;
+  const pendingActionInstrs = isBranch
+    ? appData.instructions.filter(i=>i.requiresAction && isInstructionTargetedAtBranch(i, session.branchInfo) && getInstructionStatusForBranch(i, session.branchInfo.email)!=='done')
+    : [];
   const taskItems = [];
   if(unreadInstr.length) taskItems.push({icon:'📋', text:`${unreadInstr.length} הוראות שלא נקראו`, action:"instructions"});
+  pendingActionInstrs.forEach(i=>{
+    const overdue = getInstructionStatusForBranch(i, session.branchInfo.email)==='overdue';
+    let text = overdue ? `${i.title} · באיחור (היה לביצוע עד ${i.dueDate})` : `${i.title} · לביצוע עד ${i.dueDate}`;
+    if(i.requiresPhoto) text += ' · 📷 נדרש צילום';
+    taskItems.push({icon: overdue?'🔴':'📌', text, action:"instructions"});
+  });
   if(pendingStandsCount) taskItems.push({icon:'🪧', text:`${pendingStandsCount} סטנד${pendingStandsCount>1?'ים':''} ממתין${pendingStandsCount>1?'ים':''} לאישור`, action:"stands"});
   if(unreadMsgCount) taskItems.push({icon:'✉', text:`${unreadMsgCount} הודעות חדשות`, action:"messages"});
-  const totalTasks = unreadInstr.length + pendingStandsCount + unreadMsgCount;
+  const totalTasks = unreadInstr.length + pendingActionInstrs.length + pendingStandsCount + unreadMsgCount;
 
   const roleGreetingLine = session.role==='branch'
     ? 'הנה מה שדורש את תשומת הלב שלך היום'
@@ -2649,30 +2696,105 @@ function toggleLB(id){
 }
 
 /* ---------- Instructions ---------- */
+function renderInstructionExecutionArea(instr, myStatus){
+  const myCompletion = session.branchInfo ? getInstructionCompletion(instr.id, session.branchInfo.email) : null;
+  return `
+    <div class="instr-task-area" onclick="event.stopPropagation();">
+      <div class="instr-task-head">ביצוע המשימה</div>
+      <div class="instr-task-due">לביצוע עד: <span dir="ltr">${instr.dueDate||''}</span>${myStatus==='overdue' && !myCompletion ? ' · <b style="color:var(--critical);">באיחור</b>' : ''}</div>
+      ${myCompletion ? `
+        <div class="instr-task-done">✓ בוצע ב-${myCompletion.completedAt}</div>
+        ${myCompletion.photoUrl ? `<button class="link-btn" onclick="event.stopPropagation();viewCompletionPhotoModal('${myCompletion.photoUrl}')">📷 צפייה בצילום שהועלה</button>` : ''}
+      ` : instr.requiresPhoto ? `
+        <div class="field-hint" style="margin:8px 0 6px;">צילום לאחר ביצוע</div>
+        <button type="button" class="btn-import" onclick="document.getElementById('instr-photo-input-${instr.id}').click()">📷 העלאת תמונה</button>
+        <input type="file" accept="image/*" id="instr-photo-input-${instr.id}" style="display:none;" onchange="handleInstructionPhotoUpload('${instr.id}', event)">
+        <div class="field-hint" id="instr-photo-status-${instr.id}">${pendingInstrPhotos[instr.id] ? '✅ התמונה הועלתה' : ''}</div>
+        ${pendingInstrPhotos[instr.id] ? `<button type="button" class="btn-confirm" style="margin-top:8px;" onclick="submitInstructionCompletion('${instr.id}')">✓ שליחת ביצוע</button>` : ''}
+      ` : `
+        <button type="button" class="btn-confirm" style="margin-top:8px;" onclick="submitInstructionCompletion('${instr.id}')">✓ ביצעתי</button>
+      `}
+    </div>
+  `;
+}
+function renderInstructionStatusPanel(instr){
+  const targetBranches = BRANCH_DIRECTORY.filter(b=>isInstructionTargetedAtBranch(instr, b));
+  const rows = targetBranches.map(b=>{
+    const completion = getInstructionCompletion(instr.id, b.email);
+    let status = 'pending';
+    if(completion) status = 'done';
+    else if(instr.dueDate && Date.now() > parseHebDate(instr.dueDate)+24*60*60*1000-1) status = 'overdue';
+    return {branch:b, completion, status};
+  });
+  const doneCount = rows.filter(r=>r.status==='done').length;
+  const overdueCount = rows.filter(r=>r.status==='overdue').length;
+  const pendingCount = rows.filter(r=>r.status==='pending').length;
+  const total = rows.length;
+  const pct = total>0 ? Math.round(doneCount/total*100) : 0;
+  const filtered = instrStatusFilter==='all' ? rows : rows.filter(r=>r.status===instrStatusFilter);
+  return `
+    <div class="instr-task-area" onclick="event.stopPropagation();">
+      <div class="instr-task-head">סטטוס ביצוע בסניפים</div>
+      <div class="instr-task-due">${doneCount} מתוך ${total} סניפים השלימו · ${pct}%</div>
+      <div class="comp-progress-track" style="margin:8px 0 10px;"><div class="comp-progress-fill ${pct>=100?'full':''}" style="width:${pct}%"></div></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-bottom:12px;">
+        <span>✅ בוצע ${doneCount}</span><span>⏳ ממתינים ${pendingCount}</span><span>🔴 באיחור ${overdueCount}</span>
+      </div>
+      <div class="instr-filter-row">
+        <button class="comp-tab-btn ${instrStatusFilter==='all'?'active':''}" style="${instrStatusFilter==='all'?'background:#457a1f;border-color:#457a1f;color:#fff;':''}" onclick="setInstrStatusFilter('all')">הכל</button>
+        <button class="comp-tab-btn ${instrStatusFilter==='done'?'active':''}" style="${instrStatusFilter==='done'?'background:#457a1f;border-color:#457a1f;color:#fff;':''}" onclick="setInstrStatusFilter('done')">בוצע</button>
+        <button class="comp-tab-btn ${instrStatusFilter==='pending'?'active':''}" style="${instrStatusFilter==='pending'?'background:#457a1f;border-color:#457a1f;color:#fff;':''}" onclick="setInstrStatusFilter('pending')">ממתינים</button>
+        <button class="comp-tab-btn ${instrStatusFilter==='overdue'?'active':''}" style="${instrStatusFilter==='overdue'?'background:#457a1f;border-color:#457a1f;color:#fff;':''}" onclick="setInstrStatusFilter('overdue')">באיחור</button>
+      </div>
+      <div class="instr-branch-list">
+        ${filtered.map(r=>`
+          <div class="instr-branch-row">
+            <span class="ibr-name">${r.branch.name}</span>
+            <span class="badge ${r.status==='done'?'active':r.status==='overdue'?'urgent':'normal'}">${r.status==='done'?'בוצע':r.status==='overdue'?'באיחור':'ממתין'}</span>
+            <span class="ibr-photo">${r.completion && r.completion.photoUrl ? `<button class="link-btn" onclick="viewCompletionPhotoModal('${r.completion.photoUrl}')">📷 צפייה</button>` : '-'}</span>
+            <span class="ibr-date">${r.completion ? r.completion.completedAt : '-'}</span>
+          </div>
+        `).join('') || '<div class="empty-state">אין סניפים בסינון הזה.</div>'}
+      </div>
+    </div>
+  `;
+}
 function viewInstructions(){
   const list = [...appData.instructions].sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
+  const myEmail = session.branchInfo ? session.branchInfo.email : null;
   return `
     <div class="page-head">
       <h1>הוראות ועדכונים</h1>
       <p>${getText('instructions_desc')}</p>
     </div>
     <div class="card">
-      ${list.length ? list.map(i=>`
-        <div class="instr-card" onclick="toggleInstr('${i.id}')" style="border-bottom:1px solid var(--gridline);">
+      ${list.length ? list.map(i=>{
+        const isTask = !!i.requiresAction;
+        const myStatus = (isTask && session.role==='branch') ? getInstructionStatusForBranch(i, myEmail) : null;
+        const taskAccent = myStatus==='overdue' ? 'var(--critical)' : (isTask ? 'var(--warning)' : null);
+        return `
+        <div class="instr-card" onclick="toggleInstr('${i.id}')" style="border-bottom:1px solid var(--gridline);${taskAccent?`border-right:3px solid ${taskAccent};`:''}">
           <div class="instr-top">
             <div style="display:flex;align-items:center;gap:8px;min-width:0;">
               ${i.unread?'<span class="unread-dot"></span>':''}
               <h4 class="instr-title">${i.title}</h4>
             </div>
-            <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
+            <div style="display:flex;align-items:center;gap:6px;flex:none;">
+              ${myStatus==='done' ? '<span class="badge active"><span class="dot"></span>בוצע ✓</span>' : ''}
+              ${myStatus==='overdue' ? '<span class="badge urgent"><span class="dot"></span>באיחור</span>' : ''}
+              ${myStatus==='pending' ? '<span class="badge cat">לטיפול</span>' : ''}
+              <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
+            </div>
           </div>
           <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}</span></div>
           <div class="instr-body" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
+            ${isTask && session.role==='branch' ? renderInstructionExecutionArea(i, myStatus) : ''}
+            ${isTask && session.role==='marketing' ? renderInstructionStatusPanel(i) : ''}
             ${commentsBox('instruction', i.id)}
           </div>
         </div>
-      `).join('') : `<div class="empty-state">
+      `;}).join('') : `<div class="empty-state">
         עדיין אין הוראות ועדכונים.${session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי לפרסם הוראה ראשונה.' : ''}
       </div>`}
     </div>
@@ -2691,6 +2813,124 @@ function toggleInstr(id){
     db.collection('instructions').doc(id).update({unread:false}).catch(()=>{});
   }
 }
+
+/* ============================================================
+   משימות ביצוע לסניפים — הרחבה של מודול ההוראות הקיים.
+   completion אחד = מסמך אחד ב-instructionCompletions, מזוהה ע"י
+   instructionId+branchEmail (כמו standConfirmations), לא מערך בתוך ההוראה.
+============================================================ */
+function isInstructionTargetedAtBranch(instr, branchInfo){
+  if(!branchInfo) return false;
+  const target = instr.targetBranches;
+  if(!target || target==='all') return true;
+  if(Array.isArray(target)) return target.indexOf(branchInfo.name) !== -1;
+  return true;
+}
+function getInstructionCompletion(instructionId, branchEmail){
+  return (appData.instructionCompletions||[]).find(c=>c.instructionId==instructionId && c.branchEmail===branchEmail) || null;
+}
+function getInstructionStatusForBranch(instr, branchEmail){
+  if(!instr.requiresAction) return null;
+  const completion = getInstructionCompletion(instr.id, branchEmail);
+  if(completion) return 'done';
+  if(instr.dueDate){
+    const dueEnd = parseHebDate(instr.dueDate) + 24*60*60*1000 - 1;
+    if(Date.now() > dueEnd) return 'overdue';
+  }
+  return 'pending';
+}
+/* תמונת ההוכחה נשמרת ממתינה per-instruction (לא global יחיד) כדי לתמוך במקרה
+   שיותר מהוראה אחת פתוחה/מנוסה באותו זמן, בלי לבלבל בין העלאות. */
+let pendingInstrPhotos = {};
+function handleInstructionPhotoUpload(instructionId, evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('instr-photo-status-'+instructionId);
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      // resize/compress בצד הלקוח לפני ההעלאה — תמונות מהטלפון לא יגיעו כבדות מדי
+      const maxW = 1280;
+      const scale = Math.min(1, maxW/(img.width||maxW));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.width||maxW)*scale));
+      canvas.height = Math.max(1, Math.round((img.height||maxW)*scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob){
+        if(!blob){ if(statusEl) statusEl.textContent = '❌ לא ניתן היה לעבד את התמונה'; return; }
+        uploadFileToCloudinary(blob).then(function(result){
+          pendingInstrPhotos[instructionId] = result.secure_url;
+          if(statusEl) statusEl.innerHTML = '✅ התמונה הועלתה';
+          renderContent();
+        }).catch(function(err){
+          console.error(err);
+          if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+        });
+      }, 'image/jpeg', 0.82);
+    };
+    img.onerror = function(){ if(statusEl) statusEl.textContent = '❌ לא ניתן היה לקרוא את קובץ התמונה'; };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  evt.target.value = '';
+}
+function writeInstructionCompletion(instr, photoUrl){
+  if(!session.branchInfo) return;
+  const branchEmail = session.branchInfo.email;
+  const confId = instr.id + '__' + branchEmail;
+  const completedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'});
+  const data = {
+    instructionId: instr.id, instructionTitle: instr.title,
+    branchEmail, branchName: session.branchName,
+    completedAt, photoUrl: photoUrl || null, requiresPhoto: !!instr.requiresPhoto
+  };
+  if(firebaseReady){
+    db.collection('instructionCompletions').doc(confId).set(
+      Object.assign({}, data, {createdAt: firebase.firestore.FieldValue.serverTimestamp()})
+    ).then(function(){
+      toast('✓ הביצוע נשלח בהצלחה');
+      delete pendingInstrPhotos[instr.id];
+      // המייל הוא התראה בלבד — ה-Firestore הוא מקור האמת. אם המייל נכשל,
+      // הביצוע כבר נשמר ולא מתבטל (sendPrivateMessageEmail עצמה כבר "בולעת"
+      // שגיאות שליחה ורק רושמת ל-console, בלי לזרוק/לבטל כלום).
+      if(instr.requiresPhoto && photoUrl){
+        const body = `התקבל ביצוע חדש דרך Nizat HUB\n\nמשימה: ${instr.title}\nסניף: ${session.branchName}\nתאריך ביצוע: ${completedAt}\n\nלצפייה בצילום:\n${photoUrl}`;
+        sendPrivateMessageEmail(session.branchName, `ביצוע משימה - ${instr.title}`, body);
+      }
+    }).catch(function(err){
+      console.error('שמירת ביצוע נכשלה:', err);
+      toast('שגיאה בשמירת הביצוע: ' + err.message);
+    });
+  } else {
+    appData.instructionCompletions.push(Object.assign({id:confId}, data));
+    toast('✓ הביצוע נשלח בהצלחה');
+    delete pendingInstrPhotos[instr.id];
+    renderContent();
+  }
+}
+function submitInstructionCompletion(instructionId){
+  const instr = appData.instructions.find(i=>i.id==instructionId);
+  if(!instr) return;
+  if(instr.requiresPhoto){
+    const photoUrl = pendingInstrPhotos[instructionId];
+    if(!photoUrl){ toast('יש להעלות תמונה לפני שליחת הביצוע'); return; }
+    writeInstructionCompletion(instr, photoUrl);
+  } else {
+    writeInstructionCompletion(instr, null);
+  }
+}
+function viewCompletionPhotoModal(url){
+  document.getElementById('modal-body').innerHTML = `
+    <h3>צילום ביצוע</h3>
+    <img src="${url}" style="width:100%;border-radius:10px;margin-top:8px;" alt="צילום ביצוע">
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+let instrStatusFilter = 'all';
+function setInstrStatusFilter(f){ instrStatusFilter = f; renderContent(); }
 
 /* ---------- Materials ---------- */
 function viewMaterials(){
@@ -3881,6 +4121,7 @@ function openForm(type, editId){
       </div>
     `;
   } else if(type==='instructions'){
+    const reqAction = item?.requiresAction || false;
     fieldsHtml = `
       <div class="field"><label>כותרת</label><input id="f-title" value="${item?.title||''}"></div>
       <div class="field"><label>קטגוריה</label><input id="f-category" value="${item?.category||''}" placeholder="מחירים / שירות / מיתוג / כללי"></div>
@@ -3891,6 +4132,23 @@ function openForm(type, editId){
         </select>
       </div>
       <div class="field"><label>תאריך</label><input id="f-date" value="${item?.date||''}" placeholder="DD.MM.YYYY"></div>
+      <div class="field">
+        <label>סוג ההוראה</label>
+        <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-type" value="info" ${!reqAction?'checked':''} onchange="toggleInstrActionFields()"> לידיעה בלבד</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-type" value="action" ${reqAction?'checked':''} onchange="toggleInstrActionFields()"> נדרש ביצוע</label>
+        </div>
+      </div>
+      <div id="f-instr-action-fields" style="display:${reqAction?'block':'none'};">
+        <div class="field"><label>תאריך יעד לביצוע</label><input id="f-instr-due" value="${item?.dueDate||''}" placeholder="DD.MM.YYYY"></div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;"><input type="checkbox" id="f-instr-photo" ${item?.requiresPhoto?'checked':''}> נדרש צילום מהסניף כהוכחת ביצוע</label>
+        </div>
+        <div class="field">
+          <label>קהל יעד</label>
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">כל הסניפים (בחירת סניפים ספציפיים תיתמך בעתיד)</div>
+        </div>
+      </div>
       <div class="field"><label>תוכן ההוראה</label><textarea id="f-body">${item?.body||''}</textarea></div>
     `;
   } else {
@@ -3949,9 +4207,15 @@ function saveForm(){
     pendingHeroDesktopUrl = undefined;
     pendingHeroMobileUrl = undefined;
   } else if(type==='instructions'){
+    const requiresAction = document.querySelector('input[name="f-instr-type"]:checked')?.value === 'action';
+    const dueDate = requiresAction ? val('f-instr-due') : '';
+    if(requiresAction && !dueDate){ toast('נא למלא תאריך יעד לביצוע'); return; }
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
-      date: val('f-date'), body: val('f-body'), unread: true
+      date: val('f-date'), body: val('f-body'), unread: true,
+      requiresAction, dueDate: requiresAction ? dueDate : null,
+      requiresPhoto: requiresAction ? !!document.getElementById('f-instr-photo').checked : false,
+      targetBranches: 'all'
     };
   } else {
     const existingMaterial = editId ? appData.materials.find(x=>x.id==editId) : null;
@@ -3990,6 +4254,11 @@ function saveForm(){
   }
   closeModal();
   renderContent();
+}
+function toggleInstrActionFields(){
+  const isAction = document.querySelector('input[name="f-instr-type"]:checked')?.value === 'action';
+  const el = document.getElementById('f-instr-action-fields');
+  if(el) el.style.display = isAction ? 'block' : 'none';
 }
 function val(id){ return document.getElementById(id).value.trim(); }
 function todayHeb(){
