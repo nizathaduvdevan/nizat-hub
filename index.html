@@ -533,6 +533,16 @@
     .admin-tab{padding:9px 10px;font-size:14px;}
   }
   .admin-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+
+  /* Competition sub-tabs (תצוגה כללית / לפי איזור / סיכום איזורי) */
+  .comp-tabs-nav{display:flex;gap:6px;margin:14px 0 12px;border-bottom:1px solid var(--gridline);overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .comp-tab-btn{
+    border:none;background:transparent;padding:9px 14px;font-size:13.5px;font-weight:500;color:var(--muted);
+    border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex:none;cursor:pointer;font-family:inherit;
+  }
+  .comp-tab-btn.active{color:var(--blue-dark);border-color:var(--blue);}
+  html[data-theme="dark"] .comp-tab-btn.active{color:var(--blue);}
+
   .btn-add{
     background:var(--text-primary);color:#fff;border:none;border-radius:9px;padding:9px 16px;
     font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;
@@ -1290,7 +1300,7 @@ let appData = {
       managerColors: {"שחר ירושלמי":"#AFABAB","ליאור עובדיה":"#9DC3E6","נתי עמית":"#CC66FF","שירן ארר":"#FBE5D6","אמיר בר הלל":"#F8CBAD","נאור מנקדי":"#C5E0B4","עופר דרורי":"#FFC000"},
       groups: [
     {
-      groupNum: 1, name: "קבוצה 1", target: 23000,
+      groupNum: 1, name: "קבוצה 1", target: 23000, colorHex: "#FFFF00",
       prizes: [{rank:1, label:"מקום ראשון:", text:"תלושים בשווי 350 ₪ נטורופת+350 ₪ מנהל+300 ₪ סניף"}, {rank:2, label:"מקום שני:", text:"תלושים בשווי 300 ₪ נטורופת+300 ₪ מנהל+250 ₪ סניף"}, {rank:3, label:"מקום שלישי:", text:"תלושים בשווי 250 ₪ נטורופת+250 ₪ מנהל+200 ₪ סניף"}, {rank:4, label:"מקום רביעי:", text:"תלושים בשווי 200 ₪ נטורופת+200 ₪ מנהל+200 ₪ סניף"}, {rank:5, label:"מקום חמישי:", text:"תלושים בשווי 200 ₪ נטורופת+200 ₪ מנהל+200 ₪ סניף"}],
       branches: [
         {rawName:"01-ניצת תל-אביב", name:"תל אביב", target:23000, sales:0, areaManager:"שחר ירושלמי"},
@@ -1307,7 +1317,7 @@ let appData = {
       ]
     },
     {
-      groupNum: 2, name: "קבוצה 2", target: 14000,
+      groupNum: 2, name: "קבוצה 2", target: 14000, colorHex: "#FFC000",
       prizes: [{rank:1, label:"מקום ראשון:", text:"תלושים בשווי 300 ₪ נטורופת+300 ₪ מנהל+250 ₪ סניף"}, {rank:2, label:"מקום שני:", text:"תלושים בשווי 250 ₪ נטורופת+250 ₪ מנהל+200 ₪ סניף"}, {rank:3, label:"מקום שלישי:", text:"תלושים בשווי 200 ₪ נטורופת+200 ₪ מנהל+150 ₪ סניף"}, {rank:4, label:"מקום רביעי:", text:"תלושים בשווי 150 ₪ נטורופת+150 ₪ מנהל+150 ₪ סניף"}, {rank:5, label:"מקום חמישי:", text:"תלושים בשווי 150 ₪ נטורופת+150 ₪ מנהל+150 ₪ סניף"}],
       branches: [
         {rawName:"02-ניצת ירושלים", name:"ירושלים", target:14000, sales:0, areaManager:"נאור מנקדי"},
@@ -1345,7 +1355,7 @@ let appData = {
       ]
     },
     {
-      groupNum: 3, name: "קבוצה 3", target: 8500,
+      groupNum: 3, name: "קבוצה 3", target: 8500, colorHex: "#92D050",
       prizes: [{rank:1, label:"מקום ראשון:", text:"תלושים בשווי 250 ₪ נטורופת+250 ₪ מנהל+200 ₪ סניף"}, {rank:2, label:"מקום שני:", text:"תלושים בשווי 200 ₪ נטורופת+200 ₪ מנהל+200 ₪ סניף"}, {rank:3, label:"מקום שלישי:", text:"תלושים בשווי 150 ₪ נטורופת+150 ₪ מנהל+150 ₪ סניף"}, {rank:4, label:"מקום רביעי:", text:"תלושים בשווי 100 ₪ נטורופת+100 ₪ מנהל+100 ₪ סניף"}, {rank:5, label:"מקום חמישי:", text:"תלושים בשווי 100 ₪ נטורופת+100 ₪ מנהל+100 ₪ סניף"}],
       branches: [
         {rawName:"14-ניצת בית שמש", name:"בית שמש", target:8500, sales:0, areaManager:"נאור מנקדי"},
@@ -1874,6 +1884,7 @@ function parseCompetitionSheet(rows, sheet){
 
   const prizeSectionEnd = headers[0].rowIndex;
   const prizesByNum = {};
+  const groupColorsByNum = {};
   for(let ri=0; ri<prizeSectionEnd; ri++){
     const row = rows[ri]; if(!row) continue;
     for(let ci=0; ci<row.length; ci++){
@@ -1881,6 +1892,8 @@ function parseCompetitionSheet(rows, sheet){
       const m = v.match(groupLabelRe);
       if(!m) continue;
       const num = parseInt(m[1],10);
+      const colorHex = cellFillHex(sheet, ri, ci);
+      if(colorHex) groupColorsByNum[num] = colorHex;
       const list = [];
       let rr = ri+1;
       while(rr < prizeSectionEnd){
@@ -1898,6 +1911,7 @@ function parseCompetitionSheet(rows, sheet){
       prizesByNum[num] = list;
     }
   }
+
 
   const groups = [];
   const managerColors = {};
@@ -1932,7 +1946,7 @@ function parseCompetitionSheet(rows, sheet){
     }
     if(!branches.length) return;
     if(groupNum===null) groupNum = hi+1;
-    groups.push({groupNum, name:'קבוצה '+groupNum, target: target||0, prizes: prizesByNum[groupNum]||[], branches});
+    groups.push({groupNum, name:'קבוצה '+groupNum, target: target||0, colorHex: groupColorsByNum[groupNum]||null, prizes: prizesByNum[groupNum]||[], branches});
   });
   groups.sort((a,b)=>a.groupNum-b.groupNum);
   if(!groups.length) return null;
@@ -2288,9 +2302,9 @@ function compCard(c){
       const myKey = match ? match.branch.rawName : null;
       const ranking = renderNetworkRanking(c, myKey);
       groupsSection = (match ? renderGroupForBranch(c, match.group, match.branch) : `<div class="comp-no-match">לא זוהתה התאמה אוטומטית בין הסניף שלכם לנתוני התחרות. פנו למחלקת השיווק לבירור.</div>`)
-        + ranking + renderGroupsForAdmin(c);
+        + ranking + renderCompetitionTabs(c);
     } else {
-      groupsSection = renderNetworkRanking(c, null) + renderGroupsForAdmin(c);
+      groupsSection = renderNetworkRanking(c, null) + renderCompetitionTabs(c);
     }
   }
   return `
@@ -2332,18 +2346,31 @@ function renderGroupForBranch(comp, g, b){
   const full = pct>=100;
   const remaining = b.target - b.sales;
   const prizes = g.prizes.slice().sort((x,y)=>x.rank-y.rank);
+  const rankedGroup = g.branches.slice().sort((x,y)=>{
+    const px = x.target>0 ? x.sales/x.target : 0, py = y.target>0 ? y.sales/y.target : 0;
+    return py-px || y.sales-x.sales;
+  });
+  const myRank = rankedGroup.findIndex(x=>x.rawName===b.rawName) + 1;
+  const groupTotalTarget = g.branches.reduce((s,x)=>s+x.target,0);
+  const groupTotalSales = g.branches.reduce((s,x)=>s+x.sales,0);
+  const groupRemaining = groupTotalTarget - groupTotalSales;
   return `
     <div class="comp-groups">
-      <div class="comp-group-block">
+      <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
         <div class="comp-group-head">
-          <span class="comp-group-name">יעדי ${session.branchName || b.name}</span>
+          <span class="comp-group-name">יעדי ${session.branchName || b.name} <span style="color:var(--muted);font-weight:500;">(${b.rawName})</span></span>
           <span class="comp-target-chip" dir="ltr">יעד ${b.target.toLocaleString()} ₪</span>
+        </div>
+        <div class="comp-manager-row" style="margin-bottom:6px;">
+          <span>שיוך לקבוצה: <b>${g.name}</b></span>
+          ${myRank ? `<span style="margin-right:10px;">מקום ${myRank} מתוך ${rankedGroup.length} בקבוצה</span>` : ''}
         </div>
         <div class="comp-kpi-row">
           <div class="comp-kpi"><div class="l">יעד</div><div class="v" dir="ltr">${b.target.toLocaleString()} ₪</div></div>
           <div class="comp-kpi"><div class="l">מכירות בפועל</div><div class="v" dir="ltr">${b.sales.toLocaleString()} ₪</div></div>
           <div class="comp-kpi"><div class="l">אחוז מהיעד</div><div class="v" dir="ltr">${pct}%</div></div>
           <div class="comp-kpi ${remaining<=0?'kpi-done':''}"><div class="l">${remaining<=0?'עברתם את היעד':'נותר להשלמת היעד'}</div><div class="v" dir="ltr">${remaining<=0? '+'+Math.abs(remaining).toLocaleString() : remaining.toLocaleString()} ₪</div></div>
+          <div class="comp-kpi ${groupRemaining<=0?'kpi-done':''}"><div class="l">${groupRemaining<=0?'הקבוצה עברה את היעד':'נותר לכלל הקבוצה'}</div><div class="v" dir="ltr">${groupRemaining<=0? '+'+Math.abs(groupRemaining).toLocaleString() : groupRemaining.toLocaleString()} ₪</div></div>
         </div>
         <div class="comp-progress-wrap">
           <div class="comp-progress-track"><div class="comp-progress-fill ${full?'full':''}" style="width:${Math.min(100,pct)}%"></div></div>
@@ -2365,10 +2392,15 @@ function renderGroupsForAdmin(c){
         const totalTarget = g.branches.reduce((s,b)=>s+b.target,0);
         const pct = totalTarget>0 ? Math.round(totalSales/totalTarget*100) : 0;
         const prizes = g.prizes.slice().sort((x,y)=>x.rank-y.rank);
+        const ranked = g.branches.slice().sort((a,b)=>{
+          const pa = a.target>0 ? a.sales/a.target : 0, pb = b.target>0 ? b.sales/b.target : 0;
+          return pb-pa || b.sales-a.sales;
+        });
+        const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
         return `
-        <div class="comp-group-block">
+        <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
-            <span class="comp-group-name">${g.name} · ${g.branches.length} סניפים</span>
+            <span class="comp-group-name">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">יעד לסניף ${g.target.toLocaleString()} ₪</span>
           </div>
           <div class="comp-kpi-row">
@@ -2383,9 +2415,9 @@ function renderGroupsForAdmin(c){
           </div>` : ''}
           <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
           <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
-            ${g.branches.slice().sort((a,b)=>b.sales-a.sales).map(b=>`
+            ${ranked.map((b,idx)=>`
               <div class="comp-group-table-row">
-                <span class="n">${b.rawName}</span>
+                <span class="n">${medal(idx)} ${b.rawName}</span>
                 <span class="p" dir="ltr">${b.target>0?Math.round(b.sales/b.target*100):0}%</span>
                 <span class="m">${managerChip(c, b.areaManager)}</span>
               </div>
@@ -2396,8 +2428,106 @@ function renderGroupsForAdmin(c){
     </div>
   `;
 }
+/* ---------- טאב 2: לפי מנהל אזור — ממד ארגון שונה לגמרי מהקבוצות (target-tier);
+   מפזרים את כל הסניפים מכל הקבוצות ומקבצים מחדש לפי מנהל האזור שלהם. ---------- */
+function renderByAreaManager(c){
+  const byManager = {};
+  c.groups.forEach(g=>{
+    g.branches.forEach(b=>{
+      const mgr = b.areaManager || 'לא משויך';
+      if(!byManager[mgr]) byManager[mgr] = [];
+      byManager[mgr].push(b);
+    });
+  });
+  const managers = Object.keys(byManager).map(mgr=>{
+    const branches = byManager[mgr].slice().sort((a,b)=>{
+      const pa = a.target>0 ? a.sales/a.target : 0, pb = b.target>0 ? b.sales/b.target : 0;
+      return pb-pa || b.sales-a.sales;
+    });
+    const totalSales = branches.reduce((s,b)=>s+b.sales,0);
+    const totalTarget = branches.reduce((s,b)=>s+b.target,0);
+    return {mgr, branches, totalSales, totalTarget};
+  }).sort((a,b)=> (b.totalTarget>0?b.totalSales/b.totalTarget:0) - (a.totalTarget>0?a.totalSales/a.totalTarget:0));
+  return `
+    <div class="comp-groups">
+      ${managers.map(m=>{
+        const pct = m.totalTarget>0 ? Math.round(m.totalSales/m.totalTarget*100) : 0;
+        const hex = c.managerColors ? c.managerColors[m.mgr] : null;
+        return `
+        <div class="comp-group-block" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
+          <div class="comp-group-head">
+            <span class="comp-group-name">${managerChip(c, m.mgr)} · ${m.branches.length} סניפים</span>
+            <span class="comp-target-chip" dir="ltr">${pct}% מהיעד המצטבר</span>
+          </div>
+          <div class="comp-group-table" style="display:block;">
+            ${m.branches.map(b=>`
+              <div class="comp-group-table-row">
+                <span class="n">${b.rawName}</span>
+                <span class="p" dir="ltr">${b.sales.toLocaleString()} / ${b.target.toLocaleString()} ₪</span>
+                <span class="m" dir="ltr">${b.target>0?Math.round(b.sales/b.target*100):0}%</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="comp-manager-row" style="margin-top:8px;border-top:1px solid var(--gridline);padding-top:8px;">
+            סיכום ${m.mgr}: ${m.totalSales.toLocaleString()} ₪ מתוך ${m.totalTarget.toLocaleString()} ₪ (${pct}%)
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+/* ---------- טאב 3: סיכום אזורי כללי — אגרגציה קצרה מעל אותו ארגון-לפי-מנהל ---------- */
+function renderAreaManagerSummary(c){
+  const byManager = {};
+  c.groups.forEach(g=>{
+    g.branches.forEach(b=>{
+      const mgr = b.areaManager || 'לא משויך';
+      if(!byManager[mgr]) byManager[mgr] = {count:0, sales:0};
+      byManager[mgr].count++;
+      byManager[mgr].sales += b.sales;
+    });
+  });
+  const rows = Object.keys(byManager).map(mgr=>({mgr, ...byManager[mgr]})).sort((a,b)=>b.sales-a.sales);
+  return `
+    <div class="card">
+      ${rows.map(r=>{
+        const hex = c.managerColors ? c.managerColors[r.mgr] : null;
+        return `
+        <div class="admin-row" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
+          <div class="admin-row-main">
+            <div class="t">${managerChip(c, r.mgr)}</div>
+            <div class="m">${r.count} סניפים</div>
+          </div>
+          <div style="font-weight:500;" dir="ltr">${r.sales.toLocaleString()} ₪</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+/* ---------- עטיפת שלושת הטאבים ---------- */
+function renderCompetitionTabs(c){
+  return `
+    <div class="comp-tabs-nav">
+      <button class="comp-tab-btn active" id="ctab-btn-general-${c.id}" onclick="switchCompTab('${c.id}','general')">תצוגה כללית</button>
+      <button class="comp-tab-btn" id="ctab-btn-area-${c.id}" onclick="switchCompTab('${c.id}','area')">תצוגה לפי איזור</button>
+      <button class="comp-tab-btn" id="ctab-btn-summary-${c.id}" onclick="switchCompTab('${c.id}','summary')">סיכום איזורי כללי</button>
+    </div>
+    <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}</div>
+    <div class="comp-tab-content" id="ctab-area-${c.id}" style="display:none;">${renderByAreaManager(c)}</div>
+    <div class="comp-tab-content" id="ctab-summary-${c.id}" style="display:none;">${renderAreaManagerSummary(c)}</div>
+  `;
+}
+function switchCompTab(compId, tab){
+  ['general','area','summary'].forEach(t=>{
+    const content = document.getElementById(`ctab-${t}-${compId}`);
+    const btn = document.getElementById(`ctab-btn-${t}-${compId}`);
+    if(content) content.style.display = (t===tab) ? '' : 'none';
+    if(btn) btn.classList.toggle('active', t===tab);
+  });
+}
 function renderNetworkRanking(c, myKey){
   const all = [];
+
   c.groups.forEach(g=>{
     g.branches.forEach(b=>{
       const pct = b.target>0 ? Math.round((b.sales/b.target)*100) : 0;
