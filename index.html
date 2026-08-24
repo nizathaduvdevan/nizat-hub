@@ -2135,7 +2135,12 @@ function parseCompetitionSheet(rows, sheet){
       }
     }
   });
-  if(!headers.length) return null;
+  console.log('[parseCompetitionSheet] headers found:', headers.length, headers);
+  if(!headers.length){
+    console.warn('[parseCompetitionSheet] לא נמצאה אף כותרת "שם חנות" בקובץ — בודקים דגימת תאים מהשורות הראשונות:',
+      rows.slice(0,5).map(r=>r ? r.slice(0,6) : r));
+    return null;
+  }
 
   const prizeSectionEnd = headers[0].rowIndex;
   const prizesByNum = {};
@@ -2204,9 +2209,13 @@ function parseCompetitionSheet(rows, sheet){
     groups.push({groupNum, name:'קבוצה '+groupNum, target: target||0, colorHex: groupColorsByNum[groupNum]||null, prizes: prizesByNum[groupNum]||[], branches});
   });
   groups.sort((a,b)=>a.groupNum-b.groupNum);
-  if(!groups.length) return null;
+  if(!groups.length){
+    console.warn('[parseCompetitionSheet] נמצאו כותרות אך אף קבוצה/סניף לא חולץ מהן.');
+    return null;
+  }
   groups.managerColors = managerColors;
   groups.rawTable = extractRawSalesTable(rows, sheet, headers);
+  console.log('[parseCompetitionSheet] הצלחה — קבוצות:', groups.length, 'שורות rawTable:', groups.rawTable ? groups.rawTable.length : null);
   return groups;
 }
 function matchBranchInCompetition(comp, directoryEntry){
@@ -2522,8 +2531,14 @@ function handleDailyReportFile(evt){
       /* אם הדוח היומי הוא בפועל אותו קובץ SALES.xlsx המלא (עם קבוצות/פרסים/צבעים) —
          מרעננים גם את "צילום" הטבלה הגולמית שמוצג בתצוגה כללית, כדי שתמיד תשקף
          את העדכון האחרון. אם הקובץ פשוט (שם+מכירות בלבד) — משאירים את התמונה הקודמת. */
+      console.log('[עדכון יומי] מנסה לרענן גם את טבלת התצוגה הגולמית מהקובץ...');
       const fullParse = parseCompetitionSheet(rows, sheet);
-      if(fullParse && fullParse.rawTable) comp.rawTable = fullParse.rawTable;
+      if(fullParse && fullParse.rawTable){
+        comp.rawTable = fullParse.rawTable;
+        console.log('[עדכון יומי] טבלת התצוגה הגולמית עודכנה, שורות:', fullParse.rawTable.length);
+      } else {
+        console.warn('[עדכון יומי] טבלת התצוגה הגולמית לא עודכנה — parseCompetitionSheet החזיר:', fullParse);
+      }
       comp.salesUpdatedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       if(firebaseReady){
         db.collection('competitions').doc(comp.id).update({groups: comp.groups, salesUpdatedAt: comp.salesUpdatedAt, rawTable: comp.rawTable || null})
