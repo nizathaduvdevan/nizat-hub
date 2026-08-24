@@ -238,11 +238,13 @@
     border-left:1px solid var(--border);
     padding:16px 12px;
     position:sticky;top:57px;height:calc(100vh - 57px);
+    z-index:5;pointer-events:auto;
   }
   .nav-item{
     display:flex;align-items:center;gap:10px;
     padding:10px 12px;border-radius:10px;
     font-size:15px;font-weight:500;color:var(--text-secondary);
+    position:relative;z-index:1;cursor:pointer;pointer-events:auto;
     margin-bottom:3px;
     border:none;background:transparent;width:100%;text-align:right;
     transition:background .12s ease, color .12s ease;
@@ -1170,6 +1172,7 @@ function nizatGoogleSignIn(){
    ע"י onSnapshot, במקום המערך המקומי. שאר המודולים (חומרים/אירועים/
    ביצועים/סטנדים) ממשיכים כרגיל ויעברו לאותה תבנית בהמשך. */
 let unsubInstructions = null;
+let instructionsFirstSnapshot = true;
 let unsubComments = null;
 let unsubPrivateMessages = null;
 let unsubCompetitions = null;
@@ -1182,6 +1185,7 @@ let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
 function initFirestoreSync(){
   if (!firebaseReady || !db) return;
+  instructionsFirstSnapshot = true;
   if (unsubInstructions) unsubInstructions();
   unsubInstructions = db.collection('instructions').orderBy('createdAt', 'desc')
     .onSnapshot(function(snap){
@@ -1189,6 +1193,27 @@ function initFirestoreSync(){
         const d = doc.data();
         return Object.assign({}, d, { id: doc.id });
       });
+      /* התראה עם נקודה אדומה + מספר בפעמון רק על הוראות/עדכונים חדשים שנוספו בזמן אמת
+         (לא בטעינה הראשונית של כל הרשומות הקיימות), ורק לצד הצופה (סניף/מנהל אזור) —
+         לא למחלקת השיווק עצמה שפרסמה את זה. */
+      if(instructionsFirstSnapshot){
+        instructionsFirstSnapshot = false;
+      } else if(session.role !== 'marketing'){
+        let hasNew = false;
+        snap.docChanges().forEach(function(change){
+          if(change.type === 'added'){
+            const d = change.doc.data();
+            appData.notifications.unshift({
+              id: Date.now() + Math.random(),
+              title: 'עדכון חדש מהשיווק',
+              body: d.title,
+              date: todayHeb(), type:'instruction', read:false
+            });
+            hasNew = true;
+          }
+        });
+        if(hasNew) renderNotifPanel();
+      }
       renderContent();
       renderNav();
     }, function(err){
@@ -2913,7 +2938,7 @@ function viewInstructions(){
               <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
             </div>
           </div>
-          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}</span></div>
+          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span><span style="${i.unread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${i.unread?'עדכון חדש':'נקרא'}</span></div>
           <div class="instr-body" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
             ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}
@@ -4297,6 +4322,7 @@ function saveForm(){
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
       date: val('f-date'), body: val('f-body'), unread: true,
+      time: existingInstr ? (existingInstr.time || null) : new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       requiresAction, dueDate: requiresAction ? dueDate : null,
       requiresPhoto: requiresAction ? !!document.getElementById('f-instr-photo').checked : false,
       targetBranches: 'all',
