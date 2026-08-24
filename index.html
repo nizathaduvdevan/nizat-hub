@@ -29,6 +29,12 @@
     --radius-sm:8px;
     --shadow:0 1px 2px rgba(11,11,11,0.06), 0 4px 16px rgba(11,11,11,0.06);
     --shadow-lg:0 8px 30px rgba(11,11,11,0.14);
+    /* Aliases only — no existing variable above is modified. Added so new
+       dashboard CSS can use names that match their actual color instead of
+       the pre-existing --blue/--orange (which are green/maroon in practice). */
+    --brand-primary: var(--blue);
+    --brand-primary-dark: var(--blue-dark);
+    --brand-secondary: var(--orange);
   }
   *{box-sizing:border-box;}
   @font-face {
@@ -272,6 +278,72 @@
   .stat-tile .delta{font-size:11.5px;font-weight:700;}
   .stat-tile .delta.good{color:var(--good);}
   .stat-tile .delta.flat{color:var(--muted);}
+
+  /* ============================================================
+     DASHBOARD — new, isolated classes (dashboard- prefix only).
+     Does not modify .card/.badge/.admin-row/.button or any other
+     existing rule; reuses generic tokens (--radius/--shadow/--border/
+     --brand-primary/etc.) so light + dark mode both work automatically.
+  ============================================================ */
+  .dashboard-task-card{padding:16px 18px;}
+  .dtc-head{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
+  .dtc-dot{width:8px;height:8px;border-radius:50%;background:var(--critical);flex:none;}
+  .dtc-title{font-size:14.5px;font-weight:700;}
+  .dashboard-task-card.all-clear .dtc-title{color:var(--good);}
+  .dtc-empty{font-size:12.5px;color:var(--text-secondary);margin-top:4px;}
+  .dtc-list{margin-top:10px;display:flex;flex-direction:column;gap:2px;}
+  .dtc-item{
+    display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:var(--radius-sm);
+    cursor:pointer;font-size:13px;font-weight:500;
+  }
+  .dtc-item:hover{background:var(--page);}
+  .dtc-icon{font-size:15px;flex:none;}
+
+  .dashboard-actions-grid{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 20px;
+  }
+  .dashboard-action-btn{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px 6px;min-height:48px;cursor:pointer;font-family:inherit;color:var(--text-primary);
+  }
+  .dashboard-action-btn:hover{border-color:var(--brand-primary);}
+  .dashboard-action-btn .da-icon{font-size:19px;line-height:1;}
+  .dashboard-action-btn .da-label{font-size:11.5px;font-weight:600;}
+
+  .dashboard-competition-card{padding:18px 20px;cursor:pointer;}
+  .dc-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .dc-rank{font-size:12.5px;font-weight:700;color:var(--brand-primary-dark);}
+  .dc-title{margin:2px 0 10px;font-size:17px;font-weight:700;}
+  .dc-figures{font-size:16px;font-weight:700;margin-bottom:8px;}
+  .dc-of{font-size:12px;font-weight:500;color:var(--muted);margin:0 4px;}
+  .dc-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:12px;}
+  .dc-pct{font-weight:700;color:var(--brand-primary-dark);}
+  .dc-gap{color:var(--text-secondary);}
+
+  .dashboard-event-compact{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px 16px;margin-bottom:18px;cursor:pointer;box-shadow:var(--shadow);
+  }
+  .dec-title{font-size:13.5px;font-weight:700;}
+  .dec-meta{font-size:11.5px;color:var(--muted);margin-top:2px;}
+
+  .dashboard-feed-item{
+    display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;
+    border-bottom:1px solid var(--gridline);
+  }
+  .dashboard-feed-item:last-child{border-bottom:none;}
+  .df-icon{font-size:16px;flex:none;}
+  .df-main{flex:1;min-width:0;}
+  .df-title{font-size:13.5px;font-weight:500;}
+  .df-meta{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .df-badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:99px;flex:none;}
+  .df-badge.df-new{background:rgba(69,122,31,0.12);color:var(--brand-primary-dark);font-weight:700;}
+  .df-badge.df-read{background:#eceae4;color:var(--muted);}
+  html[data-theme="dark"] .df-badge.df-new{background:rgba(120,184,64,0.16);color:#a8d878;}
+  html[data-theme="dark"] .df-badge.df-read{background:#242422;color:var(--muted);}
+  html[data-theme="dark"] .dashboard-event-compact{box-shadow:none;}
 
   /* ---------- Cards / lists ---------- */
   .card{
@@ -1533,57 +1605,164 @@ function renderContent(){
 function viewDashboard(){
   const activeComps = appData.competitions.filter(c=>c.status==='active');
   const unreadInstr = appData.instructions.filter(i=>i.unread);
-  const recentMaterials = [...appData.materials].slice(-3).reverse();
   const feed = [
-    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id})),
+    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id, unread:!!i.unread})),
     ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id})),
     ...appData.events.map(e=>({type:'event', date:e.date, title:e.title, id:e.id}))
-  ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,6);
+  ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,4);
   const todayMs = Date.now();
-  const nextEvent = [...appData.events].sort((a,b)=>parseHebDate(a.date)-parseHebDate(b.date)).find(e=>parseHebDate(e.date)>=todayMs) || appData.events[0];
+  const nextEvent = [...appData.events].sort((a,b)=>parseHebDate(a.date)-parseHebDate(b.date)).find(e=>parseHebDate(e.date)>=todayMs);
+
+  /* ---------- "דורש את הטיפול שלך" — task signals מנתונים אמיתיים בלבד ----------
+     הוראות שלא נקראו: שדה גלובלי קיים (i.unread) — לא ייחודי לכל צופה (מוסבר גם
+     בהערה שליד toggleInstr). סטנדים/הודעות: אמיתיים ואישיים לסניף עצמו. */
+  const isBranch = session.role==='branch' && !!session.branchInfo;
+  let pendingStandsCount = 0;
+  if(isBranch){
+    appData.standCampaigns.forEach(camp=>{
+      const b = camp.branches.find(x=>x.matchedBranchName===session.branchInfo.name);
+      if(b && !getStandBranchStatus(camp,b).confirmed) pendingStandsCount++;
+    });
+  }
+  const unreadMsgCount = isBranch
+    ? appData.privateMessages.filter(m=>m.branchName===session.branchName && !m.deletedForBranch && m.unreadForBranch).length
+    : 0;
+  const taskItems = [];
+  if(unreadInstr.length) taskItems.push({icon:'📋', text:`${unreadInstr.length} הוראות שלא נקראו`, action:"instructions"});
+  if(pendingStandsCount) taskItems.push({icon:'🪧', text:`${pendingStandsCount} סטנד${pendingStandsCount>1?'ים':''} ממתין${pendingStandsCount>1?'ים':''} לאישור`, action:"stands"});
+  if(unreadMsgCount) taskItems.push({icon:'✉', text:`${unreadMsgCount} הודעות חדשות`, action:"messages"});
+  const totalTasks = unreadInstr.length + pendingStandsCount + unreadMsgCount;
+
+  const roleGreetingLine = session.role==='branch'
+    ? 'הנה מה שדורש את תשומת הלב שלך היום'
+    : (session.role==='area' ? 'הנה התמונה העדכנית באזור שלך' : 'הנה התמונה העדכנית ברשת');
+
+  /* ---------- כרטיס תחרות ראשית — מנוגן אישי רק כשיש התאמת סניף אמיתית ---------- */
+  let compSectionHtml = '';
+  if(activeComps.length){
+    const comp = activeComps[0];
+    let personal = null;
+    if(isBranch && comp.groups && comp.groups.length){
+      const match = matchBranchInCompetition(comp, session.branchInfo);
+      if(match){
+        const all = [];
+        comp.groups.forEach(g=>{
+          g.branches.forEach(b=>{
+            const pct = b.target>0 ? (b.sales/b.target)*100 : 0;
+            all.push({rawName:b.rawName, sales:b.sales, target:b.target, pct});
+          });
+        });
+        all.sort((x,y)=> y.pct-x.pct || y.sales-x.sales);
+        const myIdx = all.findIndex(x=>x.rawName===match.branch.rawName);
+        const myPct = match.branch.target>0 ? Math.round((match.branch.sales/match.branch.target)*100) : 0;
+        let gapText = null;
+        if(myIdx>0){
+          const above = all[myIdx-1];
+          if(above.target===match.branch.target && above.target>0){
+            const gap = above.sales - match.branch.sales;
+            if(gap>0) gapText = `עוד ${gap.toLocaleString()} ₪ למקום ${myIdx}`;
+          }
+        }
+        personal = {
+          rank: myIdx>=0 ? myIdx+1 : null, total: all.length,
+          sales: match.branch.sales, target: match.branch.target, pct: myPct, gapText
+        };
+      }
+    }
+    if(personal){
+      compSectionHtml = `
+      <div class="card dashboard-competition-card" onclick="goTo('competitions')">
+        <div class="dc-top">
+          <span class="badge active"><span class="dot"></span>פעיל</span>
+          ${personal.rank ? `<span class="dc-rank">המקום שלכם: ${personal.rank}${personal.total?` מתוך ${personal.total}`:''}</span>` : ''}
+        </div>
+        <h3 class="dc-title">🏆 ${comp.title}</h3>
+        <div class="dc-figures" dir="ltr">${personal.sales.toLocaleString()} ₪ <span class="dc-of">מתוך</span> ${personal.target.toLocaleString()} ₪</div>
+        <div class="comp-progress-wrap">
+          <div class="comp-progress-track"><div class="comp-progress-fill ${personal.pct>=100?'full':''}" style="width:${Math.min(100,personal.pct)}%"></div></div>
+        </div>
+        <div class="dc-bottom">
+          <span class="dc-pct">${personal.pct}%</span>
+          ${personal.gapText ? `<span class="dc-gap">${personal.gapText}</span>` : ''}
+        </div>
+        <button class="link-btn" onclick="event.stopPropagation();goTo('competitions')">לפרטי התחרות ←</button>
+      </div>`;
+    } else {
+      compSectionHtml = `
+      <div class="card comp-card" style="border-color:rgba(69,122,31,0.35); background:linear-gradient(180deg, rgba(69,122,31,0.05), var(--surface-1));">
+        <span class="badge active"><span class="dot"></span>תחרות פעילה מובילה</span>
+        <h2 style="margin:10px 0 4px;font-size:18px;">${comp.title}</h2>
+        <p class="comp-desc" style="margin-top:4px;">${comp.desc}</p>
+        <button class="link-btn" onclick="goTo('competitions')">לצפייה בכל התחרויות ←</button>
+      </div>`;
+    }
+  }
+
+  /* ---------- אירוע קרוב — קומפקטי, בלי שדה שעה (לא קיים במבנה הנתונים) ---------- */
+  const DASH_WEEKDAYS = ['יום ראשון','יום שני','יום שלישי','יום רביעי','יום חמישי','יום שישי','יום שבת'];
+  let eventSectionHtml = '';
+  if(nextEvent){
+    const evTs = parseHebDate(nextEvent.date);
+    const weekday = isNaN(evTs) ? '' : DASH_WEEKDAYS[new Date(evTs).getDay()];
+    eventSectionHtml = `
+    <div class="dashboard-event-compact" onclick="goTo('events')">
+      <div class="dec-main">
+        <div class="dec-title">🗓 ${nextEvent.title}</div>
+        <div class="dec-meta">${weekday ? weekday+' · ' : ''}<span dir="ltr">${nextEvent.date}</span></div>
+      </div>
+      <button class="link-btn" onclick="event.stopPropagation();goTo('events')">לכל האירועים ←</button>
+    </div>`;
+  }
 
   return `
     <div class="page-head">
       <h1>שלום, ${session.role==='area' ? session.areaLabel : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : (session.branchName || 'מחלקת שיווק'))} 👋</h1>
       ${session.branchInfo ? `<p style="margin:-4px 0 8px;font-size:12.5px;color:var(--muted);">${session.branchName}</p>` : ''}
-      <p>הנה כל מה שחדש ברשת מאז הכניסה האחרונה שלכם.</p>
-    </div>
-    <div class="stat-row">
-      <div class="stat-tile"><div class="label">תחרויות פעילות</div><div class="value">${activeComps.length}</div><div class="delta good">זמינות להשתתפות עכשיו</div></div>
-      <div class="stat-tile"><div class="label">הוראות שלא נקראו</div><div class="value">${unreadInstr.length}</div><div class="delta ${unreadInstr.length? 'good':'flat'}">${unreadInstr.length? 'דורש תשומת לב' : 'הכל עודכן'}</div></div>
-      <div class="stat-tile"><div class="label">חומרים חדשים החודש</div><div class="value">${appData.materials.length}</div><div class="delta flat">בלשונית ההורדות</div></div>
-      <div class="stat-tile"><div class="label">סניפים ברשת</div><div class="value">${getTotalBranches()}</div><div class="delta flat">מחוברים ל-HUB</div></div>
+      <p>${roleGreetingLine}</p>
     </div>
 
-    ${(activeComps[0] || nextEvent) ? `
-    <div class="dash-highlights">
-    ${activeComps[0] ? `
-    <div class="card comp-card" style="border-color:rgba(69,122,31,0.35); background:linear-gradient(180deg, rgba(69,122,31,0.05), var(--surface-1));">
-      <span class="badge active"><span class="dot"></span>תחרות פעילה מובילה</span>
-      <h2 style="margin:10px 0 4px;font-size:18px;">${activeComps[0].title}</h2>
-      <p class="comp-desc" style="margin-top:4px;">${activeComps[0].desc}</p>
-      <button class="link-btn" onclick="goTo('competitions')">לצפייה בכל התחרויות ←</button>
-    </div>` : ''}
-    ${nextEvent ? `
-    <div class="card comp-card">
-      <span class="badge cat">🗓 האירוע הקרוב</span>
-      <h3 style="margin:10px 0 4px;font-size:15px;">${nextEvent.title}</h3>
-      <div class="comp-meta" style="margin-bottom:8px;"><span dir="ltr">${nextEvent.date}</span></div>
-      <button class="link-btn" onclick="goTo('events')">ליומן האירועים המלא ←</button>
-    </div>` : ''}
-    </div>` : ''}
-
-    <h3 style="font-size:15px;margin:26px 0 12px;">עדכונים אחרונים</h3>
-    <div class="card">
-      ${feed.length ? feed.map(f=>`
-        <div class="admin-row" style="cursor:pointer;" onclick="goTo('${f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions'}')">
-          <span style="font-size:16px;">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
-          <div class="admin-row-main">
-            <div class="t">${f.title}</div>
-            <div class="m">${f.type==='instruction'?'הוראה חדשה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
-          </div>
+    <div class="card dashboard-task-card ${totalTasks>0 ? 'has-tasks' : 'all-clear'}">
+      ${totalTasks>0 ? `
+        <div class="dtc-head">
+          <span class="dtc-dot"></span>
+          <span class="dtc-title">${totalTasks===1?'דבר אחד דורש טיפול':`${totalTasks} דברים דורשים טיפול`}</span>
         </div>
-      `).join('') : `<div class="empty-state">
+        <div class="dtc-list">
+          ${taskItems.map(t=>`
+            <div class="dtc-item" onclick="goTo('${t.action}')">
+              <span class="dtc-icon">${t.icon}</span><span class="dtc-text">${t.text}</span>
+            </div>`).join('')}
+        </div>
+      ` : `
+        <div class="dtc-head dtc-clear">
+          <span class="dtc-title">הכל מעודכן ✓</span>
+        </div>
+        <div class="dtc-empty">אין כרגע משימות שממתינות לטיפול.</div>
+      `}
+    </div>
+
+    <div class="dashboard-actions-grid">
+      <button class="dashboard-action-btn" onclick="goTo('instructions')"><span class="da-icon">📋</span><span class="da-label">הוראות</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('materials')"><span class="da-icon">⬇</span><span class="da-label">חומרים</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('competitions')"><span class="da-icon">🏆</span><span class="da-label">תחרויות</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('events')"><span class="da-icon">🗓</span><span class="da-label">אירועים</span></button>
+    </div>
+
+    ${compSectionHtml}
+    ${eventSectionHtml}
+
+    <h3 style="font-size:15px;margin:26px 0 12px;">חדש מהשיווק</h3>
+    <div class="card" style="overflow:visible;">
+      ${feed.length ? feed.map(f=>`
+        <div class="dashboard-feed-item" onclick="goTo('${f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions'}')">
+          <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
+          <div class="df-main">
+            <div class="df-title">${f.title}</div>
+            <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
+          </div>
+          ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
+        </div>
+      `).join('') + `<button class="link-btn" style="padding:12px 16px;" onclick="goTo('instructions')">לכל העדכונים ←</button>` : `<div class="empty-state">
         עדיין אין עדכונים ברשת.${session.role==='marketing' ? ' התחילו בהוספת תוכן דרך "ניהול תוכן".' : ' עדכונים חדשים יופיעו כאן ברגע שמחלקת השיווק תפרסם אותם.'}
       </div>`}
     </div>
