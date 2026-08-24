@@ -755,6 +755,23 @@
   }
   .icon-toggle-btn:hover{background:#f2f3f5;transform:translateY(-1px);}
   html[data-theme="dark"] .icon-toggle-btn:hover{background:#242422;}
+
+  /* צפייה כמשתמש — פס עליון בולט שנשאר גלוי כל עוד מצב התצוגה פעיל */
+  #preview-banner{
+    background:#4a3aa7;color:#fff;padding:9px 20px;font-size:13.5px;font-weight:500;
+    display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;
+  }
+  #preview-banner button{
+    background:rgba(255,255,255,0.18);border:none;color:#fff;font-weight:600;font-size:12.5px;
+    padding:5px 12px;border-radius:99px;cursor:pointer;
+  }
+  #preview-banner button:hover{background:rgba(255,255,255,0.3);}
+  .preview-pick-row{
+    display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--radius-sm);
+    cursor:pointer;font-size:13.5px;
+  }
+  .preview-pick-row:hover{background:var(--page);}
+  .preview-pick-group{font-size:11.5px;font-weight:600;color:var(--muted);margin:12px 4px 4px;text-transform:none;}
   .notif-badge{
     position:absolute;top:-4px;left:-4px;background:var(--critical);color:#fff;font-size:11px;font-weight:500;
     border-radius:99px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px;
@@ -918,6 +935,7 @@
       </div>
     </div>
     <div class="topbar-left">
+      <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;">👁</button>
       <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה">🌙</button>
       <div class="notif-wrap">
         <button class="icon-toggle-btn" id="notif-bell" onclick="toggleNotifPanel()" title="התראות">
@@ -932,6 +950,8 @@
       <button class="logout-btn" onclick="logout()">התנתקות</button>
     </div>
   </div>
+
+  <div id="preview-banner" style="display:none;"></div>
 
   <div class="main-layout">
     <div class="sidebar" id="sidebar"></div>
@@ -1507,6 +1527,11 @@ function getText(key){
    STATE
 ============================================================ */
 let session = { role:null, branchName:null, branchInfo:null, areaName:null, areaLabel:null };
+/* צפייה כמשתמש (מחלקת שיווק בלבד) — לא נוגע ב-Firebase Auth/הרשאות בפועל.
+   רק "מציג" את המסכים כאילו session שייך לסניף/מנהל אזור אחר, לצורך תצוגה בלבד.
+   realSession שומר את הזהות האמיתית כדי לחזור אליה כשיוצאים ממצב התצוגה. */
+let previewMode = null; // null | {label: string}
+let realSession = null;
 let ui = { view:"dashboard", adminTab:"competitions", materialFilter:"הכל" };
 
 const STATUS_LABEL = {active:"פעילה", upcoming:"מתוכננת", ended:"הסתיימה"};
@@ -1567,6 +1592,88 @@ function enterApp(role, payload){
   initFirestoreSync();
   toast(toastMsg);
 }
+/* ============================================================
+   צפייה כמשתמש (מחלקת שיווק בלבד) — שכבת תצוגה בלבד, לא נוגעת
+   ב-Firebase Auth/session אמיתי. realSession שומר את הזהות האמיתית.
+============================================================ */
+function openPreviewPicker(){
+  if(!(session.role==='marketing' || (previewMode && realSession && realSession.role==='marketing'))) return;
+  document.getElementById('modal-body').innerHTML = `
+    <h3>צפייה כמשתמש</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">בחרו סניף או מנהל אזור כדי לראות בדיוק את המסכים שהם רואים — כולל הדשבורד האישי, הדירוג בתחרות, וסטנדים לאישור.</p>
+    <div id="preview-pick-list" style="max-height:360px;overflow-y:auto;">טוען סניפים…</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">ביטול</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+  loadBranchDirectory().then(function(){
+    const listEl = document.getElementById('preview-pick-list');
+    if(!listEl) return; // המשתמש כבר סגר את המודל
+    const areaRows = Object.keys(AREA_MANAGER_INFO).map(email=>{
+      const info = AREA_MANAGER_INFO[email];
+      return `<div class="preview-pick-row" onclick="startPreviewAsArea('${email}')"><span>${info.label}</span><span style="color:var(--muted);font-size:12px;">מנהל אזור</span></div>`;
+    }).join('');
+    const branchRows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he')).map(b=>
+      `<div class="preview-pick-row" onclick="startPreviewAsBranch('${b.email}')"><span>${b.name}</span><span style="color:var(--muted);font-size:12px;">${b.manager||''}</span></div>`
+    ).join('');
+    listEl.innerHTML = `
+      <div class="preview-pick-group">מנהלי אזור</div>${areaRows}
+      <div class="preview-pick-group">סניפים</div>${branchRows}
+    `;
+  });
+}
+function startPreviewAsBranch(email){
+  const branchInfo = BRANCH_DIRECTORY.find(b=>b.email===email);
+  if(!branchInfo) return;
+  if(!realSession) realSession = {...session};
+  session.role = 'branch';
+  session.branchName = 'סניף ' + branchInfo.name;
+  session.branchInfo = branchInfo;
+  session.areaName = null;
+  session.areaLabel = null;
+  previewMode = {label: branchInfo.name};
+  document.getElementById('user-label').textContent = branchInfo.manager ? `${branchInfo.manager} · ${session.branchName}` : session.branchName;
+  document.getElementById('user-avatar').textContent = branchInfo.manager ? branchInfo.manager.slice(0,2) : branchInfo.name.slice(0,2);
+  closeModal();
+  goTo('dashboard');
+}
+function startPreviewAsArea(email){
+  const info = AREA_MANAGER_INFO[email];
+  if(!info) return;
+  if(!realSession) realSession = {...session};
+  session.role = 'area';
+  session.areaName = info.areaName;
+  session.areaLabel = info.label;
+  session.branchName = null;
+  session.branchInfo = null;
+  previewMode = {label: info.label};
+  document.getElementById('user-label').textContent = info.areaName ? `מנהל אזור · ${info.label}` : `${info.label} · תצוגה ארצית`;
+  document.getElementById('user-avatar').textContent = info.label.slice(0,2);
+  closeModal();
+  goTo('dashboard');
+}
+function exitPreviewMode(){
+  if(!realSession) return;
+  session = realSession;
+  realSession = null;
+  previewMode = null;
+  document.getElementById('user-label').textContent = 'מחלקת שיווק';
+  document.getElementById('user-avatar').textContent = 'שי';
+  goTo('admin');
+}
+function renderPreviewBanner(){
+  const banner = document.getElementById('preview-banner');
+  const toggleBtn = document.getElementById('preview-toggle-btn');
+  if(!banner || !toggleBtn) return;
+  if(previewMode){
+    banner.style.display = 'flex';
+    banner.innerHTML = `<span>👁 צפייה כמשתמש: <b>${previewMode.label}</b> — זו תצוגה בלבד, פעולות שמירה מושבתות</span><button onclick="exitPreviewMode()">יציאה ממצב תצוגה</button>`;
+    toggleBtn.style.display = 'none';
+  } else {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    toggleBtn.style.display = (session.role==='marketing') ? 'flex' : 'none';
+  }
+}
 function logout(){
   document.getElementById('app-screen').style.display='none';
   document.getElementById('login-screen').style.display='flex';
@@ -1613,6 +1720,7 @@ function navItems(){
 const MOBILE_PRIMARY = ['dashboard','competitions','instructions','materials'];
 const MOBILE_PRIMARY_AREA = ['dashboard','areaOverview','competitions','instructions'];
 function renderNav(){
+  renderPreviewBanner();
   const items = navItems();
   document.getElementById('sidebar').innerHTML = `
     ${session.role==='marketing' ? '<div class="nav-label">תצוגת סניף</div>' : ''}
@@ -2899,6 +3007,7 @@ function writeInstructionCompletion(instr, photoUrl){
   }
 }
 function submitInstructionCompletion(instructionId){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const instr = appData.instructions.find(i=>i.id==instructionId);
   if(!instr) return;
   if(instr.requiresPhoto){
@@ -3211,6 +3320,7 @@ function toggleComments(itemType, itemId){
   arrow.textContent = el.classList.contains('open') ? '▴' : '▾';
 }
 function submitComment(itemType, itemId, boxId){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const input = document.getElementById('comment-input-'+boxId);
   const text = input.value.trim();
   if(!text){ toast('נא לכתוב תוכן לפני השליחה'); input.focus(); return; }
@@ -3339,6 +3449,7 @@ function openPrivateMessageModal(itemType, itemId){
   document.getElementById('modal-overlay').classList.add('open');
 }
 function submitPrivateMessageFromModal(itemType, itemId){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const input = document.getElementById('private-msg-text');
   const text = input.value.trim();
   if(!text){ toast('נא לכתוב תוכן לפני השליחה'); input.focus(); return; }
@@ -3746,6 +3857,7 @@ function getStandBranchStatus(camp, b){
   return { confirmed: !!b.confirmed, confirmedAt: b.confirmedAt || null };
 }
 function confirmStand(campId, idx){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const camp = appData.standCampaigns.find(c=>c.id==campId);
   if(!camp) return;
   const b = camp.branches[idx];
