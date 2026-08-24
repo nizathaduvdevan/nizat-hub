@@ -295,6 +295,7 @@
   .dtc-item{
     display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:var(--radius-sm);
     cursor:pointer;font-size:13px;font-weight:500;
+    border:none;background:transparent;width:100%;font-family:inherit;color:inherit;text-align:right;
   }
   .dtc-item:hover{background:var(--page);}
   .dtc-icon{font-size:15px;flex:none;}
@@ -1610,7 +1611,8 @@ function viewDashboard(){
     ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id})),
     ...appData.events.map(e=>({type:'event', date:e.date, title:e.title, id:e.id}))
   ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,4);
-  const todayMs = Date.now();
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const todayMs = todayStart.getTime();
   const nextEvent = [...appData.events].sort((a,b)=>parseHebDate(a.date)-parseHebDate(b.date)).find(e=>parseHebDate(e.date)>=todayMs);
 
   /* ---------- "דורש את הטיפול שלך" — task signals מנתונים אמיתיים בלבד ----------
@@ -1645,26 +1647,24 @@ function viewDashboard(){
     if(isBranch && comp.groups && comp.groups.length){
       const match = matchBranchInCompetition(comp, session.branchInfo);
       if(match){
-        const all = [];
-        comp.groups.forEach(g=>{
-          g.branches.forEach(b=>{
-            const pct = b.target>0 ? (b.sales/b.target)*100 : 0;
-            all.push({rawName:b.rawName, sales:b.sales, target:b.target, pct});
-          });
+        const groupBranches = match.group.branches.map(b=>{
+          const pct = b.target>0 ? (b.sales/b.target)*100 : 0;
+          return {rawName:b.rawName, sales:b.sales, target:b.target, pct};
         });
-        all.sort((x,y)=> y.pct-x.pct || y.sales-x.sales);
-        const myIdx = all.findIndex(x=>x.rawName===match.branch.rawName);
+        groupBranches.sort((x,y)=> y.pct-x.pct || y.sales-x.sales);
+        const myIdx = groupBranches.findIndex(x=>x.rawName===match.branch.rawName);
         const myPct = match.branch.target>0 ? Math.round((match.branch.sales/match.branch.target)*100) : 0;
         let gapText = null;
         if(myIdx>0){
-          const above = all[myIdx-1];
+          const above = groupBranches[myIdx-1];
           if(above.target===match.branch.target && above.target>0){
             const gap = above.sales - match.branch.sales;
             if(gap>0) gapText = `עוד ${gap.toLocaleString()} ₪ למקום ${myIdx}`;
           }
         }
         personal = {
-          rank: myIdx>=0 ? myIdx+1 : null, total: all.length,
+          rank: myIdx>=0 ? myIdx+1 : null, total: groupBranches.length,
+          groupName: match.group.name || null,
           sales: match.branch.sales, target: match.branch.target, pct: myPct, gapText
         };
       }
@@ -1674,7 +1674,7 @@ function viewDashboard(){
       <div class="card dashboard-competition-card" onclick="goTo('competitions')">
         <div class="dc-top">
           <span class="badge active"><span class="dot"></span>פעיל</span>
-          ${personal.rank ? `<span class="dc-rank">המקום שלכם: ${personal.rank}${personal.total?` מתוך ${personal.total}`:''}</span>` : ''}
+          ${personal.rank ? `<span class="dc-rank">${personal.groupName ? `מקום ${personal.rank} בקבוצה ${personal.groupName}` : `מקום ${personal.rank}${personal.total?` מתוך ${personal.total}`:''}`}</span>` : ''}
         </div>
         <h3 class="dc-title">🏆 ${comp.title}</h3>
         <div class="dc-figures" dir="ltr">${personal.sales.toLocaleString()} ₪ <span class="dc-of">מתוך</span> ${personal.target.toLocaleString()} ₪</div>
@@ -1729,9 +1729,9 @@ function viewDashboard(){
         </div>
         <div class="dtc-list">
           ${taskItems.map(t=>`
-            <div class="dtc-item" onclick="goTo('${t.action}')">
+            <button type="button" class="dtc-item" onclick="goTo('${t.action}')">
               <span class="dtc-icon">${t.icon}</span><span class="dtc-text">${t.text}</span>
-            </div>`).join('')}
+            </button>`).join('')}
         </div>
       ` : `
         <div class="dtc-head dtc-clear">
@@ -1762,7 +1762,7 @@ function viewDashboard(){
           </div>
           ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
         </div>
-      `).join('') + `<button class="link-btn" style="padding:12px 16px;" onclick="goTo('instructions')">לכל העדכונים ←</button>` : `<div class="empty-state">
+      `).join('') : `<div class="empty-state">
         עדיין אין עדכונים ברשת.${session.role==='marketing' ? ' התחילו בהוספת תוכן דרך "ניהול תוכן".' : ' עדכונים חדשים יופיעו כאן ברגע שמחלקת השיווק תפרסם אותם.'}
       </div>`}
     </div>
