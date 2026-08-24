@@ -1486,8 +1486,7 @@ let appData = {
   comments: [],
   privateMessages: [],
   standCampaigns: [],
-  notifications: [],
-  branchPerformance: []
+  notifications: []
 };
 
 let nextIds = {competitions:2, instructions:1, materials:1, events:1, comments:1, privateMessages:1, standCampaigns:18};
@@ -1501,8 +1500,6 @@ const SITE_TEXT_DEFAULTS = {
   competitions_desc: 'כל תחרויות המכירות והשירות הפעילות והעתידיות ברשת.',
   instructions_desc: 'הנחיות תפעוליות ועדכונים שוטפים ממחלקת השיווק וההנהלה.',
   materials_desc: 'באנרים, שילוט, מצגות ותמונות מוצר לשימוש הסניף.',
-  performance_desc_branch: 'הביצועים שלכם ביחס לרשת — מבוסס על השתתפות בתחרויות, קריאת הוראות והורדת חומרים.',
-  performance_desc_other: 'השוואת ביצועים בין כל סניפי הרשת, מבוססת על ציון מדדים משוקלל.',
   stands_desc: 'מעקב אחר אישורי הצבת סטנדים בסניפים, לפי קמפיין. העלאת קובץ סורקת את כל הלשוניות בקובץ ומזהה תאים צבועים.',
   messages_desc_marketing: `הודעות שנשלחו אליכם ישירות מהסניפים (בנוסף, כל הודעה כזו פותחת גם טיוטת מייל ל-${MARKETING_CONTACT_EMAIL} אצל הסניף השולח).`,
   messages_desc_branch: `הודעות פרטיות ששלחתם ל${MARKETING_CONTACT_NAME} (מחלקת שיווק), ותשובותיה.`,
@@ -1511,9 +1508,7 @@ const SITE_TEXT_DEFAULTS = {
 const SITE_TEXT_LABELS = {
   competitions_desc: 'תחרויות — תיאור מתחת לכותרת',
   instructions_desc: 'הוראות ועדכונים — תיאור מתחת לכותרת',
-  materials_desc: 'חומרים להורדה — תיאור מתחת לכותרת',
-  performance_desc_branch: 'ביצועים — תיאור (מה שהסניפים/מנהלי אזור רואים)',
-  performance_desc_other: 'ביצועים — תיאור (מה שמחלקת השיווק רואה)',
+  materials_desc: 'חומרים דיגיטליים להורדה — תיאור מתחת לכותרת',
   stands_desc: 'סטנדים לאישור — תיאור מתחת לכותרת',
   messages_desc_marketing: 'הודעות פרטיות — תיאור (בצד מחלקת השיווק)',
   messages_desc_branch: 'ההודעות שלי — תיאור (בצד הסניף)',
@@ -1588,7 +1583,6 @@ function enterApp(role, payload){
   renderNav();
   renderContent();
   renderNotifPanel();
-  simulateIncomingNotification();
   initFirestoreSync();
   toast(toastMsg);
 }
@@ -1709,8 +1703,7 @@ function navItems(){
     {id:'competitions', label:'תחרויות', icon:'🏆'},
     {id:'instructions', label:'הוראות ועדכונים', icon:'📋'},
     {id:'events', label:'יומן אירועים', icon:'🗓'},
-    {id:'performance', label:'ביצועים', icon:'📈'},
-    {id:'materials', label:'חומרים להורדה', icon:'⬇'},
+    {id:'materials', label:'חומרים דיגיטליים להורדה', icon:'⬇'},
     {id:'stands', label:'סטנדים לאישור', icon:'🪧'},
     {id:'messages', label:'ההודעות שלי', icon:'✉'}
   );
@@ -1786,7 +1779,6 @@ function renderContent(){
   else if(ui.view==='competitions') el.innerHTML = viewCompetitions();
   else if(ui.view==='instructions') el.innerHTML = viewInstructions();
   else if(ui.view==='events') el.innerHTML = viewEvents();
-  else if(ui.view==='performance') el.innerHTML = viewPerformance();
   else if(ui.view==='areaOverview') el.innerHTML = viewAreaOverview();
   else if(ui.view==='materials') el.innerHTML = viewMaterials();
   else if(ui.view==='stands') el.innerHTML = viewStands();
@@ -2177,6 +2169,7 @@ let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicit
 let pendingHeroMobileUrl = undefined;
 let formCurrentLogo = null; // logo currently on the item being edited (or null for a new item)
 let pendingMaterialFile = null; // {url, type, size} set after a successful Cloudinary upload this form session
+let pendingInstructionImageUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new Cloudinary URL
 function triggerCompetitionImport(){
   // Quick shortcut: opens the same unified form and immediately prompts for the Excel file.
   openForm('competitions');
@@ -2309,8 +2302,46 @@ function handleHeroFileChange(evt, which){
   });
   evt.target.value = '';
 }
+function handleInstructionImageFileChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('f-instr-image-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    pendingInstructionImageUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+    renderInstructionImagePreview();
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+  evt.target.value = '';
+}
+function clearInstructionImage(){
+  pendingInstructionImageUrl = null;
+  renderInstructionImagePreview();
+}
+function renderInstructionImagePreview(){
+  const wrap = document.getElementById('f-instr-image-preview-wrap');
+  if(!wrap) return;
+  const item = formState.editId ? appData.instructions.find(x=>x.id==formState.editId) : null;
+  const src = pendingInstructionImageUrl!==undefined ? pendingInstructionImageUrl : (item ? item.imageUrl : null);
+  const statusEl = document.getElementById('f-instr-image-status');
+  if(src){
+    wrap.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+      <img src="${src}" alt="תמונה להמחשה" style="width:100px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--gridline);">
+      <button type="button" class="link-btn" onclick="clearInstructionImage()">🗑 הסרת תמונה</button>
+    </div>`;
+  } else {
+    wrap.innerHTML = '';
+  }
+  if(statusEl && src===null) statusEl.textContent = '';
+}
 function handleMaterialFileChange(evt){
   const file = evt.target.files[0];
+
   if(!file) return;
   const statusEl = document.getElementById('f-material-file-status');
   if(statusEl) statusEl.textContent = '⏳ מעלה את הקובץ...';
@@ -2885,6 +2916,7 @@ function viewInstructions(){
           <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}</span></div>
           <div class="instr-body" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
+            ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}
             ${isTask && session.role==='branch' ? renderInstructionExecutionArea(i, myStatus) : ''}
             ${isTask && session.role==='marketing' ? renderInstructionStatusPanel(i) : ''}
             ${commentsBox('instruction', i.id)}
@@ -3035,14 +3067,14 @@ function viewMaterials(){
   const list = ui.materialFilter==='הכל' ? appData.materials : appData.materials.filter(m=>m.category===ui.materialFilter);
   return `
     <div class="page-head">
-      <h1>חומרים להורדה</h1>
+      <h1>חומרים דיגיטליים להורדה</h1>
       <p>${getText('materials_desc')}</p>
     </div>
     <div class="filter-row">
       ${cats.map(c=>`<button class="chip ${ui.materialFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
     </div>
     <div class="materials-grid">
-      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין חומרים להורדה.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
+      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין חומרים דיגיטליים להורדה.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
     </div>
   `;
 }
@@ -3182,313 +3214,6 @@ function viewAreaOverview(){
       `).join('')}
     </div>
   `;
-}
-function viewPerformance(){
-  const data = [...appData.branchPerformance].sort((a,b)=>b.score-a.score);
-  if(!data.length){
-    return `
-      <div class="page-head">
-        <h1>ביצועים</h1>
-        <p>${session.role==='branch' ? 'הביצועים שלכם ביחס לרשת יופיעו כאן.' : 'השוואת ביצועים בין כל סניפי הרשת תופיע כאן.'}</p>
-      </div>
-      <div class="card"><div class="empty-state">
-        עדיין אין נתוני ביצועים להצגה.${session.role==='marketing' ? ' בגרסה מלאה נתונים אלו יתעדכנו אוטומטית ממערכות הרשת.' : ''}
-      </div></div>
-    `;
-  }
-  const mine = session.branchName;
-  const myRow = data.find(d=>d.branch===mine);
-  const myRank = myRow ? data.indexOf(myRow)+1 : null;
-  const maxScore = Math.max(...data.map(d=>d.score));
-
-  const summary = session.role==='branch' && myRow ? `
-    <div class="stat-row">
-      <div class="stat-tile"><div class="label">דירוג הסניף שלכם</div><div class="value">#${myRank}</div><div class="delta flat">מתוך ${data.length} סניפים שנמדדו</div></div>
-      <div class="stat-tile"><div class="label">ציון ביצועים כולל</div><div class="value">${myRow.score}</div><div class="delta good">מתוך 100</div></div>
-      <div class="stat-tile"><div class="label">שיעור קריאת הוראות</div><div class="value">${myRow.readRate}%</div><div class="delta ${myRow.readRate>=80?'good':'flat'}">${myRow.readRate>=80?'מעולה':'יש מקום לשיפור'}</div></div>
-      <div class="stat-tile"><div class="label">הורדות החודש</div><div class="value">${myRow.downloads}</div><div class="delta flat">חומרי שיווק</div></div>
-    </div>
-  ` : `
-    <div class="stat-row">
-      <div class="stat-tile"><div class="label">ממוצע ציון רשת</div><div class="value">${Math.round(data.reduce((s,d)=>s+d.score,0)/data.length)}</div><div class="delta flat">מתוך 100</div></div>
-      <div class="stat-tile"><div class="label">סניף מוביל</div><div class="value" style="font-size:16px;">${data[0].branch}</div><div class="delta good">ציון ${data[0].score}</div></div>
-      <div class="stat-tile"><div class="label">ממוצע שיעור קריאה</div><div class="value">${Math.round(data.reduce((s,d)=>s+d.readRate,0)/data.length)}%</div><div class="delta flat">הוראות ועדכונים</div></div>
-      <div class="stat-tile"><div class="label">סה״כ הורדות החודש</div><div class="value">${data.reduce((s,d)=>s+d.downloads,0)}</div><div class="delta good">מכלל הסניפים</div></div>
-    </div>
-  `;
-
-  return `
-    <div class="page-head">
-      <h1>ביצועים</h1>
-      <p>${session.role==='branch' ? getText('performance_desc_branch') : getText('performance_desc_other')}</p>
-    </div>
-    ${summary}
-    <div class="card" style="padding:6px 0;">
-      ${data.map((d,idx)=>`
-        <div class="perf-row ${d.branch===mine?'perf-mine':''}">
-          <div class="perf-rank">${idx+1}</div>
-          <div class="perf-name">${d.branch}${d.branch===mine?' (אתם)':''}</div>
-          <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${(d.score/maxScore*100).toFixed(0)}%"></div></div>
-          <div class="perf-val">${d.score}</div>
-        </div>
-      `).join('')}
-    </div>
-    <div class="card" style="padding:16px 20px;margin-top:14px;">
-      <h3 style="margin:0 0 6px;font-size:14px;">איך מחושב הציון?</h3>
-      <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;margin:0;">
-        ציון הביצועים בגרסת הדמו משוקלל מתוצאות תחרויות, שיעור קריאת הוראות והיקף הורדת חומרים. בגרסה מלאה החישוב יתבצע אוטומטית ממערכות הרשת.
-      </p>
-    </div>
-  `;
-}
-
-/* ---------- Comments / feedback ---------- */
-function getComments(itemType, itemId){
-  return appData.comments.filter(c=>c.itemType===itemType && c.itemId==itemId);
-}
-function findItemTitle(itemType, itemId){
-  const src = itemType==='instruction' ? appData.instructions : appData.competitions;
-  const item = src.find(x=>x.id==itemId);
-  return item ? item.title : '(פריט נמחק)';
-}
-function commentsBox(itemType, itemId, forceOpen){
-  const list = getComments(itemType, itemId);
-  const boxId = `comments-${itemType}-${itemId}`;
-  const myPrivate = session.role==='branch'
-    ? appData.privateMessages.filter(m=>m.itemType===itemType && m.itemId===itemId && m.branchName===session.branchName && !m.deletedForBranch)
-    : [];
-  return `
-    <div class="comments-box" id="cbox-${boxId}" onclick="event.stopPropagation()">
-      <button class="comments-toggle" onclick="toggleComments('${itemType}','${itemId}')">
-        💬 משוב ותגובות (${list.length}${myPrivate.length ? ' · '+myPrivate.length+' 🔒' : ''}) <span id="ct-arrow-${boxId}">${forceOpen?'▴':'▾'}</span>
-      </button>
-      <div class="comments-list ${forceOpen?'open':''}" id="ct-${boxId}">
-        ${myPrivate.map(m=>`
-          <div class="comment-row private">
-            <div class="comment-avatar">🔒</div>
-            <div class="comment-body">
-              <div class="comment-name">הודעה פרטית ל${MARKETING_CONTACT_NAME} <span class="comment-private-badge">פרטי</span></div>
-              <div class="comment-text">${m.text}</div>
-              <div class="comment-date">${m.date}</div>
-              ${m.replies.map(r=>`
-                <div class="comment-reply">
-                  <div class="rn">${r.from==='marketing' ? MARKETING_CONTACT_NAME+' · מחלקת שיווק' : session.branchName}</div>
-                  <div>${r.text}</div>
-                  <div class="comment-date">${r.date}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `).join('')}
-        ${list.map(c=>{
-          const canManage = session.role==='marketing' || (currentUserEmail && c.authorEmail===currentUserEmail);
-          return `
-          <div class="comment-row">
-            <div class="comment-avatar">${(c.branchName||'').replace('סניף ','').slice(0,2)}</div>
-            <div class="comment-body">
-              <div class="comment-name">${c.branchName}${c.edited ? ' <span style="color:var(--muted);font-weight:400;font-size:11px;">(נערך)</span>' : ''}</div>
-              <div class="comment-text" id="comment-text-${c.id}">${c.text}</div>
-              <div class="comment-date">${c.date}</div>
-            </div>
-            ${canManage ? `
-            <div style="display:flex;gap:4px;">
-              <button class="icon-btn" title="עריכה" onclick="event.stopPropagation();openEditCommentModal('${itemType}','${itemId}','${c.id}')">✎</button>
-              <button class="icon-btn danger" title="מחיקה" onclick="event.stopPropagation();confirmDeleteComment('${itemType}','${itemId}','${c.id}')">🗑</button>
-            </div>` : ''}
-          </div>
-        `;}).join('') || (myPrivate.length ? '' : '<div class="empty-state" style="padding:14px 0;">אין עדיין תגובות. היו הראשונים להגיב!</div>')}
-        <div class="comment-form" onclick="event.stopPropagation()">
-          <input type="text" id="comment-input-${boxId}" placeholder="כתבו תגובה ציבורית שכל הסניפים יראו…">
-          <div class="comment-form-actions">
-            <button class="comment-send" onclick="submitComment('${itemType}','${itemId}','${boxId}')">💬 שליחת תגובה ציבורית</button>
-          </div>
-        </div>
-        ${session.role==='branch' ? `
-        <div class="comment-form-hint" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gridline);">
-          יש לכם משהו שרוצים לומר רק ל${MARKETING_CONTACT_NAME}, בלי שסניפים אחרים יראו?
-          <button class="comment-send-private" style="margin-inline-start:6px;" onclick="openPrivateMessageModal('${itemType}','${itemId}')">🔒 שליחת הודעה פרטית ל${MARKETING_CONTACT_NAME}</button>
-        </div>` : ''}
-      </div>
-    </div>
-  `;
-}
-function toggleComments(itemType, itemId){
-  const boxId = `comments-${itemType}-${itemId}`;
-  const el = document.getElementById('ct-'+boxId);
-  const arrow = document.getElementById('ct-arrow-'+boxId);
-  el.classList.toggle('open');
-  arrow.textContent = el.classList.contains('open') ? '▴' : '▾';
-}
-function submitComment(itemType, itemId, boxId){
-  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
-  const input = document.getElementById('comment-input-'+boxId);
-  const text = input.value.trim();
-  if(!text){ toast('נא לכתוב תוכן לפני השליחה'); input.focus(); return; }
-  const commentObj = {
-    itemType, itemId,
-    branchName: session.role==='marketing' ? 'מחלקת שיווק' : (session.role==='area' ? `מנהל אזור · ${session.areaLabel}` : session.branchName),
-    authorEmail: currentUserEmail || '',
-    text,
-    date: todayHeb()
-  };
-  if(firebaseReady){
-    input.value = '';
-    commentObj.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-    db.collection('comments').add(commentObj)
-      .then(()=>toast('התגובה נשלחה בהצלחה'))
-      .catch(err=>toast('שגיאה בשליחת התגובה: '+err.message));
-    return;
-  }
-  commentObj.id = nextIds.comments++;
-  appData.comments.push(commentObj);
-  const wrap = document.getElementById('cbox-'+boxId);
-  if(wrap){ wrap.outerHTML = commentsBox(itemType, itemId, true); } else { renderContent(); }
-  toast('התגובה נשלחה בהצלחה');
-}
-function openEditCommentModal(itemType, itemId, commentId){
-  const c = appData.comments.find(x=>x.id==commentId);
-  if(!c) return;
-  document.getElementById('modal-body').innerHTML = `
-    <h3>עריכת תגובה</h3>
-    <div class="field">
-      <label>תוכן התגובה</label>
-      <textarea id="edit-comment-text" rows="4">${c.text}</textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm" onclick="submitEditComment('${itemType}','${itemId}','${commentId}')">שמירת שינויים</button>
-    </div>
-  `;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-function submitEditComment(itemType, itemId, commentId){
-  const input = document.getElementById('edit-comment-text');
-  const text = input.value.trim();
-  if(!text){ toast('נא לכתוב תוכן לפני השמירה'); input.focus(); return; }
-  closeModal();
-  if(firebaseReady){
-    db.collection('comments').doc(commentId).update({text, edited:true})
-      .then(()=>toast('התגובה עודכנה בהצלחה'))
-      .catch(err=>toast('שגיאה בעדכון התגובה: '+err.message));
-    return;
-  }
-  const c = appData.comments.find(x=>x.id==commentId);
-  if(c){ c.text = text; c.edited = true; }
-  renderContent();
-  toast('התגובה עודכנה בהצלחה');
-}
-let pendingDeleteComment = null;
-function confirmDeleteComment(itemType, itemId, commentId){
-  pendingDeleteComment = {itemType, itemId, commentId};
-  document.getElementById('modal-body').innerHTML = `
-    <h3>מחיקת תגובה</h3>
-    <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;">האם למחוק את התגובה? הפעולה תשפיע מיידית על התצוגה בכל הסניפים.</p>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm btn-danger" onclick="doDeleteComment()">מחיקה</button>
-    </div>
-  `;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-function doDeleteComment(){
-  const {itemType, itemId, commentId} = pendingDeleteComment;
-  closeModal();
-  if(firebaseReady){
-    db.collection('comments').doc(commentId).delete()
-      .then(()=>toast('התגובה נמחקה'))
-      .catch(err=>toast('שגיאה במחיקת התגובה: '+err.message));
-    return;
-  }
-  appData.comments = appData.comments.filter(x=>x.id!=commentId);
-  renderContent();
-  toast('התגובה נמחקה');
-}
-function buildMailtoForMessage(itemTitle, branchName, text){
-  const subject = itemTitle || 'הודעה מה-HUB';
-  const body = `שם הסניף ממנו נשלחה ההודעה: ${branchName}\n\nתוכן ההודעה:\n${text}`;
-  return `mailto:${MARKETING_CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
-function openMailDraft(mailtoUrl){
-  // Uses a throwaway <a> click (rather than window.location) since it behaves more
-  // consistently across browsers/embedded previews for handing off to a mailto: handler.
-  // This can only OPEN a pre-filled compose window — it never sends anything by itself,
-  // and if the browser/device has no mail client configured, nothing visible will happen here
-  // (the in-app save above still succeeded regardless).
-  try{
-    const a = document.createElement('a');
-    a.href = mailtoUrl;
-    a.style.position = 'fixed';
-    a.style.opacity = '0';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(()=>a.remove(), 0);
-  }catch(e){
-    console.warn('פתיחת טיוטת המייל נכשלה (ייתכן שאין תוכנת מייל מוגדרת בדפדפן/במכשיר):', e);
-  }
-}
-/* ---------- הודעה פרטית — חלון ייעודי נפרד לגמרי מתיבת התגובה הציבורית ----------
-   כדי שלא יהיה שום סיכוי שהודעה שנועדה רק למחלקת השיווק "תיפול בטעות" לקיר
-   הציבורי, השליחה נעשית דרך מודל (modal) עצמאי עם שדה טקסט וכפתור שליחה משלו,
-   ולא דרך אותה תיבת קלט המשמשת גם לתגובה הציבורית. */
-function openPrivateMessageModal(itemType, itemId){
-  const itemTitle = findItemTitle(itemType, itemId);
-  document.getElementById('modal-body').innerHTML = `
-    <h3>🔒 הודעה פרטית ל${MARKETING_CONTACT_NAME}</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">
-      בנוגע ל"${itemTitle}". ההודעה תוצג רק ל${MARKETING_CONTACT_NAME} (מחלקת שיווק) — לא לסניפים אחרים.
-    </p>
-    <div class="field">
-      <label>תוכן ההודעה</label>
-      <textarea id="private-msg-text" rows="5" placeholder="כתבו כאן את ההודעה הפרטית שלכם…"></textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm" onclick="submitPrivateMessageFromModal('${itemType}','${itemId}')">🔒 שליחת הודעה פרטית</button>
-    </div>
-  `;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-function submitPrivateMessageFromModal(itemType, itemId){
-  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
-  const input = document.getElementById('private-msg-text');
-  const text = input.value.trim();
-  if(!text){ toast('נא לכתוב תוכן לפני השליחה'); input.focus(); return; }
-  const itemTitle = findItemTitle(itemType, itemId);
-  const msgObj = {
-    itemType, itemId, itemTitle,
-    branchName: session.branchName,
-    branchEmail: session.branchInfo ? session.branchInfo.email : '',
-    text,
-    date: todayHeb(),
-    replies: [],
-    unreadForMarketing: true,
-    unreadForBranch: false,
-    deletedForBranch: false,
-    deletedForMarketing: false
-  };
-  closeModal();
-  if(firebaseReady){
-    msgObj.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-    db.collection('privateMessages').add(msgObj)
-      .then(()=>{
-        toast(`ההודעה נשלחה בהצלחה ל${MARKETING_CONTACT_NAME} · נשלח גם מייל אוטומטי`);
-        sendPrivateMessageEmail(session.branchName, itemTitle, text);
-      })
-      .catch(err=>toast('שגיאה בשליחת ההודעה: '+err.message));
-    return;
-  }
-  msgObj.id = nextIds.privateMessages++;
-  appData.privateMessages.push(msgObj);
-  appData.notifications.unshift({
-    id: Date.now(),
-    title: 'התקבלה הודעה פרטית חדשה',
-    body: `${session.branchName} · ${itemTitle}: ${text.slice(0,60)}${text.length>60?'…':''}`,
-    date: todayHeb(), type:'message', read:false
-  });
-  renderContent();
-  renderNotifPanel();
-  toast(`ההודעה נשלחה בהצלחה ל${MARKETING_CONTACT_NAME} · נשלח גם מייל אוטומטי`);
-  sendPrivateMessageEmail(session.branchName, itemTitle, text);
 }
 
 /* ---------- Private messages inbox ("ההודעות שלי") ---------- */
@@ -4070,7 +3795,7 @@ function saveSiteTexts(){
 }
 
 function adminList(type){
-  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'חומרים להורדה', events:'אירועים'};
+  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'חומרים דיגיטליים להורדה', events:'אירועים'};
   const items = appData[type];
   return `
     <div class="admin-toolbar">
@@ -4135,7 +3860,7 @@ function adminStats(){
     <div class="stat-row">
       <div class="stat-tile"><div class="label">סניפים רשומים</div><div class="value">${getTotalBranches()}</div><div class="delta flat">מתוך רשת מלאה</div></div>
       <div class="stat-tile"><div class="label">תחרויות פעילות</div><div class="value">${activeCompsCount}</div><div class="delta ${activeCompsCount?'good':'flat'}">כרגע פתוחות</div></div>
-      <div class="stat-tile"><div class="label">חומרים להורדה</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
+      <div class="stat-tile"><div class="label">חומרים דיגיטליים להורדה</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
       <div class="stat-tile"><div class="label">תגובות ומשוב מהסניפים</div><div class="value">${appData.comments.length}</div><div class="delta flat">סה״כ מצטבר</div></div>
     </div>
     <div class="card" style="padding:18px 20px;">
@@ -4222,6 +3947,7 @@ function openForm(type, editId){
     `;
   } else if(type==='instructions'){
     const reqAction = item?.requiresAction || false;
+    pendingInstructionImageUrl = undefined;
     fieldsHtml = `
       <div class="field"><label>כותרת</label><input id="f-title" value="${item?.title||''}"></div>
       <div class="field"><label>קטגוריה</label><input id="f-category" value="${item?.category||''}" placeholder="מחירים / שירות / מיתוג / כללי"></div>
@@ -4250,6 +3976,13 @@ function openForm(type, editId){
         </div>
       </div>
       <div class="field"><label>תוכן ההוראה</label><textarea id="f-body">${item?.body||''}</textarea></div>
+      <div class="field">
+        <label>תמונה להמחשה (אופציונלי)</label>
+        <button type="button" class="btn-import" onclick="document.getElementById('f-instr-image-input').click()">🖼 בחירת תמונה</button>
+        <input type="file" id="f-instr-image-input" accept="image/*" style="display:none;" onchange="handleInstructionImageFileChange(event)">
+        <div class="field-hint" id="f-instr-image-status"></div>
+        <div id="f-instr-image-preview-wrap"></div>
+      </div>
     `;
   } else {
     pendingMaterialFile = null;
@@ -4279,6 +4012,7 @@ function openForm(type, editId){
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
+  if(type==='instructions') renderInstructionImagePreview();
 }
 function saveForm(){
   const {type, editId} = formState;
@@ -4310,13 +4044,16 @@ function saveForm(){
     const requiresAction = document.querySelector('input[name="f-instr-type"]:checked')?.value === 'action';
     const dueDate = requiresAction ? val('f-instr-due') : '';
     if(requiresAction && !dueDate){ toast('נא למלא תאריך יעד לביצוע'); return; }
+    const existingInstr = editId ? appData.instructions.find(x=>x.id==editId) : null;
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
       date: val('f-date'), body: val('f-body'), unread: true,
       requiresAction, dueDate: requiresAction ? dueDate : null,
       requiresPhoto: requiresAction ? !!document.getElementById('f-instr-photo').checked : false,
-      targetBranches: 'all'
+      targetBranches: 'all',
+      imageUrl: pendingInstructionImageUrl!==undefined ? pendingInstructionImageUrl : (existingInstr ? (existingInstr.imageUrl || null) : null)
     };
+    pendingInstructionImageUrl = undefined;
   } else {
     const existingMaterial = editId ? appData.materials.find(x=>x.id==editId) : null;
     const fileInfo = pendingMaterialFile || (existingMaterial ? {url: existingMaterial.fileUrl, type: existingMaterial.type, size: existingMaterial.size} : null);
@@ -4499,20 +4236,6 @@ function toggleNotifPanel(){
 function markAllNotifsRead(){
   appData.notifications.forEach(n=>n.read=true);
   renderNotifPanel();
-}
-function simulateIncomingNotification(){
-  setTimeout(()=>{
-    if(document.getElementById('app-screen').style.display==='none') return;
-    const newNotif = {
-      id: Date.now(),
-      title: 'עדכון חדש התקבל',
-      body: session.role==='marketing' ? 'סניף נוסף צפה בהוראה הדחופה האחרונה.' : 'מחלקת השיווק פרסמה עדכון חדש ביומן האירועים.',
-      date: todayHeb(), type:'event', read:false
-    };
-    appData.notifications.unshift(newNotif);
-    renderNotifPanel();
-    showNotifToastPop(newNotif);
-  }, 20000);
 }
 function showNotifToastPop(n){
   const el = document.createElement('div');
