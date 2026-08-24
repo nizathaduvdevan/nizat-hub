@@ -451,6 +451,19 @@
   .comp-group-table-row .n{flex:1;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .comp-group-table-row .p{width:60px;text-align:left;font-variant-numeric:tabular-nums;font-weight:500;flex:none;}
   .comp-group-table-row .m{width:132px;color:var(--muted);flex:none;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;justify-content:flex-end;}
+
+  /* Area-manager tab rows — calm, no bold digits, percent as a soft pill */
+  .area-branch-table{display:flex;flex-direction:column;}
+  .area-branch-row{display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13.5px;border-bottom:1px solid var(--gridline);}
+  .area-branch-row:last-child{border-bottom:none;}
+  .abr-name{flex:1;font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .abr-figures{font-weight:400;color:var(--text-secondary);flex:none;}
+  .abr-of{color:var(--muted);}
+  .abr-pct{
+    flex:none;font-weight:400;font-size:12px;color:var(--text-secondary);
+    background:var(--page);border-radius:99px;padding:3px 10px;min-width:42px;text-align:center;
+  }
+  html[data-theme="dark"] .abr-pct{background:#242422;}
   .mgr-chip{
     display:inline-flex;align-items:center;font-size:12.5px;font-weight:500;padding:3px 10px;border-radius:99px;
     white-space:nowrap;border:1px solid transparent;line-height:1.5;
@@ -535,13 +548,16 @@
   .admin-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
 
   /* Competition sub-tabs (תצוגה כללית / לפי איזור / סיכום איזורי) */
-  .comp-tabs-nav{display:flex;gap:6px;margin:14px 0 12px;border-bottom:1px solid var(--gridline);overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .comp-tabs-nav{display:flex;gap:8px;margin:16px 0 14px;flex-wrap:wrap;}
   .comp-tab-btn{
-    border:none;background:transparent;padding:9px 14px;font-size:13.5px;font-weight:500;color:var(--muted);
-    border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex:none;cursor:pointer;font-family:inherit;
+    border:2px solid var(--border);background:var(--surface-1);padding:10px 18px;font-size:14px;font-weight:600;
+    color:var(--text-secondary);border-radius:99px;white-space:nowrap;cursor:pointer;font-family:inherit;
+    transition:all .15s ease;
   }
-  .comp-tab-btn.active{color:var(--blue-dark);border-color:var(--blue);}
-  html[data-theme="dark"] .comp-tab-btn.active{color:var(--blue);}
+  .comp-tab-btn[data-ctab="general"].active{background:#457a1f;border-color:#457a1f;color:#fff;}
+  .comp-tab-btn[data-ctab="area"].active{background:#b0781f;border-color:#b0781f;color:#fff;}
+  .comp-tab-btn[data-ctab="summary"].active{background:#4a3aa7;border-color:#4a3aa7;color:#fff;}
+  html[data-theme="dark"] .comp-tab-btn{background:#1f1f1d;border-color:#333;color:var(--muted);}
 
   .btn-add{
     background:var(--text-primary);color:#fff;border:none;border-radius:9px;padding:9px 16px;
@@ -1669,7 +1685,7 @@ function viewDashboard(){
           const above = groupBranches[myIdx-1];
           if(above.target===match.branch.target && above.target>0){
             const gap = above.sales - match.branch.sales;
-            if(gap>0) gapText = `עוד ${gap.toLocaleString()} ₪ למקום ${myIdx}`;
+            if(gap>0) gapText = `עוד ${fmtMoney(gap)} ₪ למקום ${myIdx}`;
           }
         }
         personal = {
@@ -1687,7 +1703,7 @@ function viewDashboard(){
           ${personal.rank ? `<span class="dc-rank">${personal.groupName ? `מקום ${personal.rank} בקבוצה ${personal.groupName}` : `מקום ${personal.rank}${personal.total?` מתוך ${personal.total}`:''}`}</span>` : ''}
         </div>
         <h3 class="dc-title">🏆 ${comp.title}</h3>
-        <div class="dc-figures" dir="ltr">${personal.sales.toLocaleString()} ₪ <span class="dc-of">מתוך</span> ${personal.target.toLocaleString()} ₪</div>
+        <div class="dc-figures" dir="ltr">${fmtMoney(personal.sales)} ₪ <span class="dc-of">מתוך</span> ${fmtMoney(personal.target)} ₪</div>
         <div class="comp-progress-wrap">
           <div class="comp-progress-track"><div class="comp-progress-fill ${personal.pct>=100?'full':''}" style="width:${Math.min(100,personal.pct)}%"></div></div>
         </div>
@@ -1777,6 +1793,9 @@ function viewDashboard(){
       </div>`}
     </div>
   `;
+}
+function fmtMoney(n){
+  return (n||0).toLocaleString(undefined, {maximumFractionDigits:2});
 }
 function parseHebDate(d){
   const [dd,mm,yy] = d.split('.').map(Number);
@@ -2267,15 +2286,10 @@ function compCountdownHtml(c){
   const startTs = parseHebDate(c.start);
   const endTs = parseHebDate(c.end) + 24*60*60*1000 - 1;
   if(now >= endTs){ return `<div class="comp-countdown countdown-ended">🏁 המבצע הסתיים</div>`; }
-  let mainHtml;
   if(now < startTs){
-    mainHtml = countdownBlockHtml(`cd-${c.id}`, 'upcoming', '⏳ המבצע יתחיל בעוד', startTs, now);
-  } else {
-    mainHtml = countdownBlockHtml(`cd-${c.id}`, 'active', '⏳ נותרו להשלמת היעד', endTs, now);
+    return countdownBlockHtml(`cd-${c.id}`, 'upcoming', '⏳ המבצע יתחיל בעוד', startTs, now);
   }
-  // second, always-visible counter (distinct color) counting down to the campaign's end date specifically
-  const endHtml = countdownBlockHtml(`cd-end-${c.id}`, 'end', '🔴 עד סיום המבצע', endTs, now);
-  return mainHtml + endHtml;
+  return countdownBlockHtml(`cd-${c.id}`, 'active', '⏳ נותרו להשלמת היעד', endTs, now);
 }
 function tickCountdowns(){
   document.querySelectorAll('.comp-countdown[data-countdown-target]').forEach(el=>{
@@ -2333,7 +2347,7 @@ function compCard(c){
         <div class="lb-row ${idx===0?'top1':idx===1?'top2':idx===2?'top3':''} ${r.name===mine?'lb-mine':''}">
           <div class="lb-rank">${idx+1}</div>
           <div class="lb-name">${r.name}${r.name===mine?' (אתם)':''}</div>
-          <div class="lb-score">${r.score.toLocaleString()}</div>
+          <div class="lb-score">${fmtMoney(r.score)}</div>
         </div>
       `).join('')}
     </div>` : ''}
@@ -2359,18 +2373,18 @@ function renderGroupForBranch(comp, g, b){
       <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
         <div class="comp-group-head">
           <span class="comp-group-name">יעדי ${session.branchName || b.name} <span style="color:var(--muted);font-weight:500;">(${b.rawName})</span></span>
-          <span class="comp-target-chip" dir="ltr">יעד ${b.target.toLocaleString()} ₪</span>
+          <span class="comp-target-chip" dir="ltr">יעד ${fmtMoney(b.target)} ₪</span>
         </div>
         <div class="comp-manager-row" style="margin-bottom:6px;">
           <span>שיוך לקבוצה: <b>${g.name}</b></span>
           ${myRank ? `<span style="margin-right:10px;">מקום ${myRank} מתוך ${rankedGroup.length} בקבוצה</span>` : ''}
         </div>
         <div class="comp-kpi-row">
-          <div class="comp-kpi"><div class="l">יעד</div><div class="v" dir="ltr">${b.target.toLocaleString()} ₪</div></div>
-          <div class="comp-kpi"><div class="l">מכירות בפועל</div><div class="v" dir="ltr">${b.sales.toLocaleString()} ₪</div></div>
+          <div class="comp-kpi"><div class="l">יעד</div><div class="v" dir="ltr">${fmtMoney(b.target)} ₪</div></div>
+          <div class="comp-kpi"><div class="l">מכירות בפועל</div><div class="v" dir="ltr">${fmtMoney(b.sales)} ₪</div></div>
           <div class="comp-kpi"><div class="l">אחוז מהיעד</div><div class="v" dir="ltr">${pct}%</div></div>
-          <div class="comp-kpi ${remaining<=0?'kpi-done':''}"><div class="l">${remaining<=0?'עברתם את היעד':'נותר להשלמת היעד'}</div><div class="v" dir="ltr">${remaining<=0? '+'+Math.abs(remaining).toLocaleString() : remaining.toLocaleString()} ₪</div></div>
-          <div class="comp-kpi ${groupRemaining<=0?'kpi-done':''}"><div class="l">${groupRemaining<=0?'הקבוצה עברה את היעד':'נותר לכלל הקבוצה'}</div><div class="v" dir="ltr">${groupRemaining<=0? '+'+Math.abs(groupRemaining).toLocaleString() : groupRemaining.toLocaleString()} ₪</div></div>
+          <div class="comp-kpi ${remaining<=0?'kpi-done':''}"><div class="l">${remaining<=0?'עברתם את היעד':'נותר להשלמת היעד'}</div><div class="v" dir="ltr">${remaining<=0? '+'+fmtMoney(Math.abs(remaining)) : fmtMoney(remaining)} ₪</div></div>
+          <div class="comp-kpi ${groupRemaining<=0?'kpi-done':''}"><div class="l">${groupRemaining<=0?'הקבוצה עברה את היעד':'נותר לכלל הקבוצה'}</div><div class="v" dir="ltr">${groupRemaining<=0? '+'+fmtMoney(Math.abs(groupRemaining)) : fmtMoney(groupRemaining)} ₪</div></div>
         </div>
         <div class="comp-progress-wrap">
           <div class="comp-progress-track"><div class="comp-progress-fill ${full?'full':''}" style="width:${Math.min(100,pct)}%"></div></div>
@@ -2385,6 +2399,10 @@ function renderGroupForBranch(comp, g, b){
   `;
 }
 function renderGroupsForAdmin(c){
+  const RANK_COLORS = [
+    {bg:'#FFD700', text:'#1a1a1a'}, {bg:'#C0C0C0', text:'#1a1a1a'}, {bg:'#CD7F32', text:'#ffffff'},
+    {bg:'#4FA8DA', text:'#ffffff'}, {bg:'#8BC34A', text:'#1a1a1a'}
+  ];
   return `
     <div class="comp-groups">
       ${c.groups.map(g=>{
@@ -2401,17 +2419,24 @@ function renderGroupsForAdmin(c){
         <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
             <span class="comp-group-name">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
-            <span class="comp-target-chip" dir="ltr">יעד לסניף ${g.target.toLocaleString()} ₪</span>
+            <span class="comp-target-chip" dir="ltr">יעד לסניף ${fmtMoney(g.target)} ₪</span>
           </div>
           <div class="comp-kpi-row">
-            <div class="comp-kpi"><div class="l">סה״כ יעד קבוצה</div><div class="v" dir="ltr">${totalTarget.toLocaleString()} ₪</div></div>
-            <div class="comp-kpi"><div class="l">סה״כ מכירות</div><div class="v" dir="ltr">${totalSales.toLocaleString()} ₪</div></div>
+            <div class="comp-kpi"><div class="l">סה״כ יעד קבוצה</div><div class="v" dir="ltr">${fmtMoney(totalTarget)} ₪</div></div>
+            <div class="comp-kpi"><div class="l">סה״כ מכירות</div><div class="v" dir="ltr">${fmtMoney(totalSales)} ₪</div></div>
             <div class="comp-kpi"><div class="l">אחוז מהיעד</div><div class="v" dir="ltr">${pct}%</div></div>
-            <div class="comp-kpi ${totalTarget-totalSales<=0?'kpi-done':''}"><div class="l">${totalTarget-totalSales<=0?'הקבוצה עברה את היעד':'נותר לקבוצה להשלמת היעד'}</div><div class="v" dir="ltr">${totalTarget-totalSales<=0? '+'+Math.abs(totalTarget-totalSales).toLocaleString() : (totalTarget-totalSales).toLocaleString()} ₪</div></div>
+            <div class="comp-kpi ${totalTarget-totalSales<=0?'kpi-done':''}"><div class="l">${totalTarget-totalSales<=0?'הקבוצה עברה את היעד':'נותר לקבוצה להשלמת היעד'}</div><div class="v" dir="ltr">${totalTarget-totalSales<=0? '+'+fmtMoney(Math.abs(totalTarget-totalSales)) : fmtMoney(totalTarget-totalSales)} ₪</div></div>
           </div>
           ${prizes.length ? `
           <div class="prize-list">
-            ${prizes.map(p=>`<div class="prize-item"><span class="prize-rank">${p.rank}</span><span class="prize-text"><b>${p.label||('מקום '+p.rank)}:</b> ${p.text}</span></div>`).join('')}
+            ${prizes.map((p,idx)=>{
+              const winner = ranked[idx];
+              const rc = RANK_COLORS[idx] || RANK_COLORS[RANK_COLORS.length-1];
+              return `<div class="prize-item" style="background:${rc.bg};color:${rc.text};">
+                <span class="prize-rank" style="background:rgba(0,0,0,0.18);color:${rc.text};">${p.rank}</span>
+                <span class="prize-text" style="color:${rc.text};">${p.label||('מקום '+p.rank)}${winner?`: סניף ${winner.rawName}`:''} — ${p.text}</span>
+              </div>`;
+            }).join('')}
           </div>` : ''}
           <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
           <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
@@ -2459,17 +2484,19 @@ function renderByAreaManager(c){
             <span class="comp-group-name">${managerChip(c, m.mgr)} · ${m.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">${pct}% מהיעד המצטבר</span>
           </div>
-          <div class="comp-group-table" style="display:block;">
-            ${m.branches.map(b=>`
-              <div class="comp-group-table-row">
-                <span class="n">${b.rawName}</span>
-                <span class="p" dir="ltr">${b.sales.toLocaleString()} / ${b.target.toLocaleString()} ₪</span>
-                <span class="m" dir="ltr">${b.target>0?Math.round(b.sales/b.target*100):0}%</span>
-              </div>
-            `).join('')}
+          <div class="area-branch-table">
+            ${m.branches.map(b=>{
+              const bpct = b.target>0 ? Math.round(b.sales/b.target*100) : 0;
+              return `
+              <div class="area-branch-row">
+                <span class="abr-name">${b.rawName}</span>
+                <span class="abr-figures" dir="ltr">${fmtMoney(b.sales)} <span class="abr-of">/</span> ${fmtMoney(b.target)} ₪</span>
+                <span class="abr-pct" dir="ltr">${bpct}%</span>
+              </div>`;
+            }).join('')}
           </div>
           <div class="comp-manager-row" style="margin-top:8px;border-top:1px solid var(--gridline);padding-top:8px;">
-            סיכום ${m.mgr}: ${m.totalSales.toLocaleString()} ₪ מתוך ${m.totalTarget.toLocaleString()} ₪ (${pct}%)
+            סיכום ${m.mgr}: ${fmtMoney(m.totalSales)} ₪ מתוך ${fmtMoney(m.totalTarget)} ₪ (${pct}%)
           </div>
         </div>`;
       }).join('')}
@@ -2498,7 +2525,7 @@ function renderAreaManagerSummary(c){
             <div class="t">${managerChip(c, r.mgr)}</div>
             <div class="m">${r.count} סניפים</div>
           </div>
-          <div style="font-weight:500;" dir="ltr">${r.sales.toLocaleString()} ₪</div>
+          <div style="font-weight:400;color:var(--text-secondary);" dir="ltr">${fmtMoney(r.sales)} ₪</div>
         </div>`;
       }).join('')}
     </div>
@@ -2508,9 +2535,9 @@ function renderAreaManagerSummary(c){
 function renderCompetitionTabs(c){
   return `
     <div class="comp-tabs-nav">
-      <button class="comp-tab-btn active" id="ctab-btn-general-${c.id}" onclick="switchCompTab('${c.id}','general')">תצוגה כללית</button>
-      <button class="comp-tab-btn" id="ctab-btn-area-${c.id}" onclick="switchCompTab('${c.id}','area')">תצוגה לפי איזור</button>
-      <button class="comp-tab-btn" id="ctab-btn-summary-${c.id}" onclick="switchCompTab('${c.id}','summary')">סיכום איזורי כללי</button>
+      <button class="comp-tab-btn active" data-ctab="general" id="ctab-btn-general-${c.id}" onclick="switchCompTab('${c.id}','general')">תצוגה כללית</button>
+      <button class="comp-tab-btn" data-ctab="area" id="ctab-btn-area-${c.id}" onclick="switchCompTab('${c.id}','area')">תצוגה לפי איזור</button>
+      <button class="comp-tab-btn" data-ctab="summary" id="ctab-btn-summary-${c.id}" onclick="switchCompTab('${c.id}','summary')">סיכום איזורי כללי</button>
     </div>
     <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}</div>
     <div class="comp-tab-content" id="ctab-area-${c.id}" style="display:none;">${renderByAreaManager(c)}</div>
@@ -2724,8 +2751,8 @@ function viewAreaOverview(){
 
   const summaryHtml = myStats ? `
     <div class="stat-row">
-      <div class="stat-tile"><div class="label">יעד כולל לאזור שלי</div><div class="value" dir="ltr">${myStats.target.toLocaleString()} ₪</div><div class="delta flat">${myStats.branches.length} סניפים</div></div>
-      <div class="stat-tile"><div class="label">מכירות בפועל</div><div class="value" dir="ltr">${myStats.sales.toLocaleString()} ₪</div><div class="delta flat">מצטבר בכל התחרויות הפעילות</div></div>
+      <div class="stat-tile"><div class="label">יעד כולל לאזור שלי</div><div class="value" dir="ltr">${fmtMoney(myStats.target)} ₪</div><div class="delta flat">${myStats.branches.length} סניפים</div></div>
+      <div class="stat-tile"><div class="label">מכירות בפועל</div><div class="value" dir="ltr">${fmtMoney(myStats.sales)} ₪</div><div class="delta flat">מצטבר בכל התחרויות הפעילות</div></div>
       <div class="stat-tile"><div class="label">אחוז מהיעד</div><div class="value">${myStats.pct}%</div><div class="delta ${myStats.pct>=100?'good':'flat'}">${myStats.pct>=100?'עברתם את היעד':'בדרך ליעד'}</div></div>
       <div class="stat-tile"><div class="label">דירוג מול שאר האזורים</div><div class="value">#${stats.findIndex(s=>s.area===myArea)+1}</div><div class="delta flat">מתוך ${stats.length} אזורים</div></div>
     </div>
@@ -2736,7 +2763,7 @@ function viewAreaOverview(){
     <div class="card">
       ${myStats.branches.map(b=>{
         const pct = b.target>0 ? Math.round(b.sales/b.target*100) : 0;
-        return `<div class="admin-row"><div class="admin-row-main"><div class="t">${b.name}</div><div class="m">${b.competitionTitle} · יעד ${b.target.toLocaleString()} ₪ · מכירות ${b.sales.toLocaleString()} ₪</div></div><span class="badge ${pct>=100?'active':'cat'}">${pct}%</span></div>`;
+        return `<div class="admin-row"><div class="admin-row-main"><div class="t">${b.name}</div><div class="m">${b.competitionTitle} · יעד ${fmtMoney(b.target)} ₪ · מכירות ${fmtMoney(b.sales)} ₪</div></div><span class="badge ${pct>=100?'active':'cat'}">${pct}%</span></div>`;
       }).join('')}
     </div>
   ` : '';
