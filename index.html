@@ -2504,7 +2504,7 @@ function handleDailyReportFile(evt){
   reader.onload = function(e){
     try{
       const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, {type:'array'});
+      const wb = XLSX.read(data, {type:'array', cellStyles:true});
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
       const items = parseDailyReportSheet(rows);
@@ -2519,9 +2519,14 @@ function handleDailyReportFile(evt){
         const m = matchDailyReportItem(comp, item);
         if(m){ m.branch.sales = item.sales; updated++; } else unmatched.push(item.rawName);
       });
+      /* אם הדוח היומי הוא בפועל אותו קובץ SALES.xlsx המלא (עם קבוצות/פרסים/צבעים) —
+         מרעננים גם את "צילום" הטבלה הגולמית שמוצג בתצוגה כללית, כדי שתמיד תשקף
+         את העדכון האחרון. אם הקובץ פשוט (שם+מכירות בלבד) — משאירים את התמונה הקודמת. */
+      const fullParse = parseCompetitionSheet(rows, sheet);
+      if(fullParse && fullParse.rawTable) comp.rawTable = fullParse.rawTable;
       comp.salesUpdatedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       if(firebaseReady){
-        db.collection('competitions').doc(comp.id).update({groups: comp.groups, salesUpdatedAt: comp.salesUpdatedAt})
+        db.collection('competitions').doc(comp.id).update({groups: comp.groups, salesUpdatedAt: comp.salesUpdatedAt, rawTable: comp.rawTable || null})
           .then(()=>toast(`עודכנו ${updated} מתוך ${items.length} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : '')))
           .catch(err=>toast('שגיאה בשמירת הדוח ל-Firestore: '+err.message));
       } else {
