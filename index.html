@@ -584,6 +584,7 @@
   .chip.active{background:var(--text-primary);color:#fff;border-color:var(--text-primary);}
   .materials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
   .material-card{padding:16px;display:flex;flex-direction:column;gap:10px;}
+  .mat-tag{color:#fff;font-size:11px;font-weight:600;border-radius:99px;padding:3px 9px;white-space:nowrap;}
   .file-icon{
     width:42px;height:42px;border-radius:10px;background:#eef0f2;
     display:flex;align-items:center;justify-content:center;font-size:19.5px;font-weight:500;color:var(--blue-dark);
@@ -1232,9 +1233,11 @@ let unsubMaterials = null;
 let unsubEvents = null;
 let unsubStandCampaigns = null;
 let unsubStandConfirmations = null;
+let unsubStandTakedownAcks = null;
 let unsubInstructionCompletions = null;
 let unsubItemReads = null;
 let unsubPwaInstalls = null;
+let unsubMaterialTags = null;
 let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
 function initFirestoreSync(){
@@ -1369,6 +1372,21 @@ function initFirestoreSync(){
       console.error('Firestore sync error (stand confirmations):', err);
     });
 
+  /* אישורי "ראיתי, אוריד את הסטנד" (תזכורת 3 ימים לפני הורדה, חובה לאשר) —
+     קולקציה נפרדת לפי סניף, באותה שיטה בדיוק כמו standConfirmations. כל עוד
+     הסניף לא אישר, הבאנר ממשיך להופיע אצלו בכל טעינה — זה לא נגזר מ"נקרא"
+     אלא מהיעדר מסמך אישור בפועל. */
+  if (unsubStandTakedownAcks) unsubStandTakedownAcks();
+  unsubStandTakedownAcks = db.collection('standTakedownAcks')
+    .onSnapshot(function(snap){
+      appData.standTakedownAcks = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (stand takedown acks):', err);
+    });
+
   /* ביצועי משימות "נדרש ביצוע" — קולקציה נפרדת, מסמך אחד לכל צירוף הוראה+סניף
      (בדיוק כמו standConfirmations), כדי לא להחזיק מערך של כל הסניפים בתוך
      מסמך ההוראה עצמו. */
@@ -1410,6 +1428,18 @@ function initFirestoreSync(){
       renderContent();
     }, function(err){
       console.error('Firestore sync error (pwa installs):', err);
+    });
+
+  /* תגיות מותאמות אישית שמחלקת השיווק יוצרת לחומרי שיווק, בנוסף לתגיות המובנות. */
+  if (unsubMaterialTags) unsubMaterialTags();
+  unsubMaterialTags = db.collection('materialTags')
+    .onSnapshot(function(snap){
+      appData.materialTags = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (material tags):', err);
     });
 
   if (unsubSiteTexts) unsubSiteTexts();
@@ -1473,9 +1503,11 @@ function getTotalBranches(){ return BRANCH_DIRECTORY.length; }
 let appData = {
   siteTexts: {},
   standConfirmations: [],
+  standTakedownAcks: [],
   instructionCompletions: [],
   itemReads: [],
   pwaInstalls: [],
+  materialTags: [],
   competitions: [
     {
       id: 1,
@@ -1617,7 +1649,7 @@ const SITE_TEXT_DEFAULTS = {
 const SITE_TEXT_LABELS = {
   competitions_desc: 'תחרויות — תיאור מתחת לכותרת',
   instructions_desc: 'הוראות ועדכונים — תיאור מתחת לכותרת',
-  materials_desc: 'חומרים דיגיטליים להורדה — תיאור מתחת לכותרת',
+  materials_desc: 'חומרי שיווק להורדה — תיאור מתחת לכותרת',
   stands_desc: 'סטנדים לאישור — תיאור מתחת לכותרת',
   messages_desc_marketing: 'הודעות פרטיות — תיאור (בצד מחלקת השיווק)',
   messages_desc_branch: 'ההודעות שלי — תיאור (בצד הסניף)',
@@ -1812,7 +1844,7 @@ function navItems(){
     {id:'competitions', label:'תחרויות', icon:'🏆'},
     {id:'instructions', label:'הוראות ועדכונים', icon:'📋'},
     {id:'events', label:'יומן אירועים', icon:'🗓'},
-    {id:'materials', label:'חומרים דיגיטליים להורדה', icon:'⬇'},
+    {id:'materials', label:'חומרי שיווק להורדה', icon:'⬇'},
     {id:'stands', label:'סטנדים לאישור', icon:'🪧'},
     {id:'messages', label:'ההודעות שלי', icon:'✉'}
   );
@@ -2413,6 +2445,7 @@ let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicit
 let pendingHeroMobileUrl = undefined;
 let formCurrentLogo = null; // logo currently on the item being edited (or null for a new item)
 let pendingMaterialFile = null; // {url, type, size} set after a successful Cloudinary upload this form session
+let pendingMaterialThumbUrl = undefined; // undefined = untouched this session, null = removed, string = new Cloudinary URL
 let pendingInstructionImageUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new Cloudinary URL
 function triggerCompetitionImport(){
   // Quick shortcut: opens the same unified form and immediately prompts for the Excel file.
@@ -2606,6 +2639,78 @@ function handleMaterialFileChange(evt){
     if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
     toast('שגיאה בהעלאת הקובץ');
   });
+}
+function handleMaterialThumbChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('f-material-thumb-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    pendingMaterialThumbUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+}
+function handleMaterialFolderUpload(evt){
+  const files = [...evt.target.files];
+  if(!files.length) return;
+  const folderName = (files[0].webkitRelativePath || '').split('/')[0] || 'תיקייה מיובאת';
+  toast(`מעלה ${files.length} קבצים מתוך "${folderName}"...`);
+  let done = 0, failed = 0;
+  const uploadOne = (file) => uploadFileToCloudinary(file).then(function(result){
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    const obj = {
+      name: file.name.replace(/\.[^.]+$/, ''),
+      category: folderName,
+      type: ext || 'קובץ',
+      size: formatFileSize(file.size),
+      fileUrl: result.secure_url,
+      date: todayHeb(),
+      unread: true,
+      tags: [],
+      thumbUrl: null
+    };
+    if(firebaseReady){
+      return db.collection('materials').add(obj);
+    } else {
+      obj.id = nextIds.materials++;
+      appData.materials.push(obj);
+      return Promise.resolve();
+    }
+  }).then(()=>{ done++; }).catch(err=>{ console.error('folder upload item failed:', file.name, err); failed++; });
+
+  Promise.all(files.map(uploadOne)).then(()=>{
+    renderContent();
+    toast(`הועלו ${done} מתוך ${files.length} קבצים מתוך "${folderName}"` + (failed ? ` (${failed} נכשלו)` : ''));
+  });
+  evt.target.value = '';
+}
+function addCustomMaterialTag(){
+  const input = document.getElementById('f-material-new-tag');
+  const label = input.value.trim();
+  if(!label) return;
+  const id = 'custom_' + label.replace(/\s+/g,'_').replace(/[^\wא-ת_]/g,'');
+  if(allMaterialTags().some(t=>t.id===id)){ toast('התגית כבר קיימת'); input.value=''; return; }
+  const CUSTOM_TAG_COLORS = ['#0ea5e9','#8b5cf6','#f59e0b','#10b981','#ec4899','#6366f1'];
+  const color = CUSTOM_TAG_COLORS[Math.floor(Math.random()*CUSTOM_TAG_COLORS.length)];
+  const tagObj = {id, label, color, icon:'🏷'};
+  appData.materialTags.push(tagObj);
+  if(firebaseReady){
+    db.collection('materialTags').doc(id).set(tagObj).catch(err=>toast('שגיאה בשמירת התגית: '+err.message));
+  }
+  const list = document.getElementById('f-material-tags-list');
+  if(list){
+    const label2 = document.createElement('label');
+    label2.style.cssText = 'display:flex;align-items:center;gap:5px;font-weight:400;font-size:13px;background:#f2f3f5;border-radius:99px;padding:5px 10px;';
+    label2.innerHTML = `<input type="checkbox" class="f-material-tag-cb" value="${id}" checked> 🏷 ${label}`;
+    list.appendChild(label2);
+  }
+  input.value = '';
+  toast('התגית נוספה');
 }
 
 /* ---- Daily sales report import (updates an existing competition's sales figures) ----
@@ -3426,26 +3531,44 @@ function viewMaterials(){
   const list = ui.materialFilter==='הכל' ? appData.materials : appData.materials.filter(m=>m.category===ui.materialFilter);
   return `
     <div class="page-head">
-      <h1>חומרים דיגיטליים להורדה</h1>
+      <h1>חומרי שיווק להורדה</h1>
       <p>${getText('materials_desc')}</p>
     </div>
     <div class="filter-row">
       ${cats.map(c=>`<button class="chip ${ui.materialFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
     </div>
     <div class="materials-grid">
-      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין חומרים דיגיטליים להורדה.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
+      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין חומרי שיווק להורדה.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
     </div>
   `;
 }
 function setMaterialFilter(c){ ui.materialFilter=c; renderContent(); }
 const IMAGE_FILE_TYPES = ['JPG','JPEG','PNG','GIF','WEBP','SVG'];
+/* תגיות מובנות לחומרי שיווק. אייקונים כלליים (לא לוגו רשמי מדויק) — כדי לא
+   לשכפל סימן מסחרי, אבל עדיין ברור אינטואיטיבית איזו פלטפורמה מיועדת. */
+const BUILTIN_MATERIAL_TAGS = [
+  {id:'facebook', label:'תצוגת Facebook', color:'#1877F2', icon:'f'},
+  {id:'instagram', label:'תצוגת Instagram', color:'#E1306C', icon:'📷'},
+  {id:'quarterly_print', label:'במות רבעוניות להדפסה', color:'#6b7280', icon:'🖨'}
+];
+function allMaterialTags(){
+  const custom = (appData.materialTags||[]).map(t=>({id:t.id, label:t.label, color:t.color||'#6b7280', icon:t.icon||'🏷'}));
+  return [...BUILTIN_MATERIAL_TAGS, ...custom];
+}
+function materialTagBadge(tagId){
+  const tag = allMaterialTags().find(t=>t.id===tagId);
+  if(!tag) return '';
+  return `<span class="mat-tag" style="background:${tag.color};">${tag.icon} ${tag.label}</span>`;
+}
 function materialCard(m){
   const isImage = IMAGE_FILE_TYPES.indexOf((m.type||'').toUpperCase()) !== -1;
+  const thumbSrc = m.thumbUrl || (isImage ? m.fileUrl : null);
   return `
   <div class="card material-card">
-    ${isImage ? `<img class="file-thumb" src="${m.fileUrl}" alt="${m.name}">` : `<div class="file-icon">${m.type}</div>`}
+    ${thumbSrc ? `<img class="file-thumb" src="${thumbSrc}" alt="${m.name}">` : `<div class="file-icon">${m.type}</div>`}
     <div class="material-name">${m.name}</div>
     <div class="material-meta">${m.category} · ${m.size} · עודכן ${m.date}</div>
+    ${m.tags && m.tags.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;">${m.tags.map(t=>materialTagBadge(t)).join('')}</div>` : ''}
     <a class="download-btn" href="${m.fileUrl}" target="_blank" rel="noopener" download="${m.name}">⬇ הורדה</a>
   </div>`;
 }
@@ -4049,6 +4172,21 @@ function parseStandsWorkbook(wb){
 }
 let pendingStandsGroups = null;
 function triggerStandsImport(){ document.getElementById('stands-file-input').click(); }
+function handleStandImageChange(evt, idx){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('stand-image-status-'+idx);
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    if(pendingStandsGroups && pendingStandsGroups[idx]) pendingStandsGroups[idx].imageUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+}
 function handleStandsFile(evt){
   const file = evt.target.files[0];
   if(!file) return;
@@ -4112,10 +4250,24 @@ function openStandsReview(matched, unmatchedCount){
           <span style="font-size:11.5px;color:var(--muted);flex:none;">${branches.length} סניפים</span>
         </div>
         <div style="font-size:10.5px;color:var(--muted);margin-bottom:4px;">מתוך גיליון "${g.sheetName}"</div>
-        <div style="font-size:11px;color:var(--muted);line-height:1.6;">${branches.join(', ')}</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:8px;">${branches.join(', ')}</div>
+        <div class="field" style="margin-bottom:8px;">
+          <label style="font-size:12px;">טקסט מצד מחלקת השיווק (אופציונלי)</label>
+          <textarea id="stand-text-${idx}" rows="2" style="font-size:13px;" placeholder="הנחיות/הערות שיוצגו לסניפים...">${g.marketingText||''}</textarea>
+        </div>
+        <div class="field">
+          <label style="font-size:12px;">תמונה להמחשה (אופציונלי)</label>
+          <button type="button" class="btn-import" onclick="document.getElementById('stand-image-input-${idx}').click()">🖼 בחירת תמונה</button>
+          <input type="file" id="stand-image-input-${idx}" accept="image/*" style="display:none;" onchange="handleStandImageChange(event, ${idx})">
+          <div class="field-hint" id="stand-image-status-${idx}"></div>
+        </div>
       </div>`;
     }).join('')}
     <div class="field" style="margin-top:14px;">
+      <label>תאריך עליית הסטנד (אופציונלי, חל על כל הקמפיינים בייבוא זה)</label>
+      <input id="stands-install-date" placeholder="DD.MM.YYYY">
+    </div>
+    <div class="field">
       <label>תאריך הורדת הסטנד (חל על כל הקמפיינים בייבוא זה)</label>
       <input id="stands-takedown-date" placeholder="DD.MM.YYYY">
     </div>
@@ -4132,6 +4284,12 @@ function saveStandsImport(){
     toast('נא להזין תאריך הורדה תקין בפורמט DD.MM.YYYY');
     return;
   }
+  const installDateRaw = val('stands-install-date');
+  if(installDateRaw && !/^\d{2}\.\d{2}\.\d{4}$/.test(installDateRaw)){
+    toast('נא להזין תאריך עלייה תקין בפורמט DD.MM.YYYY, או להשאיר ריק');
+    return;
+  }
+  const installDate = installDateRaw || null;
   if(!pendingStandsGroups || !pendingStandsGroups.length){ closeModal(); return; }
   let missingLabel = false;
   const newCampaigns = [];
@@ -4139,6 +4297,8 @@ function saveStandsImport(){
     const inputEl = document.getElementById('stand-label-'+idx);
     const label = inputEl ? inputEl.value.trim() : '';
     if(!label){ missingLabel = true; return; }
+    const textEl = document.getElementById('stand-text-'+idx);
+    const marketingText = textEl ? textEl.value.trim() : '';
     const branches = Array.from(g.branchMap.values()).map(v=>({
       matchedBranchName: v.matchedBranch.name,
       matchedBranchEmail: v.matchedBranch.email,
@@ -4149,9 +4309,10 @@ function saveStandsImport(){
     }));
     newCampaigns.push({
       id: nextIds.standCampaigns++,
-      label, colorHex: g.colorHex, sourceSheet: g.sheetName, takedownDate,
+      label, colorHex: g.colorHex, sourceSheet: g.sheetName, takedownDate, installDate,
+      marketingText: marketingText || null, imageUrl: g.imageUrl || null,
       createdAt: todayHeb(),
-      reminder10Sent: false, reminder1Sent: false,
+      reminder5Sent: false, reminder3Sent: false,
       branches
     });
   });
@@ -4196,6 +4357,73 @@ function toggleStandTable(campId){
   const arrow = document.getElementById('stand-arrow-'+campId);
   el.classList.toggle('open');
   arrow.textContent = el.classList.contains('open') ? '▴' : '▾';
+}
+let pendingEditStandImageUrl = undefined;
+function openEditStandModal(campId){
+  const camp = appData.standCampaigns.find(c=>c.id==campId);
+  if(!camp) return;
+  pendingEditStandImageUrl = undefined;
+  document.getElementById('modal-body').innerHTML = `
+    <h3>עריכת קמפיין סטנד</h3>
+    <div class="field"><label>שם המותג/הסטנד</label><input id="edit-stand-label" value="${camp.label.replace(/"/g,'&quot;')}"></div>
+    <div class="field"><label>תאריך עלייה (אופציונלי)</label><input id="edit-stand-install" value="${camp.installDate||''}" placeholder="DD.MM.YYYY"></div>
+    <div class="field"><label>תאריך הורדה</label><input id="edit-stand-takedown" value="${camp.takedownDate||''}" placeholder="DD.MM.YYYY"></div>
+    <div class="field"><label>טקסט מצד מחלקת השיווק</label><textarea id="edit-stand-text" rows="3">${camp.marketingText||''}</textarea></div>
+    <div class="field">
+      <label>תמונה להמחשה</label>
+      ${camp.imageUrl ? `<div style="margin-bottom:8px;"><img src="${camp.imageUrl}" style="max-width:100%;max-height:160px;border-radius:8px;"></div>` : ''}
+      <button type="button" class="btn-import" onclick="document.getElementById('edit-stand-image-input').click()">🖼 ${camp.imageUrl ? 'החלפת תמונה' : 'בחירת תמונה'}</button>
+      <input type="file" id="edit-stand-image-input" accept="image/*" style="display:none;" onchange="handleEditStandImageChange(event)">
+      <div class="field-hint" id="edit-stand-image-status"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="saveEditStand('${campId}')">שמירה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function handleEditStandImageChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('edit-stand-image-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    pendingEditStandImageUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+}
+function saveEditStand(campId){
+  const camp = appData.standCampaigns.find(c=>c.id==campId);
+  if(!camp) return;
+  const label = val('edit-stand-label');
+  const installDate = val('edit-stand-install');
+  const takedownDate = val('edit-stand-takedown');
+  if(!label){ toast('נא למלא שם מותג/סטנד'); return; }
+  if(!/^\d{2}\.\d{2}\.\d{4}$/.test(takedownDate)){ toast('נא להזין תאריך הורדה תקין'); return; }
+  if(installDate && !/^\d{2}\.\d{2}\.\d{4}$/.test(installDate)){ toast('נא להזין תאריך עלייה תקין, או להשאיר ריק'); return; }
+  const marketingText = val('edit-stand-text');
+  const updates = {
+    label, installDate: installDate || null, takedownDate,
+    marketingText: marketingText || null,
+    imageUrl: pendingEditStandImageUrl!==undefined ? pendingEditStandImageUrl : (camp.imageUrl || null)
+  };
+  Object.assign(camp, updates);
+  pendingEditStandImageUrl = undefined;
+  closeModal();
+  if(firebaseReady){
+    db.collection('standCampaigns').doc(campId).update(updates)
+      .then(()=>toast('הקמפיין עודכן בהצלחה'))
+      .catch(err=>toast('שגיאה בעדכון הקמפיין: '+err.message));
+  } else {
+    renderContent();
+    toast('הקמפיין עודכן בהצלחה');
+  }
 }
 /* אישור סטנד — הסטטוס נשמר כעת במסמך נפרד לכל סניף (standConfirmations), לא במערך משותף
    בתוך הקמפיין. זה מאפשר להגביל בכללי Firestore: רק הסניף עצמו יכול לכתוב לאישור שלו.
@@ -4242,6 +4470,29 @@ function confirmStand(campId, idx){
   toast('תודה! האישור נשמר בהצלחה.');
   sendPrivateMessageEmail(b.matchedBranchName, `אישור סטנד: ${camp.label}`, `סניף ${b.matchedBranchName} אישר את סטנד ${camp.label} — הוצב בסניף בהצלחה.`);
 }
+/* אישור "ראיתי, אוריד את הסטנד" — תזכורת 3 ימים לפני ההורדה שחובה לאשר.
+   כל עוד לא קיים מסמך אישור לצירוף (קמפיין+סניף) הזה, הבאנר ימשיך להופיע —
+   זה לא נגזר מ"נקרא" (עיגול אדום) אלא מהיעדר אישור בפועל, כל טעינה מחדש. */
+function hasAckedTakedown(campId, branchEmail){
+  return (appData.standTakedownAcks||[]).some(a=>a.campaignId===campId && a.branchEmail===branchEmail);
+}
+function ackStandTakedown(campId){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  if(!session.branchInfo) return;
+  const camp = appData.standCampaigns.find(c=>c.id==campId);
+  if(!camp) return;
+  const branchEmail = session.branchInfo.email;
+  const ackedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+  if(hasAckedTakedown(campId, branchEmail)) return;
+  const rec = {campaignId: campId, branchEmail, branchName: session.branchName, ackedAt};
+  appData.standTakedownAcks.push(rec);
+  renderContent();
+  toast('תודה, מסומן כנקרא.');
+  if(firebaseReady){
+    const ackId = campId + '__' + branchEmail;
+    db.collection('standTakedownAcks').doc(ackId).set(rec).catch(err=>toast('שגיאה בשמירת האישור: '+err.message));
+  }
+}
 function checkStandReminders(){
   const now = Date.now();
   let any = false;
@@ -4249,24 +4500,28 @@ function checkStandReminders(){
     const t = parseHebDate(camp.takedownDate);
     if(isNaN(t)) return;
     const daysLeft = (t-now)/86400000;
-    if(!camp.reminder10Sent && daysLeft<=10 && daysLeft>1){
-      camp.reminder10Sent = true;
-      if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder10Sent:true}).catch(()=>{});
+    /* תזכורת מידעית, חד-פעמית, 5 ימים לפני ההורדה. */
+    if(!camp.reminder5Sent && daysLeft<=5 && daysLeft>3){
+      camp.reminder5Sent = true;
+      if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder5Sent:true}).catch(()=>{});
       appData.notifications.unshift({
         id: Date.now()+Math.random(),
         title: '🪧 תזכורת: יש להוריד סטנד בקרוב',
-        body: `${camp.label} — יש להוריד את הסטנד בעוד כ-10 ימים (${camp.takedownDate}).`,
+        body: `${camp.label} — יש להוריד את הסטנד בעוד כ-5 ימים (${camp.takedownDate}).`,
         date: todayHeb(), type:'stand', read:false
       });
       any = true;
     }
-    if(!camp.reminder1Sent && daysLeft<=1 && daysLeft>=-1){
-      camp.reminder1Sent = true;
-      if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder1Sent:true}).catch(()=>{});
+    /* תזכורת דחופה 3 ימים לפני ההורדה — לא חד-פעמית: מוצגת פעם אחת כהתראה בפעמון,
+       אבל הבאנר החובה-לאישור ב"סטנדים לאישור" ממשיך להופיע כל עוד לא אושר בפועל
+       (ראו hasAckedTakedown/ackStandTakedown), ללא תלות בשדה הזה. */
+    if(!camp.reminder3Sent && daysLeft<=3 && daysLeft>=-3){
+      camp.reminder3Sent = true;
+      if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder3Sent:true}).catch(()=>{});
       appData.notifications.unshift({
         id: Date.now()+Math.random(),
-        title: '⏰ תזכורת דחופה: להוריד סטנד מחר',
-        body: `${camp.label} — יש להוריד את הסטנד מחר (${camp.takedownDate})!`,
+        title: '⏰ תזכורת דחופה: להוריד סטנד — נדרש אישור',
+        body: `${camp.label} — יש להוריד את הסטנד עד ${camp.takedownDate}. יש לאשר קבלת התזכורת במסך "סטנדים לאישור".`,
         date: todayHeb(), type:'stand', read:false
       });
       any = true;
@@ -4284,27 +4539,51 @@ function standCardHtml(camp, b, idx, pending, confirmedAt){
       <div style="display:flex;justify-content:space-between;width:100%;flex-wrap:wrap;gap:6px;align-items:flex-start;">
         <div class="admin-row-main">
           <div class="t"><span class="stand-color-dot" style="background:${camp.colorHex};"></span> ${camp.label}${camp.demo ? ' <span class="badge ended">🧪 נתוני הדגמה</span>' : ''}</div>
-          <div class="m">יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` · עוד ${daysLeft} ימים` : ' · התאריך עבר'}</div>
+          <div class="m">${camp.installDate ? `עלייה ב-<span dir="ltr">${camp.installDate}</span> · ` : ''}יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` · עוד ${daysLeft} ימים` : ' · התאריך עבר'}</div>
         </div>
         ${pending ? '' : '<span class="badge active"><span class="dot"></span>אושר</span>'}
       </div>
+      ${camp.imageUrl ? `<img src="${camp.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:260px;border-radius:10px;display:block;">` : ''}
+      ${camp.marketingText ? `<div style="font-size:13.5px;background:#f2f3f5;border-radius:8px;padding:10px 12px;white-space:pre-wrap;">${camp.marketingText}</div>` : ''}
       ${pending ? `<button class="stand-confirm-btn" onclick="confirmStand('${camp.id}',${idx})">✅ אשר שהסטנד תקין ומוצב בסניף</button>` : `<div class="field-hint">אושר בתאריך ${confirmedAt}</div>`}
     </div>
   `;
 }
 function viewStandsBranch(){
   const myName = session.branchInfo ? session.branchInfo.name : null;
+  const myEmail = session.branchInfo ? session.branchInfo.email : null;
   const items = [];
   appData.standCampaigns.forEach(camp=>{
     camp.branches.forEach((b,idx)=>{ if(b.matchedBranchName===myName) items.push({camp, b, idx, status:getStandBranchStatus(camp,b)}); });
   });
   const pending = items.filter(x=>!x.status.confirmed);
   const confirmed = items.filter(x=>x.status.confirmed);
+  /* באנר חובה-לאישור: כל קמפיין שנותרו לו 3 ימים או פחות להורדה, ושהסניף הזה
+     עדיין לא אישר קבלת התזכורת עבורו — ממשיך להופיע כל עוד לא נלחץ "אישרתי". */
+  const now = Date.now();
+  const urgentUnacked = items.filter(x=>{
+    const t = parseHebDate(x.camp.takedownDate);
+    if(isNaN(t)) return false;
+    const daysLeft = (t-now)/86400000;
+    return daysLeft<=3 && !hasAckedTakedown(x.camp.id, myEmail);
+  });
   return `
     <div class="page-head">
       <h1>סטנדים לאישור</h1>
       <p>סטנדים שהוצבו בסניף שלכם וממתינים לאישור שהם תקינים ובמקום.</p>
     </div>
+    ${urgentUnacked.map(x=>`
+      <div class="card" style="background:rgba(208,59,59,0.06);border:1px solid rgba(208,59,59,0.3);margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="font-size:22px;">⏰</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;color:var(--critical);margin-bottom:4px;">תזכורת דחופה: יש להוריד את הסטנד "${x.camp.label}"</div>
+            <div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;">יש להוריד עד <span dir="ltr">${x.camp.takedownDate}</span>. אנא אשרו שראיתם את התזכורת.</div>
+            <button class="btn-confirm" onclick="ackStandTakedown('${x.camp.id}')">אישרתי, ראיתי את התזכורת</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
     <div class="card">
       ${pending.length ? pending.map(x=>standCardHtml(x.camp, x.b, x.idx, true)).join('') : '<div class="empty-state">אין סטנדים הממתינים לאישור כרגע. 🎉</div>'}
     </div>
@@ -4335,8 +4614,9 @@ function viewStandsMarketing(){
           <div style="display:flex;justify-content:space-between;width:100%;flex-wrap:wrap;gap:6px;">
             <div class="admin-row-main">
               <div class="t"><span class="stand-color-dot" style="background:${camp.colorHex};"></span> ${camp.label}${camp.demo ? ' <span class="badge ended">🧪 נתוני הדגמה</span>' : ''}</div>
-              <div class="m">${camp.branches.length} סניפים · אושרו ${confirmedCount}/${camp.branches.length} · יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` (עוד ${daysLeft} ימים)` : ' (התאריך עבר)'}</div>
+              <div class="m">${camp.branches.length} סניפים · אושרו ${confirmedCount}/${camp.branches.length}${camp.installDate ? ` · עלייה ${camp.installDate}` : ''} · יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` (עוד ${daysLeft} ימים)` : ' (התאריך עבר)'}</div>
             </div>
+            <button class="icon-btn" onclick="openEditStandModal('${camp.id}')" title="עריכה">✎</button>
           </div>
           <button class="comp-group-toggle" onclick="toggleStandTable('${camp.id}')">פירוט סניפים <span id="stand-arrow-${camp.id}">▾</span></button>
           <div class="comp-group-table" id="stand-table-${camp.id}">
@@ -4439,17 +4719,19 @@ function saveSiteTexts(){
 }
 
 function adminList(type){
-  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'חומרים דיגיטליים להורדה', events:'אירועים'};
+  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'חומרי שיווק להורדה', events:'אירועים'};
   const items = appData[type];
   return `
     <div class="admin-toolbar">
       <div style="font-size:13px;color:var(--text-secondary);">${items.length} פריטים · ${titleMap[type]}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${type==='competitions' ? `<button class="btn-import" onclick="triggerCompetitionImport()">📥 ייבוא מאקסל</button>` : ''}
+        ${type==='materials' ? `<button class="btn-import" onclick="document.getElementById('material-folder-input').click()">📁 העלאת תיקייה שלמה</button>` : ''}
         <button class="btn-add" onclick="openForm('${type}')">+ הוספת פריט חדש</button>
       </div>
     </div>
     ${type==='competitions' ? `<input type="file" id="daily-report-input" accept=".xlsx,.xls" style="display:none;" onchange="handleDailyReportFile(event)">` : ''}
+    ${type==='materials' ? `<input type="file" id="material-folder-input" webkitdirectory directory multiple style="display:none;" onchange="handleMaterialFolderUpload(event)">` : ''}
     <div class="card">
       ${items.map(it=>adminRow(type, it)).join('') || '<div class="empty-state">אין פריטים עדיין. לחצו על "הוספת פריט חדש".</div>'}
     </div>
@@ -4504,7 +4786,7 @@ function adminStats(){
     <div class="stat-row">
       <div class="stat-tile"><div class="label">סניפים רשומים</div><div class="value">${getTotalBranches()}</div><div class="delta flat">מתוך רשת מלאה</div></div>
       <div class="stat-tile"><div class="label">תחרויות פעילות</div><div class="value">${activeCompsCount}</div><div class="delta ${activeCompsCount?'good':'flat'}">כרגע פתוחות</div></div>
-      <div class="stat-tile"><div class="label">חומרים דיגיטליים להורדה</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
+      <div class="stat-tile"><div class="label">חומרי שיווק להורדה</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
       <div class="stat-tile"><div class="label">תגובות ומשוב מהסניפים</div><div class="value">${appData.comments.length}</div><div class="delta flat">סה״כ מצטבר</div></div>
     </div>
     <div class="card" style="padding:18px 20px;">
@@ -4639,7 +4921,9 @@ function openForm(type, editId){
     `;
   } else {
     pendingMaterialFile = null;
+    pendingMaterialThumbUrl = undefined;
     const hasExistingFile = item && item.fileUrl;
+    const itemTags = item?.tags || [];
     fieldsHtml = `
       <div class="field"><label>שם הקובץ (לתצוגה)</label><input id="f-name" value="${item?.name||''}"></div>
       <div class="field"><label>קטגוריה</label><input id="f-category" value="${item?.category||''}" placeholder="באנרים דיגיטליים / שילוט לחנות / ..."></div>
@@ -4652,6 +4936,26 @@ function openForm(type, editId){
         <button type="button" class="btn-import" onclick="document.getElementById('f-material-file-input').click()">📎 בחירת קובץ</button>
         <input type="file" id="f-material-file-input" style="display:none;" onchange="handleMaterialFileChange(event)">
         <div class="field-hint" id="f-material-file-status">${hasExistingFile ? '' : 'בחרו קובץ להעלאה (PDF, תמונה, PPTX, ZIP וכו׳).'}</div>
+      </div>
+      <div class="field">
+        <label>תמונת תצוגה מקדימה (אופציונלי — מומלץ לקבצי PDF)</label>
+        <button type="button" class="btn-import" onclick="document.getElementById('f-material-thumb-input').click()">🖼 בחירת תמונה</button>
+        <input type="file" id="f-material-thumb-input" accept="image/*" style="display:none;" onchange="handleMaterialThumbChange(event)">
+        <div class="field-hint" id="f-material-thumb-status">${item?.thumbUrl ? '✓ קיימת תמונת תצוגה מקדימה' : ''}</div>
+      </div>
+      <div class="field">
+        <label>תגיות</label>
+        <div id="f-material-tags-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+          ${allMaterialTags().map(t=>`
+            <label style="display:flex;align-items:center;gap:5px;font-weight:400;font-size:13px;background:#f2f3f5;border-radius:99px;padding:5px 10px;">
+              <input type="checkbox" class="f-material-tag-cb" value="${t.id}" ${itemTags.includes(t.id)?'checked':''}> ${t.icon} ${t.label}
+            </label>
+          `).join('')}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input id="f-material-new-tag" placeholder="הוספת תגית חדשה..." style="flex:1;">
+          <button type="button" class="btn-secondary" onclick="addCustomMaterialTag()">+ הוספה</button>
+        </div>
       </div>
     `;
   }
@@ -4718,8 +5022,14 @@ function saveForm(){
     const existingMaterial = editId ? appData.materials.find(x=>x.id==editId) : null;
     const fileInfo = pendingMaterialFile || (existingMaterial ? {url: existingMaterial.fileUrl, type: existingMaterial.type, size: existingMaterial.size} : null);
     if(!fileInfo){ toast('נא לבחור קובץ להעלאה לפני השמירה'); return; }
-    obj = { name: val('f-name'), category: val('f-category'), type: fileInfo.type, size: fileInfo.size, fileUrl: fileInfo.url, date: todayHeb(), unread: true };
+    const selectedTags = [...document.querySelectorAll('.f-material-tag-cb:checked')].map(cb=>cb.value);
+    obj = {
+      name: val('f-name'), category: val('f-category'), type: fileInfo.type, size: fileInfo.size, fileUrl: fileInfo.url, date: todayHeb(), unread: true,
+      tags: selectedTags,
+      thumbUrl: pendingMaterialThumbUrl!==undefined ? pendingMaterialThumbUrl : (existingMaterial ? (existingMaterial.thumbUrl || null) : null)
+    };
     pendingMaterialFile = null;
+    pendingMaterialThumbUrl = undefined;
   }
 
   if(FIRESTORE_BACKED_TYPES.indexOf(type) !== -1 && firebaseReady){
