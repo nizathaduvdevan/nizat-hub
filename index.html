@@ -104,6 +104,13 @@
     padding:20px 24px;
     text-align:center;
   }
+  @media (max-width: 640px){
+    #login-screen{
+      background-image:url('login-bg-mobile.jpg');
+      background-position:top center;
+    }
+    .login-overlay-box{top:23%;}
+  }
   .login-title{margin:0 0 6px;font-size:23px;font-weight:600;}
   .brand-logo-img{display:block;width:auto;object-fit:contain;}
   .brand-logo-lg{height:56px;}
@@ -460,7 +467,18 @@
   .prize-text{color:var(--text-secondary);}
   .prize-text b{color:var(--text-primary);}
   .comp-group-toggle{background:none;border:none;color:var(--blue);font-weight:500;font-size:13.5px;padding:0;cursor:pointer;}
-  .scroll-hint{font-size:12px;color:var(--muted);margin-bottom:4px;text-align:center;}
+  .scroll-hint{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    font-size:13px;font-weight:600;color:var(--blue-dark);
+    background:rgba(69,122,31,0.08);border:1px solid rgba(69,122,31,0.18);
+    border-radius:99px;padding:6px 14px;margin-bottom:8px;width:fit-content;margin-inline:auto;
+  }
+  .scroll-hint .arrow{display:inline-block;animation:scrollHintPulse 1.4s ease-in-out infinite;}
+  .scroll-hint .arrow.left{animation-delay:.2s;}
+  @keyframes scrollHintPulse{
+    0%,100%{transform:translateX(0);opacity:0.6;}
+    50%{transform:translateX(3px);opacity:1;}
+  }
   .comp-group-toggle:hover{text-decoration:underline;}
   .comp-group-table{margin-top:10px;border-top:1px solid var(--gridline);display:none;}
   .comp-group-table.open{display:block;}
@@ -2637,37 +2655,48 @@ function handleDailyReportFile(evt){
       const wb = XLSX.read(data, {type:'array', cellStyles:true});
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
-      const items = parseDailyReportSheet(rows);
-      if(!items){
-        toast('לא הצלחתי לזהות בקובץ עמודות של שם סניף וסכום מכירות.');
-        return;
-      }
       const comp = appData.competitions.find(c=>c.id==compId);
       if(!comp){ toast('התחרות לא נמצאה.'); return; }
-      let updated=0; const unmatched=[];
-      items.forEach(item=>{
-        const m = matchDailyReportItem(comp, item);
-        if(m){ m.branch.sales = item.sales; updated++; } else unmatched.push(item.rawName);
-      });
-      /* אם הדוח היומי הוא בפועל אותו קובץ SALES.xlsx המלא (עם קבוצות/פרסים/צבעים) —
-         מרעננים גם את "צילום" הטבלה הגולמית שמוצג בתצוגה כללית, כדי שתמיד תשקף
-         את העדכון האחרון. אם הקובץ פשוט (שם+מכירות בלבד) — משאירים את התמונה הקודמת. */
-      console.log('[עדכון יומי] מנסה לרענן גם את טבלת התצוגה הגולמית מהקובץ...');
+
+      /* אם הדוח היומי הוא בפועל אותו מבנה מלא (עם קבוצות/מנהלי אזור/צבעים) —
+         מחליפים לגמרי את הקבוצות, צבעי המנהלים והטבלה הגולמית מהקובץ הטרי,
+         ולא רק את מספרי המכירות. כך כל תיקון מבני (הסרת/שינוי מנהל אזור,
+         סניף שחוזר וכו') נכנס לתוקף גם דרך העדכון היומי, לא רק דרך "עריכה מלאה". */
       const fullParse = parseCompetitionSheet(rows, sheet);
-      if(fullParse && fullParse.rawTable){
-        comp.rawTable = fullParse.rawTable;
-        console.log('[עדכון יומי] טבלת התצוגה הגולמית עודכנה, שורות:', fullParse.rawTable.length);
+      let updated = 0, totalItems = 0, unmatched = [];
+
+      if(fullParse){
+        comp.groups = fullParse;
+        comp.managerColors = fullParse.managerColors || {};
+        comp.rawTable = fullParse.rawTable || null;
+        comp.headerRowCells = fullParse.headerRowCells || null;
+        updated = fullParse.reduce((s,g)=>s+g.branches.length,0);
+        totalItems = updated;
+        console.log('[עדכון יומי] זוהה מבנה מלא — הקבוצות, צבעי המנהלים והטבלה הגולמית רועננו במלואם.');
       } else {
-        console.warn('[עדכון יומי] טבלת התצוגה הגולמית לא עודכנה — parseCompetitionSheet החזיר:', fullParse);
+        const items = parseDailyReportSheet(rows);
+        if(!items){
+          toast('לא הצלחתי לזהות בקובץ עמודות של שם סניף וסכום מכירות.');
+          return;
+        }
+        totalItems = items.length;
+        items.forEach(item=>{
+          const m = matchDailyReportItem(comp, item);
+          if(m){ m.branch.sales = item.sales; updated++; } else unmatched.push(item.rawName);
+        });
       }
+
       comp.salesUpdatedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
       if(firebaseReady){
-        db.collection('competitions').doc(comp.id).update({groups: comp.groups, salesUpdatedAt: comp.salesUpdatedAt, rawTable: comp.rawTable || null})
-          .then(()=>toast(`עודכנו ${updated} מתוך ${items.length} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : '')))
+        db.collection('competitions').doc(comp.id).update({
+          groups: comp.groups, managerColors: comp.managerColors || {}, rawTable: comp.rawTable || null,
+          headerRowCells: comp.headerRowCells || null, salesUpdatedAt: comp.salesUpdatedAt
+        })
+          .then(()=>toast(`עודכנו ${updated} מתוך ${totalItems} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : '')))
           .catch(err=>toast('שגיאה בשמירת הדוח ל-Firestore: '+err.message));
       } else {
         renderContent();
-        toast(`עודכנו ${updated} מתוך ${items.length} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : ''));
+        toast(`עודכנו ${updated} מתוך ${totalItems} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : ''));
       }
       if(unmatched.length) console.warn('שורות דוח יומי שלא זוהו:', unmatched);
     }catch(err){
@@ -2918,7 +2947,7 @@ function renderGroupsForAdmin(c){
           </div>` : ''}
           <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה (תצוגת אקסל) <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
           <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
-            <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
+            <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
             ${excelStyleTable(['', 'מקום · שם חנות', 'יעד', 'מכירות', '% מהיעד', 'מנהל אזור'], tableRows)}
           </div>
         </div>`;
@@ -2972,7 +3001,7 @@ function renderByAreaManager(c){
   const grandTarget = managers.reduce((s,m)=>s+m.totalTarget,0);
   const grandSales = managers.reduce((s,m)=>s+m.totalSales,0);
   return `
-    <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
+    <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
     <div class="comp-groups">
       ${managers.map(m=>{
         const pct = m.totalTarget>0 ? Math.round(m.totalSales/m.totalTarget*100) : 0;
@@ -3048,7 +3077,7 @@ function renderAreaManagerSummary(c){
   return `
     <div class="card">
       <h3 style="text-align:center;margin:0 0 12px;font-size:16px;">${c.title}${c.start&&c.end?` <span dir="ltr">${c.start}–${c.end}</span>`:''} - מנהלי אזור</h3>
-      <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
+      <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}${totalHtml}</table>
       </div>
@@ -3066,7 +3095,7 @@ function renderRawSalesTable(c){
     }).join('')}</tr>
   `).join('');
   return `
-    <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
+    <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">
       <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
     </div>
