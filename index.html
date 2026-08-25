@@ -460,6 +460,7 @@
   .prize-text{color:var(--text-secondary);}
   .prize-text b{color:var(--text-primary);}
   .comp-group-toggle{background:none;border:none;color:var(--blue);font-weight:500;font-size:13.5px;padding:0;cursor:pointer;}
+  .scroll-hint{font-size:12px;color:var(--muted);margin-bottom:4px;text-align:center;}
   .comp-group-toggle:hover{text-decoration:underline;}
   .comp-group-table{margin-top:10px;border-top:1px solid var(--gridline);display:none;}
   .comp-group-table.open{display:block;}
@@ -1207,6 +1208,7 @@ let unsubStandCampaigns = null;
 let unsubStandConfirmations = null;
 let unsubInstructionCompletions = null;
 let unsubItemReads = null;
+let unsubPwaInstalls = null;
 let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
 function initFirestoreSync(){
@@ -1371,6 +1373,19 @@ function initFirestoreSync(){
       console.error('Firestore sync error (item reads):', err);
     });
 
+  /* מעקב מי התקין את ה-PWA (כתובה ע"י הסקריפט הנפרד בתחתית הדף, ב-appinstalled) —
+     מוצג רק למחלקת השיווק, במסך "ניהול תוכן". */
+  if (unsubPwaInstalls) unsubPwaInstalls();
+  unsubPwaInstalls = db.collection('pwaInstalls')
+    .onSnapshot(function(snap){
+      appData.pwaInstalls = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (pwa installs):', err);
+    });
+
   if (unsubSiteTexts) unsubSiteTexts();
   unsubSiteTexts = db.collection('siteTexts').doc('main')
     .onSnapshot(function(doc){
@@ -1434,6 +1449,7 @@ let appData = {
   standConfirmations: [],
   instructionCompletions: [],
   itemReads: [],
+  pwaInstalls: [],
   competitions: [
     {
       id: 1,
@@ -2902,6 +2918,7 @@ function renderGroupsForAdmin(c){
           </div>` : ''}
           <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה (תצוגת אקסל) <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
           <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
+            <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
             ${excelStyleTable(['', 'מקום · שם חנות', 'יעד', 'מכירות', '% מהיעד', 'מנהל אזור'], tableRows)}
           </div>
         </div>`;
@@ -2943,12 +2960,19 @@ function renderByAreaManager(c){
     const totalSales = branches.reduce((s,b)=>s+b.sales,0);
     const totalTarget = branches.reduce((s,b)=>s+b.target,0);
     return {mgr, branches, totalSales, totalTarget};
-  }).sort((a,b)=> (b.totalTarget>0?b.totalSales/b.totalTarget:0) - (a.totalTarget>0?a.totalSales/a.totalTarget:0));
+  }).sort((a,b)=>{
+    if(a.mgr==='ללא שיוך') return 1;
+    if(b.mgr==='ללא שיוך') return -1;
+    return a.mgr.localeCompare(b.mgr, 'he');
+  });
   const headerCells = c.headerRowCells || [
     {text:'שם חנות', bg:'#00FFFF'}, {text:'יעד', bg:'#00FFFF'}, {text:'מכירות', bg:'#00FFFF'},
     {text:'אחוז מהיעד', bg:'#00FFFF'}, {text:'מנהל אזור', bg:'#00FFFF'}
   ];
+  const grandTarget = managers.reduce((s,m)=>s+m.totalTarget,0);
+  const grandSales = managers.reduce((s,m)=>s+m.totalSales,0);
   return `
+    <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
     <div class="comp-groups">
       ${managers.map(m=>{
         const pct = m.totalTarget>0 ? Math.round(m.totalSales/m.totalTarget*100) : 0;
@@ -2965,6 +2989,16 @@ function renderByAreaManager(c){
           ${asIsTable(headerCells, tableRows)}
         </div>`;
       }).join('')}
+      <div class="comp-group-block" style="border-right:4px solid #F4CCCC;">
+        <div class="comp-group-head">
+          <span class="comp-group-name" style="font-weight:700;">סה״כ כלל הרשת</span>
+          <span class="comp-target-chip" dir="ltr">${grandTarget>0?Math.round(grandSales/grandTarget*100):0}% מהיעד המצטבר</span>
+        </div>
+        <div style="display:flex;gap:24px;font-size:14px;">
+          <div><span style="color:var(--text-secondary);">סה״כ יעד: </span><strong dir="ltr">${fmtMoney(grandTarget)} ₪</strong></div>
+          <div><span style="color:var(--text-secondary);">סה״כ מכירות: </span><strong dir="ltr">${fmtMoney(grandSales)} ₪</strong></div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -2994,12 +3028,12 @@ function renderAreaManagerSummary(c){
     <th style="background:${HEAD_BLUE};color:#1a1a1a;${cellStyle}font-weight:700;">סכום נמכר</th>
     <th style="background:${HEAD_BLUE};color:#1a1a1a;${cellStyle}font-weight:700;">יעד</th>
   </tr>`;
-  const bodyHtml = rows.map(r=>{
+  const bodyHtml = rows.map((r,idx)=>{
     const hex = (c.managerColors && c.managerColors[r.mgr]) || '#ffffff';
     const mgrTextColor = contrastTextColor(hex);
     const pct = r.target>0 ? (r.sales/r.target*100) : 0;
     return `<tr>
-      <td style="background:${hex};color:${mgrTextColor};${cellStyle}font-weight:600;">${r.mgr}</td>
+      <td style="background:${hex};color:${mgrTextColor};${cellStyle}font-weight:600;">${idx===0?'👑 ':''}${r.mgr}</td>
       <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${pct.toFixed(2)}%</td>
       <td style="background:#ffffff;color:#1a1a1a;${cellStyle}" dir="ltr">${r.sales ? fmtMoney(r.sales)+' ₪' : ''}</td>
       <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${fmtMoney(r.target)} ₪</td>
@@ -3014,6 +3048,7 @@ function renderAreaManagerSummary(c){
   return `
     <div class="card">
       <h3 style="text-align:center;margin:0 0 12px;font-size:16px;">${c.title}${c.start&&c.end?` <span dir="ltr">${c.start}–${c.end}</span>`:''} - מנהלי אזור</h3>
+      <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
       <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}${totalHtml}</table>
       </div>
@@ -3031,6 +3066,7 @@ function renderRawSalesTable(c){
     }).join('')}</tr>
   `).join('');
   return `
+    <div class="scroll-hint">↔ ניתן להחליק את הטבלה ימינה ושמאלה</div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">
       <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
     </div>
@@ -4256,7 +4292,8 @@ function viewAdmin(){
     {id:'materials', label:'חומרים'},
     {id:'feedback', label:'משוב מהסניפים'},
     {id:'stats', label:'סטטיסטיקות'},
-    {id:'texts', label:'טקסטים באתר'}
+    {id:'texts', label:'טקסטים באתר'},
+    {id:'pwa', label:'התקנות PWA'}
   ];
   return `
     <div class="page-head">
@@ -4273,6 +4310,25 @@ function viewAdmin(){
     ${ui.adminTab==='feedback' ? adminFeedback() : ''}
     ${ui.adminTab==='stats' ? adminStats() : ''}
     ${ui.adminTab==='texts' ? adminTexts() : ''}
+    ${ui.adminTab==='pwa' ? adminPwaInstalls() : ''}
+  `;
+}
+function adminPwaInstalls(){
+  const list = [...(appData.pwaInstalls||[])].sort((a,b)=> (b.installedAt||'').localeCompare(a.installedAt||''));
+  return `
+    <div class="card">
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
+        רשימת המשתמשים שהתקינו את NIZAT HUB כאפליקציה (PWA) על המכשיר שלהם. סה״כ ${list.length} התקנות.
+      </p>
+      ${list.length ? list.map(r=>`
+        <div class="admin-row">
+          <div class="admin-row-main">
+            <div class="t">${r.label || 'לא ידוע'}</div>
+            <div class="m">${r.installedAt || ''}</div>
+          </div>
+        </div>
+      `).join('') : `<div class="empty-state">עדיין אין רישום של התקנות.</div>`}
+    </div>
   `;
 }
 function setAdminTab(t){ ui.adminTab=t; renderContent(); }
@@ -4842,6 +4898,22 @@ setInterval(checkStandReminders, 5*60*1000);
     deferredInstallPrompt = null;
     if(installWrap) installWrap.hidden = true;
     localStorage.setItem('nizatHubPwaInstalled','1');
+    try{
+      if(typeof firebaseReady!=='undefined' && firebaseReady && typeof db!=='undefined' && db){
+        var vid = (typeof currentViewerId==='function') ? currentViewerId() : null;
+        var label = 'לא ידוע';
+        if(typeof session!=='undefined' && session){
+          label = session.branchName || session.areaLabel || (session.role==='marketing' ? 'מחלקת שיווק' : 'לא ידוע');
+        }
+        var docId = (vid || 'unknown_' + Date.now()).toString().replace(/[\/\s]/g,'_');
+        db.collection('pwaInstalls').doc(docId).set({
+          viewerId: vid || null,
+          label: label,
+          installedAt: new Date().toLocaleDateString('he-IL') + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}),
+          userAgent: navigator.userAgent
+        }, {merge:true});
+      }
+    }catch(e){ console.error('PWA install tracking failed:', e); }
   });
 
   if(installBtn){
