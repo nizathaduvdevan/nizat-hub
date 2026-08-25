@@ -2073,6 +2073,17 @@ function parseHebDate(d){
    and parses the "פרסים" section into tiered, ranked prize lists per group. */
 const HEB_ORDINAL_RANK = {'ראשון':1,'שני':2,'שלישי':3,'רביעי':4,'חמישי':5,'שישי':6,'שביעי':7,'שמיני':8,'תשיעי':9,'עשירי':10};
 const EXCLUDED_MANAGER = 'עופר דרורי'; /* מוצא באופן גורף מכל ייבוא/הצגה של אקסלי מכירות, לפי בקשת אלירן */
+/* מעצב ערך תא בדיוק כמו שהוא מוצג באקסל המקורי (עבור טבלאות "AS IS") */
+function formatSheetCellValue(raw, type){
+  if(raw===undefined || raw===null || raw==='') return '';
+  if(typeof raw === 'number'){
+    if(type==='pct') return (raw*100).toFixed(2)+'%';
+    if(type==='money') return raw.toLocaleString('he-IL', {maximumFractionDigits:0});
+    if(type==='int') return raw.toLocaleString('he-IL');
+    return raw.toString();
+  }
+  return raw.toString();
+}
 function normalizeBranchName(raw){
   let s = (raw||'').toString().trim();
   s = s.replace(/^\d+\s*[-–]?\s*/,'');
@@ -2174,22 +2185,14 @@ function extractRawSalesTable(rows, sheet, headers){
   for(let ri=rowStart; ri<=rowEnd; ri++){
     const row = rows[ri] || [];
     const mgrCellVal = (row[h0.managerCol]||'').toString().trim();
-    if(mgrCellVal === EXCLUDED_MANAGER) continue;
     const cells = [];
     for(let ci=colStart; ci<=colEnd; ci++){
-      const raw = row[ci];
-      let text = '';
-      if(raw!==undefined && raw!==null && raw!==''){
-        if(typeof raw === 'number'){
-          const type = colTypes[ci];
-          if(type==='pct') text = (raw*100).toFixed(1)+'%';
-          else if(type==='money') text = raw.toLocaleString('he-IL', {maximumFractionDigits:0});
-          else if(type==='int') text = raw.toLocaleString('he-IL');
-          else text = raw.toString();
-        } else {
-          text = raw.toString();
-        }
+      if(ci===h0.managerCol && mgrCellVal===EXCLUDED_MANAGER){
+        cells.push({text:'', bg:null}); /* מנהל האזור הוסר — הסניף עצמו נשאר, ללא שיוך */
+        continue;
       }
+      const raw = row[ci];
+      const text = formatSheetCellValue(raw, colTypes[ci]);
       cells.push({text, bg: cellFillHex(sheet, ri, ci)});
     }
     tableRows.push({cells});
@@ -2264,15 +2267,24 @@ function parseCompetitionSheet(rows, sheet){
       const rawName = (row[h.nameCol]||'').toString().trim();
       if(!rawName || /סה[״"]?כ/.test(rawName)) continue;
       const t = row[h.targetCol], s = row[h.salesCol], mgr = row[h.managerCol];
-      const mgrName = (mgr||'').toString().trim();
-      if(mgrName === EXCLUDED_MANAGER) continue;
+      let mgrName = (mgr||'').toString().trim();
+      const isExcludedMgr = mgrName === EXCLUDED_MANAGER;
+      if(isExcludedMgr) mgrName = ''; /* הסניף עצמו נשאר, ללא שיוך למנהל אזור */
       if(target===null && typeof t === 'number') target = t;
+      const rowCells = {
+        name: {text: rawName, bg: cellFillHex(sheet, ri, h.nameCol)},
+        target: {text: formatSheetCellValue(t, 'int'), bg: cellFillHex(sheet, ri, h.targetCol)},
+        sales: {text: formatSheetCellValue(s, 'money'), bg: cellFillHex(sheet, ri, h.salesCol)},
+        pct: {text: formatSheetCellValue(row[h.pctCol], 'pct'), bg: cellFillHex(sheet, ri, h.pctCol)},
+        manager: isExcludedMgr ? {text:'', bg:null} : {text: mgrName, bg: cellFillHex(sheet, ri, h.managerCol)}
+      };
       branches.push({
         rawName,
         name: normalizeBranchName(rawName),
         target: (typeof t === 'number') ? t : (target||0),
         sales: (typeof s === 'number') ? s : 0,
-        areaManager: mgrName
+        areaManager: mgrName,
+        rowCells
       });
       if(mgrName && !managerColors[mgrName]){
         const hex = cellFillHex(sheet, ri, h.managerCol);
@@ -2290,6 +2302,11 @@ function parseCompetitionSheet(rows, sheet){
   }
   groups.managerColors = managerColors;
   groups.rawTable = extractRawSalesTable(rows, sheet, headers);
+  const h0 = headers[0];
+  groups.headerRowCells = [h0.nameCol, h0.targetCol, h0.salesCol, h0.pctCol, h0.managerCol].map(ci => ({
+    text: (rows[h0.rowIndex][ci]||'').toString().trim(),
+    bg: cellFillHex(sheet, h0.rowIndex, ci)
+  }));
   console.log('[parseCompetitionSheet] הצלחה — קבוצות:', groups.length, 'שורות rawTable:', groups.rawTable ? groups.rawTable.length : null);
   return groups;
 }
@@ -2319,6 +2336,7 @@ function matchBranchInCompetition(comp, directoryEntry){
 let pendingImportGroups = null;
 let pendingImportManagerColors = null;
 let pendingImportRawTable = null;
+let pendingImportHeaderRowCells = null;
 let pendingLogoDataUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new logo
 let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicitly removed, string = new Cloudinary URL
 let pendingHeroMobileUrl = undefined;
@@ -2373,6 +2391,7 @@ function handleFormExcelFile(evt){
       pendingImportGroups = groups;
       pendingImportManagerColors = groups.managerColors || {};
       pendingImportRawTable = groups.rawTable || null;
+      pendingImportHeaderRowCells = groups.headerRowCells || null;
       const totalBranches = groups.reduce((s,g)=>s+g.branches.length,0);
       const missingPrizes = groups.filter(g=>!g.prizes.length).length;
       const statusEl = document.getElementById('f-excel-status');
@@ -2882,11 +2901,28 @@ function renderGroupsForAdmin(c){
 /* ---------- טאב 2: לפי מנהל אזור — ממד ארגון שונה לגמרי מהקבוצות (target-tier);
    מפזרים את כל הסניפים מכל הקבוצות ומקבצים מחדש לפי מנהל האזור שלהם.
    כל מנהל: רשימת הסניפים שלו ממוינת מהגבוה לנמוך לפי יעד. ---------- */
+/* טבלה בסגנון "AS IS" — כמו excelStyleTable אך מקבלת תאי כותרת אמיתיים (טקסט+צבע
+   שנקראו ישירות מהאקסל), לא תוויות קבועות מראש. */
+function asIsTable(headerCells, dataRows){
+  const headHtml = `<tr>${headerCells.map(h=>{
+    const bg = h.bg || '#00FFFF';
+    const color = contrastTextColor(bg);
+    return `<th style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);font-size:12.5px;font-weight:700;white-space:nowrap;">${h.text||''}</th>`;
+  }).join('')}</tr>`;
+  const bodyHtml = dataRows.map(row=>`<tr>${row.map(cell=>{
+    const bg = cell.bg || 'transparent';
+    const color = cell.bg ? contrastTextColor(cell.bg) : 'inherit';
+    return `<td style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);white-space:nowrap;font-size:12.5px;">${cell.text||''}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<div style="overflow-x:auto;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
+}
+/* ---------- טאב 2: לפי מנהל אזור — טבלת האקסל המקורית AS IS (ערכים+צבעים אמיתיים),
+   מפוזרת מחדש לפי מנהל אזור; בכל מנהל: הסניפים ממוינים מהגבוה לנמוך לפי יעד. ---------- */
 function renderByAreaManager(c){
   const byManager = {};
   c.groups.forEach(g=>{
     g.branches.forEach(b=>{
-      const mgr = b.areaManager || 'לא משויך';
+      const mgr = b.areaManager || 'ללא שיוך';
       if(!byManager[mgr]) byManager[mgr] = [];
       byManager[mgr].push(b);
     });
@@ -2897,64 +2933,79 @@ function renderByAreaManager(c){
     const totalTarget = branches.reduce((s,b)=>s+b.target,0);
     return {mgr, branches, totalSales, totalTarget};
   }).sort((a,b)=> (b.totalTarget>0?b.totalSales/b.totalTarget:0) - (a.totalTarget>0?a.totalSales/a.totalTarget:0));
+  const headerCells = c.headerRowCells || [
+    {text:'שם חנות', bg:'#00FFFF'}, {text:'יעד', bg:'#00FFFF'}, {text:'מכירות', bg:'#00FFFF'},
+    {text:'אחוז מהיעד', bg:'#00FFFF'}, {text:'מנהל אזור', bg:'#00FFFF'}
+  ];
   return `
     <div class="comp-groups">
       ${managers.map(m=>{
         const pct = m.totalTarget>0 ? Math.round(m.totalSales/m.totalTarget*100) : 0;
         const hex = c.managerColors ? c.managerColors[m.mgr] : null;
-        const tableRows = m.branches.map(b=>{
-          const bpct = b.target>0 ? Math.round(b.sales/b.target*100) : 0;
-          return [
-            {bg: hex||null, text:''},
-            {text: b.rawName},
-            {text: fmtMoney(b.target)+' ₪'},
-            {text: fmtMoney(b.sales)+' ₪'},
-            {text: bpct+'%'}
-          ];
-        });
+        const tableRows = m.branches.map(b => b.rowCells ? [b.rowCells.name, b.rowCells.target, b.rowCells.sales, b.rowCells.pct, b.rowCells.manager] : [
+          {text:b.rawName}, {text:fmtMoney(b.target)+' ₪'}, {text:fmtMoney(b.sales)+' ₪'}, {text:(b.target>0?Math.round(b.sales/b.target*100):0)+'%'}, {text:b.areaManager||''}
+        ]);
         return `
         <div class="comp-group-block" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
           <div class="comp-group-head">
-            <span class="comp-group-name">${managerChip(c, m.mgr)} · ${m.branches.length} סניפים</span>
-            <span class="comp-target-chip" dir="ltr">${pct}% מהיעד המצטבר</span>
+            <span class="comp-group-name">${m.mgr!=='ללא שיוך' ? managerChip(c, m.mgr) : m.mgr} · ${m.branches.length} סניפים</span>
+            <span class="comp-target-chip" dir="ltr">${pct}% מהיעד המצטבר · מהגבוה לנמוך לפי יעד</span>
           </div>
-          ${excelStyleTable(['', 'שם חנות (מהגבוה לנמוך לפי יעד)', 'יעד', 'מכירות', '% מהיעד'], tableRows)}
-          <div class="comp-manager-row" style="margin-top:8px;border-top:1px solid var(--gridline);padding-top:8px;">
-            סיכום ${m.mgr}: ${fmtMoney(m.totalSales)} ₪ מתוך ${fmtMoney(m.totalTarget)} ₪ (${pct}%)
-          </div>
+          ${asIsTable(headerCells, tableRows)}
         </div>`;
       }).join('')}
     </div>
   `;
 }
-/* ---------- טאב 3: סיכום אזורי כללי — אגרגציה קצרה, עם דירוג מקום לכל מנהל אזור ---------- */
+/* ---------- טאב 3: סיכום אזורי כללי — טבלת אקסל: מנהל אזור (בצבעו) | אחוז מהיעד |
+   סכום נמכר | יעד, ממוין מהיעד הגבוה לנמוך, עם שורת סה"כ ורודה בתחתית. ---------- */
 function renderAreaManagerSummary(c){
   const byManager = {};
   c.groups.forEach(g=>{
     g.branches.forEach(b=>{
-      const mgr = b.areaManager || 'לא משויך';
-      if(!byManager[mgr]) byManager[mgr] = {count:0, sales:0, target:0};
-      byManager[mgr].count++;
+      if(!b.areaManager) return; /* סניפים ללא שיוך למנהל אזור לא נכנסים לדירוג הזה */
+      const mgr = b.areaManager;
+      if(!byManager[mgr]) byManager[mgr] = {sales:0, target:0};
       byManager[mgr].sales += b.sales;
       byManager[mgr].target += b.target;
     });
   });
-  const rows = Object.keys(byManager).map(mgr=>({mgr, ...byManager[mgr]})).sort((a,b)=>b.sales-a.sales);
-  const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':('#'+(i+1));
+  const rows = Object.keys(byManager).map(mgr=>({mgr, ...byManager[mgr]})).sort((a,b)=>b.target-a.target);
+  const totalTarget = rows.reduce((s,r)=>s+r.target,0);
+  const totalSales = rows.reduce((s,r)=>s+r.sales,0);
+  const totalPct = totalTarget>0 ? (totalSales/totalTarget*100) : 0;
+  const HEAD_BLUE = '#BDD7EE';
+  const TOTAL_PINK = '#F4CCCC';
+  const cellStyle = 'padding:6px 12px;border:1px solid rgba(0,0,0,0.15);font-size:13.5px;text-align:center;';
+  const headHtml = `<tr>
+    <th style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;">מנהל אזור</th>
+    <th style="background:${HEAD_BLUE};color:#1a1a1a;${cellStyle}font-weight:700;">אחוז מהיעד</th>
+    <th style="background:${HEAD_BLUE};color:#1a1a1a;${cellStyle}font-weight:700;">סכום נמכר</th>
+    <th style="background:${HEAD_BLUE};color:#1a1a1a;${cellStyle}font-weight:700;">יעד</th>
+  </tr>`;
+  const bodyHtml = rows.map(r=>{
+    const hex = (c.managerColors && c.managerColors[r.mgr]) || '#ffffff';
+    const mgrTextColor = contrastTextColor(hex);
+    const pct = r.target>0 ? (r.sales/r.target*100) : 0;
+    return `<tr>
+      <td style="background:${hex};color:${mgrTextColor};${cellStyle}font-weight:600;">${r.mgr}</td>
+      <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${pct.toFixed(2)}%</td>
+      <td style="background:#ffffff;color:#1a1a1a;${cellStyle}" dir="ltr">${r.sales ? fmtMoney(r.sales)+' ₪' : ''}</td>
+      <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${fmtMoney(r.target)} ₪</td>
+    </tr>`;
+  }).join('');
+  const totalHtml = `<tr>
+    <td style="background:${TOTAL_PINK};color:#1a1a1a;${cellStyle}font-weight:700;">סה״כ</td>
+    <td style="background:${TOTAL_PINK};color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${totalPct.toFixed(2)}%</td>
+    <td style="background:${TOTAL_PINK};color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${totalSales ? fmtMoney(totalSales)+' ₪' : '0 ₪'}</td>
+    <td style="background:${TOTAL_PINK};color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${fmtMoney(totalTarget)} ₪</td>
+  </tr>`;
   return `
     <div class="card">
-      ${rows.map((r,idx)=>{
-        const hex = c.managerColors ? c.managerColors[r.mgr] : null;
-        const pct = r.target>0 ? Math.round(r.sales/r.target*100) : 0;
-        return `
-        <div class="admin-row" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
-          <div class="admin-row-main">
-            <div class="t">${medal(idx)} ${managerChip(c, r.mgr)}</div>
-            <div class="m">${r.count} סניפים · ${pct}% מהיעד</div>
-          </div>
-          <div style="font-weight:400;color:var(--text-secondary);" dir="ltr">${fmtMoney(r.sales)} ₪</div>
-        </div>`;
-      }).join('')}
+      <h3 style="text-align:center;margin:0 0 12px;font-size:16px;">${c.title}${c.start&&c.end?` <span dir="ltr">${c.start}–${c.end}</span>`:''} - מנהלי אזור</h3>
+      <div style="overflow-x:auto;">
+        <table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}${totalHtml}</table>
+      </div>
     </div>
   `;
 }
@@ -2969,21 +3020,10 @@ function renderRawSalesTable(c){
     }).join('')}</tr>
   `).join('');
   return `
-    <div class="comp-foot" style="margin-bottom:10px;">
-      <button class="link-btn" onclick="toggleRawSalesTable('${c.id}')">📄 לטבלת אקסל המלאה <span id="raw-table-arrow-${c.id}">▾</span></button>
-    </div>
-    <div id="raw-table-${c.id}" style="display:none;overflow-x:auto;margin-bottom:14px;">
+    <div style="overflow-x:auto;margin-bottom:14px;">
       <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
     </div>
   `;
-}
-function toggleRawSalesTable(compId){
-  const el = document.getElementById('raw-table-'+compId);
-  const arrow = document.getElementById('raw-table-arrow-'+compId);
-  if(!el) return;
-  const isOpen = el.style.display !== 'none';
-  el.style.display = isOpen ? 'none' : 'block';
-  if(arrow) arrow.textContent = isOpen ? '▾' : '▴';
 }
 function renderCompetitionTabs(c){
   return `
@@ -4358,6 +4398,7 @@ function openForm(type, editId){
     pendingImportGroups = null;
     pendingImportManagerColors = null;
     pendingImportRawTable = null;
+    pendingImportHeaderRowCells = null;
     pendingLogoDataUrl = undefined;
     pendingHeroDesktopUrl = undefined;
     pendingHeroMobileUrl = undefined;
@@ -4498,6 +4539,7 @@ function saveForm(){
       groups: pendingImportGroups!==null ? pendingImportGroups : (existing ? (existing.groups || []) : []),
       managerColors: pendingImportGroups!==null ? (pendingImportManagerColors || {}) : (existing ? (existing.managerColors || {}) : {}),
       rawTable: pendingImportGroups!==null ? (pendingImportRawTable || null) : (existing ? (existing.rawTable || null) : null),
+      headerRowCells: pendingImportGroups!==null ? (pendingImportHeaderRowCells || null) : (existing ? (existing.headerRowCells || null) : null),
       logoDataUrl: pendingLogoDataUrl!==undefined ? pendingLogoDataUrl : (existing ? (existing.logoDataUrl || null) : null),
       heroDesktopUrl: pendingHeroDesktopUrl!==undefined ? pendingHeroDesktopUrl : (existing ? (existing.heroDesktopUrl || null) : null),
       heroMobileUrl: pendingHeroMobileUrl!==undefined ? pendingHeroMobileUrl : (existing ? (existing.heroMobileUrl || null) : null),
@@ -4507,6 +4549,7 @@ function saveForm(){
     pendingImportGroups = null;
     pendingImportManagerColors = null;
     pendingImportRawTable = null;
+    pendingImportHeaderRowCells = null;
     pendingLogoDataUrl = undefined;
     pendingHeroDesktopUrl = undefined;
     pendingHeroMobileUrl = undefined;
@@ -4578,6 +4621,7 @@ function closeModal(){
   pendingImportGroups = null;
   pendingImportManagerColors = null;
   pendingImportRawTable = null;
+  pendingImportHeaderRowCells = null;
   pendingLogoDataUrl = undefined;
   pendingHeroDesktopUrl = undefined;
   pendingHeroMobileUrl = undefined;
