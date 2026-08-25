@@ -468,16 +468,17 @@
   .prize-text b{color:var(--text-primary);}
   .comp-group-toggle{background:none;border:none;color:var(--blue);font-weight:500;font-size:13.5px;padding:0;cursor:pointer;}
   .scroll-hint{
-    display:flex;align-items:center;justify-content:center;gap:6px;
-    font-size:13px;font-weight:600;color:var(--blue-dark);
-    background:rgba(69,122,31,0.08);border:1px solid rgba(69,122,31,0.18);
-    border-radius:99px;padding:6px 14px;margin-bottom:8px;width:fit-content;margin-inline:auto;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    font-size:14px;font-weight:800;color:#ffffff;
+    background:linear-gradient(90deg,#e8590c,#f76707);border:none;
+    border-radius:99px;padding:8px 18px;margin-bottom:10px;width:fit-content;margin-inline:auto;
+    box-shadow:0 3px 10px rgba(231,74,12,0.35);
   }
-  .scroll-hint .arrow{display:inline-block;animation:scrollHintPulse 1.4s ease-in-out infinite;}
+  .scroll-hint .arrow{display:inline-block;font-size:16px;animation:scrollHintPulse 1.4s ease-in-out infinite;}
   .scroll-hint .arrow.left{animation-delay:.2s;}
   @keyframes scrollHintPulse{
-    0%,100%{transform:translateX(0);opacity:0.6;}
-    50%{transform:translateX(3px);opacity:1;}
+    0%,100%{transform:translateX(0);opacity:0.7;}
+    50%{transform:translateX(4px);opacity:1;}
   }
   .comp-group-toggle:hover{text-decoration:underline;}
   .comp-group-table{margin-top:10px;border-top:1px solid var(--gridline);display:none;}
@@ -2118,6 +2119,13 @@ function parseHebDate(d){
    and parses the "פרסים" section into tiered, ranked prize lists per group. */
 const HEB_ORDINAL_RANK = {'ראשון':1,'שני':2,'שלישי':3,'רביעי':4,'חמישי':5,'שישי':6,'שביעי':7,'שמיני':8,'תשיעי':9,'עשירי':10};
 const EXCLUDED_MANAGER = 'עופר דרורי'; /* מוצא באופן גורף מכל ייבוא/הצגה של אקסלי מכירות, לפי בקשת אלירן */
+/* השוואה סלחנית לשם המנהל המוחרג — מתעלמת מרווחים כפולים/מובילים/סוגרים
+   ומכל תו לא-רגיל, כדי לא לפספס אותו בגלל הבדל עדין בין קבצי אקסל שונים. */
+function isExcludedManagerName(name){
+  if(!name) return false;
+  const normalized = name.toString().replace(/\s+/g,' ').trim();
+  return normalized.indexOf(EXCLUDED_MANAGER) !== -1;
+}
 /* מעצב ערך תא בדיוק כמו שהוא מוצג באקסל המקורי (עבור טבלאות "AS IS") */
 function formatSheetCellValue(raw, type){
   if(raw===undefined || raw===null || raw==='') return '';
@@ -2232,7 +2240,7 @@ function extractRawSalesTable(rows, sheet, headers){
     const mgrCellVal = (row[h0.managerCol]||'').toString().trim();
     const cells = [];
     for(let ci=colStart; ci<=colEnd; ci++){
-      if(ci===h0.managerCol && mgrCellVal===EXCLUDED_MANAGER){
+      if(ci===h0.managerCol && isExcludedManagerName(mgrCellVal)){
         cells.push({text:'', bg:null}); /* מנהל האזור הוסר — הסניף עצמו נשאר, ללא שיוך */
         continue;
       }
@@ -2313,8 +2321,11 @@ function parseCompetitionSheet(rows, sheet){
       if(!rawName || /סה[״"]?כ/.test(rawName)) continue;
       const t = row[h.targetCol], s = row[h.salesCol], mgr = row[h.managerCol];
       let mgrName = (mgr||'').toString().trim();
-      const isExcludedMgr = mgrName === EXCLUDED_MANAGER;
-      if(isExcludedMgr) mgrName = ''; /* הסניף עצמו נשאר, ללא שיוך למנהל אזור */
+      const isExcludedMgr = isExcludedManagerName(mgrName);
+      if(isExcludedMgr){
+        console.log('[parseCompetitionSheet] נמצא מנהל מוחרג בשורה', ri, '— מקורי:', JSON.stringify(mgrName), '← מנוקה');
+        mgrName = ''; /* הסניף עצמו נשאר, ללא שיוך למנהל אזור */
+      }
       if(target===null && typeof t === 'number') target = t;
       const rowCells = {
         name: {text: rawName, bg: cellFillHex(sheet, ri, h.nameCol)},
@@ -2353,6 +2364,14 @@ function parseCompetitionSheet(rows, sheet){
     bg: cellFillHex(sheet, h0.rowIndex, ci)
   }));
   console.log('[parseCompetitionSheet] הצלחה — קבוצות:', groups.length, 'שורות rawTable:', groups.rawTable ? groups.rawTable.length : null);
+  const allManagerNames = new Set();
+  let totalBranches = 0, has47 = false;
+  groups.forEach(g=>g.branches.forEach(b=>{
+    totalBranches++;
+    allManagerNames.add(JSON.stringify(b.areaManager));
+    if(b.rawName && b.rawName.indexOf('47')===0) has47 = true;
+  }));
+  console.log('[parseCompetitionSheet] סה"כ סניפים:', totalBranches, '| שמות מנהלי אזור שנמצאו:', [...allManagerNames], '| סניף 47 נמצא:', has47);
   return groups;
 }
 function matchBranchInCompetition(comp, directoryEntry){
@@ -2840,7 +2859,7 @@ function compCard(c){
       `).join('')}
     </div>` : ''}
     `}
-    ${commentsBox('competition', c.id)}
+    ${hasGroups ? '' : commentsBox('competition', c.id)}
   </div>`;
 }
 function renderGroupForBranch(comp, g, b){
@@ -2950,6 +2969,7 @@ function renderGroupsForAdmin(c){
             <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
             ${excelStyleTable(['', 'מקום · שם חנות', 'יעד', 'מכירות', '% מהיעד', 'מנהל אזור'], tableRows)}
           </div>
+          ${commentsBox('competitionGroup', `${c.id}::${g.groupNum}`)}
         </div>`;
       }).join('')}
     </div>
@@ -3251,8 +3271,8 @@ function viewInstructions(){
               <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
             </div>
           </div>
-          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span><span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span></div>
-          <div class="instr-body" id="instr-body-${i.id}">
+          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span>${i.updateLength==='short'?'<span class="badge cat" style="padding:2px 8px;">⚡ עדכון קצר</span>':''}<span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span></div>
+          <div class="instr-body ${i.updateLength==='short'?'open':''}" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
             ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}
             ${isTask && session.role==='branch' ? renderInstructionExecutionArea(i, myStatus) : ''}
@@ -3554,15 +3574,28 @@ function getComments(itemType, itemId){
   return appData.comments.filter(c=>c.itemType===itemType && c.itemId==itemId);
 }
 function findItemTitle(itemType, itemId){
+  if(itemType==='competitionGroup'){
+    const [compId, groupNum] = itemId.split('::');
+    const comp = appData.competitions.find(x=>x.id==compId);
+    return comp ? `${comp.title} · קבוצה ${groupNum}` : '(פריט נמחק)';
+  }
   const src = itemType==='instruction' ? appData.instructions : appData.competitions;
   const item = src.find(x=>x.id==itemId);
   return item ? item.title : '(פריט נמחק)';
 }
+/* מזהה שולח אחיד להודעות פרטיות — עובד גם לסניף וגם למנהל אזור
+   (בעבר תמך רק בסניפים, כי session.branchName הוא null עבור מנהלי אזור). */
+function currentSenderName(){
+  if(session.role==='branch') return session.branchName;
+  if(session.role==='area') return session.areaLabel;
+  return null;
+}
 function commentsBox(itemType, itemId, forceOpen){
   const list = getComments(itemType, itemId);
   const boxId = `comments-${itemType}-${itemId}`;
-  const myPrivate = session.role==='branch'
-    ? appData.privateMessages.filter(m=>m.itemType===itemType && m.itemId===itemId && m.branchName===session.branchName && !m.deletedForBranch)
+  const mySender = currentSenderName();
+  const myPrivate = mySender
+    ? appData.privateMessages.filter(m=>m.itemType===itemType && m.itemId===itemId && m.branchName===mySender && !m.deletedForBranch)
     : [];
   return `
     <div class="comments-box" id="cbox-${boxId}" onclick="event.stopPropagation()">
@@ -3610,7 +3643,7 @@ function commentsBox(itemType, itemId, forceOpen){
             <button class="comment-send" onclick="submitComment('${itemType}','${itemId}','${boxId}')">💬 שליחת תגובה ציבורית</button>
           </div>
         </div>
-        ${session.role==='branch' ? `
+        ${(session.role==='branch' || session.role==='area') ? `
         <div class="comment-form-hint" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gridline);">
           יש לכם משהו שרוצים לומר רק ל${MARKETING_CONTACT_NAME}, בלי שסניפים אחרים יראו?
           <button class="comment-send-private" style="margin-inline-start:6px;" onclick="openPrivateMessageModal('${itemType}','${itemId}')">🔒 שליחת הודעה פרטית ל${MARKETING_CONTACT_NAME}</button>
@@ -3763,8 +3796,9 @@ function submitPrivateMessageFromModal(itemType, itemId){
   const itemTitle = findItemTitle(itemType, itemId);
   const msgObj = {
     itemType, itemId, itemTitle,
-    branchName: session.branchName,
+    branchName: currentSenderName(),
     branchEmail: session.branchInfo ? session.branchInfo.email : '',
+    senderRole: session.role,
     text,
     date: todayHeb(),
     replies: [],
@@ -3779,7 +3813,7 @@ function submitPrivateMessageFromModal(itemType, itemId){
     db.collection('privateMessages').add(msgObj)
       .then(()=>{
         toast(`ההודעה נשלחה בהצלחה ל${MARKETING_CONTACT_NAME} · נשלח גם מייל אוטומטי`);
-        sendPrivateMessageEmail(session.branchName, itemTitle, text);
+        sendPrivateMessageEmail(currentSenderName(), itemTitle, text);
       })
       .catch(err=>toast('שגיאה בשליחת ההודעה: '+err.message));
     return;
@@ -3789,13 +3823,13 @@ function submitPrivateMessageFromModal(itemType, itemId){
   appData.notifications.unshift({
     id: Date.now(),
     title: 'התקבלה הודעה פרטית חדשה',
-    body: `${session.branchName} · ${itemTitle}: ${text.slice(0,60)}${text.length>60?'…':''}`,
+    body: `${currentSenderName()} · ${itemTitle}: ${text.slice(0,60)}${text.length>60?'…':''}`,
     date: todayHeb(), type:'message', read:false
   });
   renderContent();
   renderNotifPanel();
   toast(`ההודעה נשלחה בהצלחה ל${MARKETING_CONTACT_NAME} · נשלח גם מייל אוטומטי`);
-  sendPrivateMessageEmail(session.branchName, itemTitle, text);
+  sendPrivateMessageEmail(currentSenderName(), itemTitle, text);
 }
 
 /* ---------- Private messages inbox ("ההודעות שלי") ---------- */
@@ -3818,7 +3852,8 @@ function viewMessages(){
       </div>
     `;
   }
-  const list = appData.privateMessages.filter(m=>m.branchName===session.branchName && !m.deletedForBranch).sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
+  const mySender = currentSenderName();
+  const list = appData.privateMessages.filter(m=>m.branchName===mySender && !m.deletedForBranch).sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
   list.forEach(m=>{
     if(m.unreadForBranch){
       m.unreadForBranch=false;
@@ -4563,6 +4598,13 @@ function openForm(type, editId){
       </div>
       <div class="field"><label>תאריך</label><input id="f-date" value="${item?.date||''}" placeholder="DD.MM.YYYY"></div>
       <div class="field">
+        <label>אורך העדכון</label>
+        <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-length" value="short" ${item?.updateLength==='short'?'checked':''}> עדכון קצר (מוצג מלא, בלי צורך לפתוח)</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-length" value="long" ${item?.updateLength!=='short'?'checked':''}> עדכון מפורט (נפתח בלחיצה)</label>
+        </div>
+      </div>
+      <div class="field">
         <label>סוג ההוראה</label>
         <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
           <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-type" value="info" ${!reqAction?'checked':''} onchange="toggleInstrActionFields()"> לידיעה בלבד</label>
@@ -4654,9 +4696,10 @@ function saveForm(){
     const dueDate = requiresAction ? val('f-instr-due') : '';
     if(requiresAction && !dueDate){ toast('נא למלא תאריך יעד לביצוע'); return; }
     const existingInstr = editId ? appData.instructions.find(x=>x.id==editId) : null;
+    const updateLength = document.querySelector('input[name="f-instr-length"]:checked')?.value || 'long';
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
-      date: val('f-date'), body: val('f-body'), unread: true,
+      date: val('f-date'), body: val('f-body'), unread: true, updateLength,
       time: existingInstr ? (existingInstr.time || null) : new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       requiresAction, dueDate: requiresAction ? dueDate : null,
       requiresPhoto: requiresAction ? !!document.getElementById('f-instr-photo').checked : false,
