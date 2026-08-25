@@ -919,6 +919,17 @@
   @keyframes sheetUp{ from{transform:translateY(100%);} to{transform:translateY(0);} }
   .mobile-more-sheet .nav-item{font-size:15.5px;padding:13px 14px;}
 </style>
+
+<!-- PWA START: keep this block when editing with Claude -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#457a1f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="NIZAT HUB">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<!-- PWA END -->
+
 </head>
 <body>
 
@@ -4783,5 +4794,109 @@ setInterval(tickCountdowns, 1000);
 checkStandReminders();
 setInterval(checkStandReminders, 5*60*1000);
 </script>
+<!-- PWA UI START: keep this block when editing with Claude -->
+<div id="pwa-install-wrap" hidden style="position:fixed;z-index:99998;left:18px;bottom:18px;max-width:330px;font-family:inherit;direction:rtl;">
+  <button id="pwa-install-btn" type="button" style="border:0;border-radius:14px;padding:12px 16px;background:#457a1f;color:white;font:inherit;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.18);cursor:pointer;">התקן את NIZAT HUB</button>
+</div>
+<div id="pwa-ios-guide" hidden style="position:fixed;z-index:99999;inset:auto 16px 16px 16px;max-width:430px;margin:auto;background:#fff;color:#0b0b0b;border:1px solid rgba(11,11,11,.12);border-radius:16px;padding:16px;box-shadow:0 10px 35px rgba(0,0,0,.20);font-family:inherit;direction:rtl;">
+  <button id="pwa-ios-close" type="button" aria-label="סגור" style="float:left;border:0;background:transparent;font-size:20px;cursor:pointer">×</button>
+  <strong style="display:block;margin-bottom:6px">הוספת NIZAT HUB למסך הבית</strong>
+  <div style="font-size:14px;line-height:1.5">ב-Safari לחצו על כפתור השיתוף ובחרו <b>הוסף למסך הבית</b>.</div>
+</div>
+<div id="pwa-update-bar" hidden style="position:fixed;z-index:99999;right:16px;left:16px;bottom:16px;max-width:520px;margin:auto;background:#111;color:white;border-radius:14px;padding:12px 14px;box-shadow:0 10px 35px rgba(0,0,0,.25);font-family:inherit;direction:rtl;align-items:center;gap:12px;">
+  <span style="flex:1">קיימת גרסה חדשה של NIZAT HUB</span>
+  <button id="pwa-update-btn" type="button" style="border:0;border-radius:10px;padding:8px 12px;background:#fff;color:#111;font:inherit;font-weight:700;cursor:pointer">עדכן עכשיו</button>
+</div>
+<script>
+(function(){
+  'use strict';
+  var deferredInstallPrompt = null;
+  var installWrap = document.getElementById('pwa-install-wrap');
+  var installBtn = document.getElementById('pwa-install-btn');
+  var iosGuide = document.getElementById('pwa-ios-guide');
+  var iosClose = document.getElementById('pwa-ios-close');
+  var updateBar = document.getElementById('pwa-update-bar');
+  var updateBtn = document.getElementById('pwa-update-btn');
+  var waitingWorker = null;
+
+  function isStandalone(){
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function isIOS(){
+    return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+  }
+
+  function showUpdate(worker){
+    waitingWorker = worker;
+    if(updateBar) { updateBar.hidden = false; updateBar.style.display = 'flex'; }
+  }
+
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if(!isStandalone() && installWrap) installWrap.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', function(){
+    deferredInstallPrompt = null;
+    if(installWrap) installWrap.hidden = true;
+    localStorage.setItem('nizatHubPwaInstalled','1');
+  });
+
+  if(installBtn){
+    installBtn.addEventListener('click', async function(){
+      if(!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch(e) {}
+      deferredInstallPrompt = null;
+      installWrap.hidden = true;
+    });
+  }
+
+  if(isIOS() && !isStandalone() && !localStorage.getItem('nizatHubIosInstallGuideSeen')){
+    setTimeout(function(){ if(iosGuide) iosGuide.hidden = false; }, 1800);
+  }
+  if(iosClose){
+    iosClose.addEventListener('click', function(){
+      iosGuide.hidden = true;
+      localStorage.setItem('nizatHubIosInstallGuideSeen','1');
+    });
+  }
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('./service-worker.js', {scope:'./'}).then(function(reg){
+        if(reg.waiting) showUpdate(reg.waiting);
+        reg.addEventListener('updatefound', function(){
+          var newWorker = reg.installing;
+          if(!newWorker) return;
+          newWorker.addEventListener('statechange', function(){
+            if(newWorker.state === 'installed' && navigator.serviceWorker.controller){
+              showUpdate(newWorker);
+            }
+          });
+        });
+      }).catch(function(err){
+        console.error('NIZAT HUB service worker registration failed:', err);
+      });
+
+      var refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        if(refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+    });
+  }
+
+  if(updateBtn){
+    updateBtn.addEventListener('click', function(){
+      if(waitingWorker) waitingWorker.postMessage({type:'SKIP_WAITING'});
+    });
+  }
+})();
+</script>
+<!-- PWA UI END -->
 </body>
 </html>
