@@ -991,6 +991,7 @@
     </div>
     <div class="topbar-left">
       <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;">👁</button>
+      <button class="icon-toggle-btn" id="push-enable-btn" onclick="enablePushNotifications()" title="הפעלת התראות Push" style="display:none;">🔔+</button>
       <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה">🌙</button>
       <div class="notif-wrap">
         <button class="icon-toggle-btn" id="notif-bell" onclick="toggleNotifPanel()" title="התראות">
@@ -1077,6 +1078,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
 /* ---------- Firebase config (מלא לאחר יצירת הפרויקט) ---------- */
@@ -1154,15 +1156,22 @@ function formatFileSize(bytes){
   return (bytes/(1024*1024)).toFixed(1) + ' MB';
 }
 
-let fbApp = null, fbAuth = null, db = null;
+let fbApp = null, fbAuth = null, db = null, messaging = null;
 let firebaseReady = false;
 let currentUserEmail = null;
+/* מפתח VAPID לפוש אמיתי (Web Push) — נוצר ב-Firebase Console → Project Settings →
+   Cloud Messaging → Web Push certificates → Generate key pair. יש להחליף את
+   הפלייסהולדר הזה במפתח האמיתי לפני שהתראות Push יעבדו בפועל. */
+const FCM_VAPID_KEY = "BJ5RORPKGOnaMPaUX0VvwgSlC4LRl6-uOKXYDmV6HeteCYgPXWNe7cVRbSLqJ2gnQIgOrenTVNjGVAbwSNV0OH4";
 try {
   if (typeof firebase !== 'undefined' && FIREBASE_CONFIG.apiKey.indexOf('PLACEHOLDER') === -1) {
     fbApp = firebase.initializeApp(FIREBASE_CONFIG);
     fbAuth = firebase.auth();
     db = firebase.firestore();
     firebaseReady = true;
+    if(firebase.messaging && firebase.messaging.isSupported && firebase.messaging.isSupported()){
+      messaging = firebase.messaging();
+    }
     fbAuth.onAuthStateChanged(function(user){
       currentUserEmail = user ? normalizeEmail(user.email) : null;
     });
@@ -1726,6 +1735,11 @@ function enterApp(role, payload){
   renderNotifPanel();
   initFirestoreSync();
   toast(toastMsg);
+  const pushBtn = document.getElementById('push-enable-btn');
+  if(pushBtn){
+    const supported = typeof Notification !== 'undefined' && messaging;
+    pushBtn.style.display = (supported && Notification.permission === 'default') ? 'inline-flex' : 'none';
+  }
 }
 /* ============================================================
    צפייה כמשתמש (מחלקת שיווק בלבד) — שכבת תצוגה בלבד, לא נוגעת
@@ -1859,6 +1873,64 @@ function currentViewerId(){
   if(session.role==='branch' && session.branchInfo) return 'branch:' + (session.branchInfo.email || session.branchName);
   if(session.role==='area' && session.areaLabel) return 'area:' + session.areaLabel;
   return null;
+}
+/* זהות לצורך רישום Push — כולל גם מחלקת שיווק (בניגוד ל-currentViewerId, שמחריג
+   אותה בכוונה למעקב "נקרא"). */
+function currentPushIdentity(){
+  if(session.role==='branch' && session.branchInfo) return 'branch:' + (session.branchInfo.email || session.branchName);
+  if(session.role==='area' && session.areaLabel) return 'area:' + session.areaLabel;
+  if(session.role==='marketing') return 'marketing:' + (currentUserEmail || 'unknown');
+  return null;
+}
+/* מבקש הרשאת התראות מהדפדפן, מקבל טוקן FCM, ושומר אותו ב-Firestore (pushTokens)
+   כדי שה-Cloud Function תדע לאן לשלוח פוש. קורה רק בעקבות פעולת משתמש מפורשת
+   (לחיצה על כפתור), לא אוטומטית — כמקובל להרשאות דפדפן. */
+function enablePushNotifications(){
+  if(!messaging){ toast('התראות Push אינן נתמכות בדפדפן זה'); return; }
+  if(FCM_VAPID_KEY.indexOf('PASTE_YOUR_VAPID_KEY_HERE') !== -1){
+    toast('התראות Push עדיין לא מוגדרות סופית באתר — יש להשלים את הגדרת השרת');
+    return;
+  }
+  Notification.requestPermission().then(function(permission){
+    if(permission !== 'granted'){
+      toast('לא ניתנה הרשאה להתראות. אפשר לשנות זאת בהגדרות הדפדפן.');
+      return;
+    }
+    const swReg = window.nizatSwRegistration;
+    messaging.getToken({vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg}).then(function(token){
+      if(!token){ toast('לא הצלחתי לקבל טוקן להתראות. נסו שוב.'); return; }
+      const vid = currentPushIdentity();
+      if(!vid || !firebaseReady) return;
+      const label = session.role==='branch' ? session.branchName : (session.role==='area' ? session.areaLabel : 'מחלקת שיווק');
+      const docId = (vid + '_' + token).replace(/[\/\s]/g,'_').slice(0,400);
+      db.collection('pushTokens').doc(docId).set({
+        viewerId: vid, label, token, role: session.role,
+        updatedAt: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})
+      }, {merge:true}).then(()=>{
+        toast('התראות הופעלו בהצלחה!');
+        localStorage.setItem('nizatHubPushEnabled','1');
+        const pushBtn = document.getElementById('push-enable-btn');
+        if(pushBtn) pushBtn.style.display = 'none';
+      }).catch(err=>toast('שגיאה בשמירת ההרשמה להתראות: '+err.message));
+    }).catch(function(err){
+      console.error('FCM getToken failed:', err);
+      toast('שגיאה בהפעלת התראות: ' + err.message);
+    });
+  });
+}
+if(messaging){
+  /* הודעות שמגיעות כשהאפליקציה פתוחה ברקע/פעילה — FCM לא מציג אוטומטית התראת
+     מערכת במצב הזה, אז מציגים טוסט + פעמון בעצמנו. הודעות כשהאפליקציה סגורה
+     לגמרי מטופלות ב-service-worker.js (onBackgroundMessage). */
+  messaging.onMessage(function(payload){
+    const title = (payload.notification && payload.notification.title) || 'עדכון חדש';
+    const body = (payload.notification && payload.notification.body) || '';
+    toast(`${title}${body ? ' — ' + body : ''}`);
+    appData.notifications.unshift({
+      id: Date.now()+Math.random(), title, body, date: todayHeb(), type:'broadcast', read:false
+    });
+    renderNotifPanel();
+  });
 }
 function isItemRead(type, itemId){
   const vid = currentViewerId();
@@ -4644,7 +4716,8 @@ function viewAdmin(){
     {id:'feedback', label:'משוב מהסניפים'},
     {id:'stats', label:'סטטיסטיקות'},
     {id:'texts', label:'טקסטים באתר'},
-    {id:'pwa', label:'התקנות PWA'}
+    {id:'pwa', label:'התקנות PWA'},
+    {id:'broadcast', label:'שידור עדכון (Push)'}
   ];
   return `
     <div class="page-head">
@@ -4662,7 +4735,44 @@ function viewAdmin(){
     ${ui.adminTab==='stats' ? adminStats() : ''}
     ${ui.adminTab==='texts' ? adminTexts() : ''}
     ${ui.adminTab==='pwa' ? adminPwaInstalls() : ''}
+    ${ui.adminTab==='broadcast' ? adminBroadcast() : ''}
   `;
+}
+function adminBroadcast(){
+  return `
+    <div class="card">
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
+        שליחת עדכון מיידי לכל מי שהפעיל התראות Push באפליקציה (מגיע גם כשהאפליקציה סגורה).
+        זה נפרד לגמרי מ"הוראות ועדכונים" — משמש לעדכון חד-פעמי ודחוף.
+      </p>
+      <div class="field"><label>כותרת</label><input id="broadcast-title" placeholder="כותרת ההודעה"></div>
+      <div class="field"><label>תוכן</label><textarea id="broadcast-body" rows="3" placeholder="תוכן ההודעה..."></textarea></div>
+      <div class="field">
+        <label>אורך</label>
+        <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="broadcast-length" value="short" checked> קצר</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="broadcast-length" value="long"> ארוך</label>
+        </div>
+      </div>
+      <button class="btn-confirm" onclick="sendBroadcastPush()">📢 שליחת עדכון עכשיו</button>
+    </div>
+  `;
+}
+function sendBroadcastPush(){
+  const title = val('broadcast-title');
+  const body = val('broadcast-body');
+  if(!title || !body){ toast('נא למלא כותרת ותוכן'); return; }
+  const length = document.querySelector('input[name="broadcast-length"]:checked')?.value || 'short';
+  if(!firebaseReady){ toast('שידור Push דורש חיבור ל-Firebase'); return; }
+  db.collection('broadcasts').add({
+    title, body, length,
+    createdBy: currentUserEmail || 'unknown',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(()=>{
+    toast('העדכון נשלח לכל מי שהפעיל התראות!');
+    document.getElementById('broadcast-title').value = '';
+    document.getElementById('broadcast-body').value = '';
+  }).catch(err=>toast('שגיאה בשליחת העדכון: '+err.message));
 }
 function adminPwaInstalls(){
   const list = [...(appData.pwaInstalls||[])].sort((a,b)=> (b.installedAt||'').localeCompare(a.installedAt||''));
@@ -5341,6 +5451,7 @@ setInterval(function(){
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('./service-worker.js', {scope:'./'}).then(function(reg){
+        window.nizatSwRegistration = reg;
         if(reg.waiting) showUpdate(reg.waiting);
         reg.addEventListener('updatefound', function(){
           var newWorker = reg.installing;
