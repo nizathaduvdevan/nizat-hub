@@ -1,0 +1,40 @@
+{
+  "id": "/nizat-hub/",
+  "name": "NIZAT HUB",
+  "short_name": "NIZAT HUB",
+  "description": "מרכז עדכוני השיווק לסניפי ניצת הדובדבן",
+  "start_url": "/nizat-hub/",
+  "scope": "/nizat-hub/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f5f7",
+  "theme_color": "#457a1f",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/nizat-hub/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nizat-hub/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nizat-hub/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/nizat-hub/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
