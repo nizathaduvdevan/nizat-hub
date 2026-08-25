@@ -2632,9 +2632,9 @@ function compCard(c){
       const myKey = match ? match.branch.rawName : null;
       const ranking = renderNetworkRanking(c, myKey);
       groupsSection = (match ? renderGroupForBranch(c, match.group, match.branch) : `<div class="comp-no-match">לא זוהתה התאמה אוטומטית בין הסניף שלכם לנתוני התחרות. פנו למחלקת השיווק לבירור.</div>`)
-        + ranking + renderCompetitionTabs(c);
+        + renderRawSalesTable(c) + ranking + renderCompetitionTabs(c);
     } else {
-      groupsSection = renderNetworkRanking(c, null) + renderCompetitionTabs(c);
+      groupsSection = renderRawSalesTable(c) + renderNetworkRanking(c, null) + renderCompetitionTabs(c);
     }
   }
   return `
@@ -2866,10 +2866,10 @@ function renderRawSalesTable(c){
     }).join('')}</tr>
   `).join('');
   return `
-    <div class="comp-foot" style="margin-top:14px;border-top:1px solid var(--gridline);padding-top:12px;">
-      <button class="link-btn" onclick="toggleRawSalesTable('${c.id}')">📄 טבלת האקסל המקורית (כפי שהתקבלה משיווק) <span id="raw-table-arrow-${c.id}">▾</span></button>
+    <div class="comp-foot" style="margin-bottom:10px;">
+      <button class="link-btn" onclick="toggleRawSalesTable('${c.id}')">📄 לטבלת אקסל המלאה <span id="raw-table-arrow-${c.id}">▾</span></button>
     </div>
-    <div id="raw-table-${c.id}" style="display:none;overflow-x:auto;margin-top:8px;">
+    <div id="raw-table-${c.id}" style="display:none;overflow-x:auto;margin-bottom:14px;">
       <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
     </div>
   `;
@@ -2889,7 +2889,7 @@ function renderCompetitionTabs(c){
       <button class="comp-tab-btn" data-ctab="area" id="ctab-btn-area-${c.id}" onclick="switchCompTab('${c.id}','area')">תצוגה לפי איזור</button>
       <button class="comp-tab-btn" data-ctab="summary" id="ctab-btn-summary-${c.id}" onclick="switchCompTab('${c.id}','summary')">סיכום איזורי כללי</button>
     </div>
-    <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}${renderRawSalesTable(c)}</div>
+    <div class="comp-tab-content" id="ctab-general-${c.id}">${renderGroupsForAdmin(c)}</div>
     <div class="comp-tab-content" id="ctab-area-${c.id}" style="display:none;">${renderByAreaManager(c)}</div>
     <div class="comp-tab-content" id="ctab-summary-${c.id}" style="display:none;">${renderAreaManagerSummary(c)}</div>
   `;
