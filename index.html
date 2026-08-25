@@ -231,7 +231,7 @@
   }
   .logout-btn:hover{border-color:var(--red);color:var(--red);}
 
-  .main-layout{display:flex;min-height:calc(100vh - 57px);}
+  .main-layout{display:flex;min-height:calc(100vh - 57px);min-width:0;}
   .sidebar{
     width:216px;flex:none;
     background:var(--surface-1);
@@ -260,7 +260,7 @@
   .nav-sep{height:1px;background:var(--gridline);margin:12px 4px;}
   .nav-label{font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:6px 12px 4px;}
 
-  .content{flex:1;padding:26px 30px 60px;max-width:1180px;}
+  .content{flex:1;min-width:0;padding:26px 30px 60px;max-width:1180px;}
   .page-head{margin-bottom:20px;}
   .page-head h1{margin:0 0 4px;font-size:24px;font-weight:500;}
   .page-head p{margin:0;font-size:15px;color:var(--text-secondary);}
@@ -2850,7 +2850,7 @@ function excelStyleTable(headerLabels, dataRows){
     const color = cell.textColor || (cell.bg ? contrastTextColor(cell.bg) : 'inherit');
     return `<td style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);white-space:nowrap;font-size:12.5px;${cell.bold?'font-weight:700;':''}">${cell.html!==undefined ? cell.html : (cell.text||'')}</td>`;
   }).join('')}</tr>`).join('');
-  return `<div style="overflow-x:auto;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
+  return `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
 }
 function renderGroupsForAdmin(c){
   const RANK_COLORS = [
@@ -2925,7 +2925,7 @@ function asIsTable(headerCells, dataRows){
     const color = cell.bg ? contrastTextColor(cell.bg) : 'inherit';
     return `<td style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);white-space:nowrap;font-size:12.5px;">${cell.text||''}</td>`;
   }).join('')}</tr>`).join('');
-  return `<div style="overflow-x:auto;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
+  return `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
 }
 /* ---------- טאב 2: לפי מנהל אזור — טבלת האקסל המקורית AS IS (ערכים+צבעים אמיתיים),
    מפוזרת מחדש לפי מנהל אזור; בכל מנהל: הסניפים ממוינים מהגבוה לנמוך לפי יעד. ---------- */
@@ -3014,7 +3014,7 @@ function renderAreaManagerSummary(c){
   return `
     <div class="card">
       <h3 style="text-align:center;margin:0 0 12px;font-size:16px;">${c.title}${c.start&&c.end?` <span dir="ltr">${c.start}–${c.end}</span>`:''} - מנהלי אזור</h3>
-      <div style="overflow-x:auto;">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}${totalHtml}</table>
       </div>
     </div>
@@ -3031,7 +3031,7 @@ function renderRawSalesTable(c){
     }).join('')}</tr>
   `).join('');
   return `
-    <div style="overflow-x:auto;margin-bottom:14px;">
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">
       <table style="border-collapse:collapse;min-width:100%;">${rowsHtml}</table>
     </div>
   `;
