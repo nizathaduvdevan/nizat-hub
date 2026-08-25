@@ -5238,6 +5238,19 @@ initLogin();
 setInterval(tickCountdowns, 1000);
 checkStandReminders();
 setInterval(checkStandReminders, 5*60*1000);
+
+/* רענון עדין ואוטומטי כל 10 דקות — הנתונים עצמם כבר מתעדכנים בזמן אמת דרך
+   Firestore בלי צורך ברענון, אבל עדכוני קוד (גרסה חדשה של האתר) דורשים טעינה
+   מחדש בפועל. לא מרענן אם יש חלון פתוח או שהמשתמש כרגע מקליד, כדי לא לאבד
+   טקסט שלא נשמר (למשל באמצע כתיבת הודעה פרטית). */
+setInterval(function(){
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalOpen = modalOverlay && modalOverlay.classList.contains('open');
+  const typing = document.activeElement && ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(!modalOpen && !typing){
+    location.reload();
+  }
+}, 10*60*1000);
 </script>
 <!-- PWA UI START: keep this block when editing with Claude -->
 <div id="pwa-install-wrap" hidden style="position:fixed;z-index:99998;left:18px;bottom:18px;max-width:330px;font-family:inherit;direction:rtl;">
