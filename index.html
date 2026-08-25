@@ -252,6 +252,11 @@
   .nav-item .ic{width:18px;text-align:center;flex:none;font-size:16.5px;}
   .nav-item:hover{background:#f2f3f5;color:var(--text-primary);}
   .nav-item.active{background:rgba(69,122,31,0.10);color:var(--blue-dark);}
+  .nav-badge{
+    margin-inline-start:auto;background:var(--critical,#d33);color:#fff;
+    border-radius:99px;font-size:11px;font-weight:700;line-height:1;
+    padding:2px 6px;min-width:16px;text-align:center;flex:none;
+  }
   .nav-sep{height:1px;background:var(--gridline);margin:12px 4px;}
   .nav-label{font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:6px 12px 4px;}
 
@@ -663,12 +668,21 @@
       border-top:1px solid var(--border);z-index:30;padding:6px 4px calc(6px + env(safe-area-inset-bottom));justify-content:space-around;
     }
     .mobile-tabbar button{
-      background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;
-      font-size:11.5px;font-weight:500;color:var(--muted);padding:6px 4px;flex:1;
+      background:none;border:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;
+      font-size:11.5px;font-weight:500;color:var(--muted);padding:6px 2px;flex:1;min-width:0;
+    }
+    .mobile-tabbar button span:last-child{
+      white-space:normal;word-break:break-word;line-height:1.15;text-align:center;font-size:10px;
     }
     .mobile-tabbar button.active{color:var(--blue-dark);}
     .mobile-tabbar .ic{font-size:17.5px;}
-    .content{padding-bottom:calc(80px + env(safe-area-inset-bottom));}
+    .mobile-tabbar .ic-wrap{position:relative;display:inline-block;}
+    .mobile-tabbar .tab-badge{
+      position:absolute;top:-4px;left:-9px;background:var(--critical,#d33);color:#fff;
+      border-radius:99px;font-size:9.5px;font-weight:700;line-height:1;
+      padding:1.5px 4px;min-width:14px;text-align:center;
+    }
+    .content{padding-bottom:calc(96px + env(safe-area-inset-bottom));}
   }
 
   /* ============================================================
@@ -1181,6 +1195,7 @@ let unsubEvents = null;
 let unsubStandCampaigns = null;
 let unsubStandConfirmations = null;
 let unsubInstructionCompletions = null;
+let unsubItemReads = null;
 let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
 function initFirestoreSync(){
@@ -1329,6 +1344,22 @@ function initFirestoreSync(){
       console.error('Firestore sync error (instruction completions):', err);
     });
 
+  /* מעקב "נקרא" אישי לכל צופה (סניף/מנהל אזור) — קולקציה נפרדת, מסמך אחד לכל
+     צירוף (סוג תוכן + מזהה פריט + מזהה צופה), באותה שיטה בדיוק כמו
+     instructionCompletions. כך "עדכון חדש"/עיגול אדום נעלמים רק אצל מי שבאמת צפה,
+     ולא אצל כל הסניפים ברשת יחד. */
+  if (unsubItemReads) unsubItemReads();
+  unsubItemReads = db.collection('itemReads')
+    .onSnapshot(function(snap){
+      appData.itemReads = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderNav();
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (item reads):', err);
+    });
+
   if (unsubSiteTexts) unsubSiteTexts();
   unsubSiteTexts = db.collection('siteTexts').doc('main')
     .onSnapshot(function(doc){
@@ -1391,6 +1422,7 @@ let appData = {
   siteTexts: {},
   standConfirmations: [],
   instructionCompletions: [],
+  itemReads: [],
   competitions: [
     {
       id: 1,
@@ -1403,7 +1435,7 @@ let appData = {
       desc: "תחרות מכירות למותג LAVIDO לרגל חגי תשרי. הסניפים מחולקים לשלוש קבוצות לפי יעד מכירות — כל קבוצה עם יעד ופרסים משלה. עקבו אחר ההתקדמות שלכם מול היעד, מנהל האזור שלכם, והפרסים הניתנים לכל דירוג.",
       leaderboard: [],
       salesUpdatedAt: null,
-      managerColors: {"שחר ירושלמי":"#AFABAB","ליאור עובדיה":"#9DC3E6","נתי עמית":"#CC66FF","שירן ארר":"#FBE5D6","אמיר בר הלל":"#F8CBAD","נאור מנקדי":"#C5E0B4","עופר דרורי":"#FFC000"},
+      managerColors: {"שחר ירושלמי":"#AFABAB","ליאור עובדיה":"#9DC3E6","נתי עמית":"#CC66FF","שירן ארר":"#FBE5D6","אמיר בר הלל":"#F8CBAD","נאור מנקדי":"#C5E0B4"},
       groups: [
     {
       groupNum: 1, name: "קבוצה 1", target: 23000, colorHex: "#FFFF00",
@@ -1475,7 +1507,6 @@ let appData = {
         {rawName:"38-כפר סבא", name:"כפר סבא", target:8500, sales:0, areaManager:"ליאור עובדיה"},
         {rawName:"45-טופ דן תל אביב", name:"טופ דן תל אביב", target:8500, sales:0, areaManager:"שחר ירושלמי"},
         {rawName:"46-ביתר עלית", name:"ביתר עלית", target:8500, sales:0, areaManager:"נאור מנקדי"},
-        {rawName:"47-רעננה בטבע בע``מ", name:"רעננה בטבע בעמ", target:8500, sales:0, areaManager:"עופר דרורי"},
         {rawName:"52-ק-מוצקין", name:"קריית מוצקין", target:8500, sales:0, areaManager:"שירן ארר"},
         {rawName:"54-יהודה המכבי", name:"יהודה המכבי", target:8500, sales:0, areaManager:"שחר ירושלמי"},
         {rawName:"55-דיזנגוף", name:"דיזנגוף", target:8500, sales:0, areaManager:"שחר ירושלמי"},
@@ -1737,6 +1768,38 @@ function navItems(){
 }
 const MOBILE_PRIMARY = ['dashboard','competitions','instructions','materials'];
 const MOBILE_PRIMARY_AREA = ['dashboard','areaOverview','competitions','instructions'];
+/* מעקב "נקרא" אישי לכל צופה — מזהה ייחודי לכל סניף (לפי אימייל) ולכל מנהל אזור
+   (לפי שם האזור שלו). מחלקת השיווק לא עוקבת אחרי "נקרא" בכלל (מחזיר null). */
+function currentViewerId(){
+  if(session.role==='branch' && session.branchInfo) return 'branch:' + (session.branchInfo.email || session.branchName);
+  if(session.role==='area' && session.areaLabel) return 'area:' + session.areaLabel;
+  return null;
+}
+function isItemRead(type, itemId){
+  const vid = currentViewerId();
+  if(!vid) return true; /* מחלקת שיווק — לא רלוונטי, תמיד "נקרא" */
+  return (appData.itemReads||[]).some(r=>r.type===type && r.itemId==itemId && r.viewerId===vid);
+}
+function markItemRead(type, itemId){
+  const vid = currentViewerId();
+  if(!vid) return;
+  if(isItemRead(type, itemId)) return;
+  const docId = `${type}_${itemId}_${vid}`.replace(/[\/\s]/g,'_');
+  const rec = {type, itemId: String(itemId), viewerId: vid, readAt: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})};
+  appData.itemReads.push(Object.assign({id: docId}, rec));
+  if(firebaseReady){
+    db.collection('itemReads').doc(docId).set(rec).catch(()=>{});
+  }
+}
+/* ספירת "לא נקרא" להצגת עיגול אדום ליד פריט ניווט — רק לסניפים/מנהלי אזור,
+   לא למחלקת השיווק (שלא אמורה לראות "לא נקרא" על מה שהיא עצמה פרסמה). */
+const NAV_UNREAD_TYPES = {instructions:'instructions', competitions:'competitions', materials:'materials', events:'events'};
+function navUnreadCount(navId){
+  if(session.role==='marketing') return 0;
+  const key = NAV_UNREAD_TYPES[navId];
+  if(!key || !appData[key]) return 0;
+  return appData[key].filter(x=>!isItemRead(key, x.id)).length;
+}
 function renderNav(){
   renderPreviewBanner();
   const items = navItems();
@@ -1749,23 +1812,31 @@ function renderNav(){
   const primary = items.filter(i=>primaryIds.includes(i.id));
   const overflow = items.filter(i=>!primaryIds.includes(i.id));
   const overflowActive = overflow.some(i=>i.id===ui.view);
+  const overflowUnread = overflow.reduce((s,i)=>s+navUnreadCount(i.id),0);
   document.getElementById('mobile-tabbar').innerHTML = `
-    ${primary.map(i=>`
+    ${primary.map(i=>{
+      const n = navUnreadCount(i.id);
+      return `
       <button class="${ui.view===i.id?'active':''}" onclick="goTo('${i.id}')">
-        <span class="ic">${i.icon}</span><span>${i.label}</span>
-      </button>`).join('')}
+        <span class="ic-wrap"><span class="ic">${i.icon}</span>${n?`<span class="tab-badge">${n}</span>`:''}</span><span>${i.label}</span>
+      </button>`;
+    }).join('')}
     <button class="${overflowActive?'active':''}" onclick="toggleMobileMore()">
-      <span class="ic">⋯</span><span>עוד</span>
+      <span class="ic-wrap"><span class="ic">⋯</span>${overflowUnread?`<span class="tab-badge">${overflowUnread}</span>`:''}</span><span>עוד</span>
     </button>
   `;
-  document.getElementById('mobile-more-sheet').innerHTML = overflow.map(i=>`
+  document.getElementById('mobile-more-sheet').innerHTML = overflow.map(i=>{
+    const n = navUnreadCount(i.id);
+    return `
     <button class="nav-item ${ui.view===i.id?'active':''}" onclick="goTo('${i.id}');closeMobileMore();">
-      <span class="ic">${i.icon}</span><span>${i.label}</span>
-    </button>`).join('') + `<button class="mobile-more-logout" onclick="logout()">התנתקות</button>`;
+      <span class="ic">${i.icon}</span><span>${i.label}</span>${n?`<span class="nav-badge">${n}</span>`:''}
+    </button>`;
+  }).join('') + `<button class="mobile-more-logout" onclick="logout()">התנתקות</button>`;
 }
 function navBtn(i){
+  const n = navUnreadCount(i.id);
   return `<button class="nav-item ${ui.view===i.id?'active':''}" onclick="goTo('${i.id}')">
-    <span class="ic">${i.icon}</span><span>${i.label}</span>
+    <span class="ic">${i.icon}</span><span>${i.label}</span>${n?`<span class="nav-badge">${n}</span>`:''}
   </button>`;
 }
 function toggleMobileMore(){
@@ -1814,9 +1885,9 @@ function renderContent(){
 /* ---------- Dashboard ---------- */
 function viewDashboard(){
   const activeComps = appData.competitions.filter(c=>c.status==='active');
-  const unreadInstr = appData.instructions.filter(i=>i.unread);
+  const unreadInstr = appData.instructions.filter(i=>!isItemRead('instructions', i.id));
   const feed = [
-    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id, unread:!!i.unread})),
+    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id, unread:!isItemRead('instructions', i.id)})),
     ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id})),
     ...appData.events.map(e=>({type:'event', date:e.date, title:e.title, id:e.id}))
   ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,4);
@@ -1825,8 +1896,8 @@ function viewDashboard(){
   const nextEvent = [...appData.events].sort((a,b)=>parseHebDate(a.date)-parseHebDate(b.date)).find(e=>parseHebDate(e.date)>=todayMs);
 
   /* ---------- "דורש את הטיפול שלך" — task signals מנתונים אמיתיים בלבד ----------
-     הוראות שלא נקראו: שדה גלובלי קיים (i.unread) — לא ייחודי לכל צופה (מוסבר גם
-     בהערה שליד toggleInstr). סטנדים/הודעות: אמיתיים ואישיים לסניף עצמו. */
+     הוראות שלא נקראו: מעקב אישי לכל צופה (isItemRead/markItemRead).
+     סטנדים/הודעות: אמיתיים ואישיים לסניף עצמו. */
   const isBranch = session.role==='branch' && !!session.branchInfo;
   let pendingStandsCount = 0;
   if(isBranch){
@@ -2001,6 +2072,7 @@ function parseHebDate(d){
    to auto-split branches into a DYNAMIC number of groups (not hardcoded),
    and parses the "פרסים" section into tiered, ranked prize lists per group. */
 const HEB_ORDINAL_RANK = {'ראשון':1,'שני':2,'שלישי':3,'רביעי':4,'חמישי':5,'שישי':6,'שביעי':7,'שמיני':8,'תשיעי':9,'עשירי':10};
+const EXCLUDED_MANAGER = 'עופר דרורי'; /* מוצא באופן גורף מכל ייבוא/הצגה של אקסלי מכירות, לפי בקשת אלירן */
 function normalizeBranchName(raw){
   let s = (raw||'').toString().trim();
   s = s.replace(/^\d+\s*[-–]?\s*/,'');
@@ -2101,6 +2173,8 @@ function extractRawSalesTable(rows, sheet, headers){
   const tableRows = [];
   for(let ri=rowStart; ri<=rowEnd; ri++){
     const row = rows[ri] || [];
+    const mgrCellVal = (row[h0.managerCol]||'').toString().trim();
+    if(mgrCellVal === EXCLUDED_MANAGER) continue;
     const cells = [];
     for(let ci=colStart; ci<=colEnd; ci++){
       const raw = row[ci];
@@ -2190,8 +2264,9 @@ function parseCompetitionSheet(rows, sheet){
       const rawName = (row[h.nameCol]||'').toString().trim();
       if(!rawName || /סה[״"]?כ/.test(rawName)) continue;
       const t = row[h.targetCol], s = row[h.salesCol], mgr = row[h.managerCol];
-      if(target===null && typeof t === 'number') target = t;
       const mgrName = (mgr||'').toString().trim();
+      if(mgrName === EXCLUDED_MANAGER) continue;
+      if(target===null && typeof t === 'number') target = t;
       branches.push({
         rawName,
         name: normalizeBranchName(rawName),
@@ -2558,7 +2633,21 @@ function handleDailyReportFile(evt){
   evt.target.value = '';
 }
 
+/* מסמן קטע שלם (תחרויות/חומרים/אירועים) כ"נקרא" עבור הצופה הנוכחי בלבד —
+   לא רץ עבור מחלקת השיווק. כל פריט "לא נקרא" מקבל רשומת קריאה אישית
+   (ראו markItemRead/isItemRead), כך שזה משפיע רק על מי שבאמת צפה, לא על כל
+   הסניפים/מנהלי האזור ברשת יחד. */
+function markSectionRead(type){
+  if(session.role==='marketing') return;
+  const arr = appData[type];
+  if(!arr || !arr.length) return;
+  const toMark = arr.filter(x=>!isItemRead(type, x.id));
+  if(!toMark.length) return;
+  toMark.forEach(x=>markItemRead(type, x.id));
+  renderNav();
+}
 function viewCompetitions(){
+  markSectionRead('competitions');
   const order = {active:0, upcoming:1, ended:2};
   const list = [...appData.competitions].sort((a,b)=>order[a.status]-order[b.status]);
   return `
@@ -2722,6 +2811,17 @@ function renderGroupForBranch(comp, g, b){
     </div>
   `;
 }
+/* טבלה בסגנון אקסל משותפת לשלושת הטאבים — כותרת בצבע הכותרות המקורי מהאקסל (תכלת),
+   ותא "רצועת צבע" ראשון לכל שורה (כמו עמודה A בקובץ המקורי) שמשקף את צבע הקבוצה/מנהל האזור. */
+function excelStyleTable(headerLabels, dataRows){
+  const headHtml = `<tr>${headerLabels.map(h=>`<th style="background:#00FFFF;color:#1a1a1a;padding:4px 9px;border:1px solid rgba(0,0,0,0.08);font-size:12.5px;font-weight:700;white-space:nowrap;">${h}</th>`).join('')}</tr>`;
+  const bodyHtml = dataRows.map(row=>`<tr>${row.map(cell=>{
+    const bg = cell.bg || 'transparent';
+    const color = cell.textColor || (cell.bg ? contrastTextColor(cell.bg) : 'inherit');
+    return `<td style="background:${bg};color:${color};padding:4px 9px;border:1px solid rgba(0,0,0,0.08);white-space:nowrap;font-size:12.5px;${cell.bold?'font-weight:700;':''}">${cell.html!==undefined ? cell.html : (cell.text||'')}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<div style="overflow-x:auto;margin-top:8px;"><table style="border-collapse:collapse;min-width:100%;">${headHtml}${bodyHtml}</table></div>`;
+}
 function renderGroupsForAdmin(c){
   const RANK_COLORS = [
     {bg:'#FFD700', text:'#1a1a1a'}, {bg:'#C0C0C0', text:'#1a1a1a'}, {bg:'#CD7F32', text:'#ffffff'},
@@ -2739,6 +2839,14 @@ function renderGroupsForAdmin(c){
           return pb-pa || b.sales-a.sales;
         });
         const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+        const tableRows = ranked.map((b,idx)=>[
+          {bg: g.colorHex||null, text:''},
+          {text: `${medal(idx)} ${b.rawName}`},
+          {text: fmtMoney(b.target)+' ₪'},
+          {text: fmtMoney(b.sales)+' ₪'},
+          {text: (b.target>0?Math.round(b.sales/b.target*100):0)+'%'},
+          {html: managerChip(c, b.areaManager)}
+        ]);
         return `
         <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
@@ -2762,15 +2870,9 @@ function renderGroupsForAdmin(c){
               </div>`;
             }).join('')}
           </div>` : ''}
-          <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
+          <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה (תצוגת אקסל) <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
           <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
-            ${ranked.map((b,idx)=>`
-              <div class="comp-group-table-row">
-                <span class="n">${medal(idx)} ${b.rawName}</span>
-                <span class="p" dir="ltr">${b.target>0?Math.round(b.sales/b.target*100):0}%</span>
-                <span class="m">${managerChip(c, b.areaManager)}</span>
-              </div>
-            `).join('')}
+            ${excelStyleTable(['', 'מקום · שם חנות', 'יעד', 'מכירות', '% מהיעד', 'מנהל אזור'], tableRows)}
           </div>
         </div>`;
       }).join('')}
@@ -2778,7 +2880,8 @@ function renderGroupsForAdmin(c){
   `;
 }
 /* ---------- טאב 2: לפי מנהל אזור — ממד ארגון שונה לגמרי מהקבוצות (target-tier);
-   מפזרים את כל הסניפים מכל הקבוצות ומקבצים מחדש לפי מנהל האזור שלהם. ---------- */
+   מפזרים את כל הסניפים מכל הקבוצות ומקבצים מחדש לפי מנהל האזור שלהם.
+   כל מנהל: רשימת הסניפים שלו ממוינת מהגבוה לנמוך לפי יעד. ---------- */
 function renderByAreaManager(c){
   const byManager = {};
   c.groups.forEach(g=>{
@@ -2789,10 +2892,7 @@ function renderByAreaManager(c){
     });
   });
   const managers = Object.keys(byManager).map(mgr=>{
-    const branches = byManager[mgr].slice().sort((a,b)=>{
-      const pa = a.target>0 ? a.sales/a.target : 0, pb = b.target>0 ? b.sales/b.target : 0;
-      return pb-pa || b.sales-a.sales;
-    });
+    const branches = byManager[mgr].slice().sort((a,b)=> b.target - a.target);
     const totalSales = branches.reduce((s,b)=>s+b.sales,0);
     const totalTarget = branches.reduce((s,b)=>s+b.target,0);
     return {mgr, branches, totalSales, totalTarget};
@@ -2802,23 +2902,23 @@ function renderByAreaManager(c){
       ${managers.map(m=>{
         const pct = m.totalTarget>0 ? Math.round(m.totalSales/m.totalTarget*100) : 0;
         const hex = c.managerColors ? c.managerColors[m.mgr] : null;
+        const tableRows = m.branches.map(b=>{
+          const bpct = b.target>0 ? Math.round(b.sales/b.target*100) : 0;
+          return [
+            {bg: hex||null, text:''},
+            {text: b.rawName},
+            {text: fmtMoney(b.target)+' ₪'},
+            {text: fmtMoney(b.sales)+' ₪'},
+            {text: bpct+'%'}
+          ];
+        });
         return `
         <div class="comp-group-block" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
           <div class="comp-group-head">
             <span class="comp-group-name">${managerChip(c, m.mgr)} · ${m.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">${pct}% מהיעד המצטבר</span>
           </div>
-          <div class="area-branch-table">
-            ${m.branches.map(b=>{
-              const bpct = b.target>0 ? Math.round(b.sales/b.target*100) : 0;
-              return `
-              <div class="area-branch-row">
-                <span class="abr-name">${b.rawName}</span>
-                <span class="abr-figures" dir="ltr">${fmtMoney(b.sales)} <span class="abr-of">/</span> ${fmtMoney(b.target)} ₪</span>
-                <span class="abr-pct" dir="ltr">${bpct}%</span>
-              </div>`;
-            }).join('')}
-          </div>
+          ${excelStyleTable(['', 'שם חנות (מהגבוה לנמוך לפי יעד)', 'יעד', 'מכירות', '% מהיעד'], tableRows)}
           <div class="comp-manager-row" style="margin-top:8px;border-top:1px solid var(--gridline);padding-top:8px;">
             סיכום ${m.mgr}: ${fmtMoney(m.totalSales)} ₪ מתוך ${fmtMoney(m.totalTarget)} ₪ (${pct}%)
           </div>
@@ -2827,27 +2927,30 @@ function renderByAreaManager(c){
     </div>
   `;
 }
-/* ---------- טאב 3: סיכום אזורי כללי — אגרגציה קצרה מעל אותו ארגון-לפי-מנהל ---------- */
+/* ---------- טאב 3: סיכום אזורי כללי — אגרגציה קצרה, עם דירוג מקום לכל מנהל אזור ---------- */
 function renderAreaManagerSummary(c){
   const byManager = {};
   c.groups.forEach(g=>{
     g.branches.forEach(b=>{
       const mgr = b.areaManager || 'לא משויך';
-      if(!byManager[mgr]) byManager[mgr] = {count:0, sales:0};
+      if(!byManager[mgr]) byManager[mgr] = {count:0, sales:0, target:0};
       byManager[mgr].count++;
       byManager[mgr].sales += b.sales;
+      byManager[mgr].target += b.target;
     });
   });
   const rows = Object.keys(byManager).map(mgr=>({mgr, ...byManager[mgr]})).sort((a,b)=>b.sales-a.sales);
+  const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':('#'+(i+1));
   return `
     <div class="card">
-      ${rows.map(r=>{
+      ${rows.map((r,idx)=>{
         const hex = c.managerColors ? c.managerColors[r.mgr] : null;
+        const pct = r.target>0 ? Math.round(r.sales/r.target*100) : 0;
         return `
         <div class="admin-row" ${hex ? `style="border-right:4px solid ${hex};"` : ''}>
           <div class="admin-row-main">
-            <div class="t">${managerChip(c, r.mgr)}</div>
-            <div class="m">${r.count} סניפים</div>
+            <div class="t">${medal(idx)} ${managerChip(c, r.mgr)}</div>
+            <div class="m">${r.count} סניפים · ${pct}% מהיעד</div>
           </div>
           <div style="font-weight:400;color:var(--text-secondary);" dir="ltr">${fmtMoney(r.sales)} ₪</div>
         </div>`;
@@ -3017,11 +3120,12 @@ function viewInstructions(){
         const isTask = !!i.requiresAction;
         const myStatus = (isTask && session.role==='branch') ? getInstructionStatusForBranch(i, myEmail) : null;
         const taskAccent = myStatus==='overdue' ? 'var(--critical)' : (isTask ? 'var(--warning)' : null);
+        const iUnread = !isItemRead('instructions', i.id);
         return `
         <div class="instr-card" onclick="toggleInstr('${i.id}')" style="border-bottom:1px solid var(--gridline);${taskAccent?`border-right:3px solid ${taskAccent};`:''}">
           <div class="instr-top">
             <div style="display:flex;align-items:center;gap:8px;min-width:0;">
-              ${i.unread?'<span class="unread-dot"></span>':''}
+              ${iUnread?'<span class="unread-dot"></span>':''}
               <h4 class="instr-title">${i.title}</h4>
             </div>
             <div style="display:flex;align-items:center;gap:6px;flex:none;">
@@ -3031,7 +3135,7 @@ function viewInstructions(){
               <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
             </div>
           </div>
-          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span><span style="${i.unread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${i.unread?'עדכון חדש':'נקרא'}</span></div>
+          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span><span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span></div>
           <div class="instr-body" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
             ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}
@@ -3047,17 +3151,10 @@ function viewInstructions(){
   `;
 }
 function toggleInstr(id){
-  const instr = appData.instructions.find(i=>i.id==id);
-  if(instr) instr.unread = false;
+  markItemRead('instructions', id);
   const el = document.getElementById('instr-body-'+id);
   el.classList.toggle('open');
   renderNav();
-  if(firebaseReady){
-    /* הערה: שדה unread כרגע גלובלי (משותף לכל הסניפים), לא לפי צופה בודד —
-       מעקב קריאה אישי לכל סניף הוא הרחבה עתידית שדורשת תת-קולקציה או מסמך
-       reads/{instructionId}/{branchEmail}. */
-    db.collection('instructions').doc(id).update({unread:false}).catch(()=>{});
-  }
 }
 
 /* ============================================================
@@ -3181,6 +3278,7 @@ function setInstrStatusFilter(f){ instrStatusFilter = f; renderContent(); }
 
 /* ---------- Materials ---------- */
 function viewMaterials(){
+  markSectionRead('materials');
   const cats = ["הכל", ...new Set(appData.materials.map(m=>m.category))];
   const list = ui.materialFilter==='הכל' ? appData.materials : appData.materials.filter(m=>m.category===ui.materialFilter);
   return `
@@ -3212,6 +3310,7 @@ function materialCard(m){
 /* ---------- Events calendar ---------- */
 const HEB_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 function viewEvents(){
+  markSectionRead('events');
   const list = [...appData.events].sort((a,b)=>parseHebDate(a.date)-parseHebDate(b.date));
   const groups = {};
   list.forEach(ev=>{
@@ -4386,7 +4485,7 @@ function saveForm(){
   const {type, editId} = formState;
   let obj;
   if(type==='events'){
-    obj = { title: val('f-title'), category: val('f-category'), date: val('f-date'), desc: val('f-desc') };
+    obj = { title: val('f-title'), category: val('f-category'), date: val('f-date'), desc: val('f-desc'), unread: true };
   } else if(type==='competitions'){
     const existing = editId ? appData.competitions.find(x=>x.id==editId) : null;
     // pendingImportGroups is only non-null when an Excel was attached THIS form session
@@ -4402,7 +4501,8 @@ function saveForm(){
       logoDataUrl: pendingLogoDataUrl!==undefined ? pendingLogoDataUrl : (existing ? (existing.logoDataUrl || null) : null),
       heroDesktopUrl: pendingHeroDesktopUrl!==undefined ? pendingHeroDesktopUrl : (existing ? (existing.heroDesktopUrl || null) : null),
       heroMobileUrl: pendingHeroMobileUrl!==undefined ? pendingHeroMobileUrl : (existing ? (existing.heroMobileUrl || null) : null),
-      salesUpdatedAt: existing ? (existing.salesUpdatedAt || null) : null
+      salesUpdatedAt: existing ? (existing.salesUpdatedAt || null) : null,
+      unread: true
     };
     pendingImportGroups = null;
     pendingImportManagerColors = null;
@@ -4429,7 +4529,7 @@ function saveForm(){
     const existingMaterial = editId ? appData.materials.find(x=>x.id==editId) : null;
     const fileInfo = pendingMaterialFile || (existingMaterial ? {url: existingMaterial.fileUrl, type: existingMaterial.type, size: existingMaterial.size} : null);
     if(!fileInfo){ toast('נא לבחור קובץ להעלאה לפני השמירה'); return; }
-    obj = { name: val('f-name'), category: val('f-category'), type: fileInfo.type, size: fileInfo.size, fileUrl: fileInfo.url, date: todayHeb() };
+    obj = { name: val('f-name'), category: val('f-category'), type: fileInfo.type, size: fileInfo.size, fileUrl: fileInfo.url, date: todayHeb(), unread: true };
     pendingMaterialFile = null;
   }
 
