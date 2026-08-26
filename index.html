@@ -992,6 +992,7 @@
     <div class="topbar-left">
       <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;">👁</button>
       <button class="icon-toggle-btn" id="push-enable-btn" onclick="enablePushNotifications()" title="הפעלת התראות Push" style="display:none;">🔔+</button>
+      <button class="icon-toggle-btn" id="push-blocked-btn" onclick="showPushBlockedHelp()" title="התראות חסומות בדפדפן — לחצו לעזרה" style="display:none;color:#c0392b;">🔔⚠</button>
       <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה">🌙</button>
       <div class="notif-wrap">
         <button class="icon-toggle-btn" id="notif-bell" onclick="toggleNotifPanel()" title="התראות">
@@ -1735,11 +1736,61 @@ function enterApp(role, payload){
   renderNotifPanel();
   initFirestoreSync();
   toast(toastMsg);
+  updatePushButtonsVisibility();
+  silentlyRefreshPushTokenIfGranted();
+}
+/* מעדכן את שני כפתורי ה-Push (הפעלה / עזרה כשחסום) לפי מצב ההרשאה בפועל.
+   נקרא גם מ-enterApp וגם בכל מקום שבו רוצים לרענן את התצוגה (למשל אחרי
+   שהמשתמש חוזר מהגדרות הדפדפן ולוחץ שוב). */
+function updatePushButtonsVisibility(){
   const pushBtn = document.getElementById('push-enable-btn');
-  if(pushBtn){
-    const supported = typeof Notification !== 'undefined' && messaging;
-    pushBtn.style.display = (supported && Notification.permission === 'default') ? 'inline-flex' : 'none';
+  const blockedBtn = document.getElementById('push-blocked-btn');
+  const supported = typeof Notification !== 'undefined' && messaging;
+  if(pushBtn) pushBtn.style.display = (supported && Notification.permission === 'default') ? 'inline-flex' : 'none';
+  if(blockedBtn) blockedBtn.style.display = (supported && Notification.permission === 'denied') ? 'inline-flex' : 'none';
+}
+/* מציג הסבר מותאם-מכשיר איך לבטל חסימת התראות ברמת הדפדפן — קוד האתר לא
+   יכול לבקש הרשאה מחדש ברגע שהיא נחסמה במפורש (הגנת דפדפן), אז זו הדרך
+   היחידה לעזור למשתמש להתקדם בלי להסביר לו ידנית בכל פעם. */
+function showPushBlockedHelp(){
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  let steps;
+  if(isAndroid){
+    steps = `
+      <ol style="padding-inline-start:20px;line-height:1.9;">
+        <li>פתחו את תפריט שלוש הנקודות ⋮ של הדפדפן (למעלה מימין)</li>
+        <li>הגדרות ⟵ הגדרות אתרים ⟵ התראות</li>
+        <li>מצאו את nizathaduvdevan.github.io ברשימה, ושנו ל"מותר"</li>
+        <li>סגרו את האפליקציה לגמרי ופתחו אותה שוב</li>
+      </ol>`;
+  } else if(isIOS){
+    steps = `
+      <ol style="padding-inline-start:20px;line-height:1.9;">
+        <li>פתחו את "הגדרות" של האייפון (לא בתוך הדפדפן)</li>
+        <li>גללו למטה עד Safari ⟵ הגדרות אתרים מתקדמות ⟵ התראות</li>
+        <li>אתרו את האתר ושנו את ההרשאה ל"אפשר"</li>
+        <li>חזרו לאפליקציה, סגרו אותה לגמרי ופתחו מחדש</li>
+      </ol>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;">שימו לב: ב-iOS יש תמיכה בהתראות רק כשהאפליקציה מותקנת דרך "הוספה למסך הבית", לא דרך Safari רגיל.</p>`;
+  } else {
+    steps = `
+      <ol style="padding-inline-start:20px;line-height:1.9;">
+        <li>לחצו על סמל המנעול 🔒 (או ה-ℹ️) שליד כתובת האתר בשורת הכתובת</li>
+        <li>מצאו את "התראות" ושנו מ"חסום" ל"מותר"</li>
+        <li>רעננו את הדף (F5)</li>
+      </ol>`;
   }
+  document.getElementById('modal-body').innerHTML = `
+    <h3>🔔⚠ ההתראות חסומות עבור האתר הזה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">
+      הדפדפן חוסם בקשות התראה חוזרות ברגע שהמשתמש לוחץ "חסום" פעם אחת — זו הגנת פרטיות של הדפדפן, ולכן האתר לא יכול לבקש הרשאה מחדש אוטומטית. צריך לשנות את זה ידנית:
+    </p>
+    ${steps}
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">הבנתי</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
 }
 /* ============================================================
    צפייה כמשתמש (מחלקת שיווק בלבד) — שכבת תצוגה בלבד, לא נוגעת
@@ -1882,6 +1933,31 @@ function currentPushIdentity(){
   if(session.role==='marketing') return 'marketing:' + (currentUserEmail || 'unknown');
   return null;
 }
+/* שומר טוקן FCM עדכני ב-Firestore, ומנקה טוקנים ישנים/שונים של אותה זהות
+   (viewerId) כדי שלא יצטברו טוקנים "מתים" ששולחים אליהם לשווא. */
+function savePushToken(token, opts){
+  opts = opts || {};
+  const vid = currentPushIdentity();
+  if(!vid || !firebaseReady || !token) return Promise.resolve();
+  const label = session.role==='branch' ? session.branchName : (session.role==='area' ? session.areaLabel : 'מחלקת שיווק');
+  const docId = (vid + '_' + token).replace(/[\/\s]/g,'_').slice(0,400);
+  return db.collection('pushTokens').doc(docId).set({
+    viewerId: vid, label, token, role: session.role,
+    updatedAt: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})
+  }, {merge:true}).then(()=>{
+    localStorage.setItem('nizatHubPushEnabled','1');
+    // ניקוי טוקנים ישנים של אותה זהות עם ערך token שונה (למשל אחרי שהמכשיר
+    // קיבל טוקן חדש בעקבות ניקוי נתונים) — כדי לא לשלוח לשווא לטוקן מת.
+    return db.collection('pushTokens').where('viewerId','==',vid).get().then(function(snap){
+      const batch = db.batch();
+      let hasStale = false;
+      snap.forEach(function(doc){
+        if(doc.id !== docId && doc.data().token !== token){ batch.delete(doc.ref); hasStale = true; }
+      });
+      if(hasStale) return batch.commit();
+    }).catch(function(err){ console.warn('ניקוי טוקנים ישנים נכשל (לא קריטי):', err); });
+  });
+}
 /* מבקש הרשאת התראות מהדפדפן, מקבל טוקן FCM, ושומר אותו ב-Firestore (pushTokens)
    כדי שה-Cloud Function תדע לאן לשלוח פוש. קורה רק בעקבות פעולת משתמש מפורשת
    (לחיצה על כפתור), לא אוטומטית — כמקובל להרשאות דפדפן. */
@@ -1894,29 +1970,37 @@ function enablePushNotifications(){
   Notification.requestPermission().then(function(permission){
     if(permission !== 'granted'){
       toast('לא ניתנה הרשאה להתראות. אפשר לשנות זאת בהגדרות הדפדפן.');
+      updatePushButtonsVisibility();
       return;
     }
-    const swReg = window.nizatSwRegistration;
-    messaging.getToken({vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg}).then(function(token){
-      if(!token){ toast('לא הצלחתי לקבל טוקן להתראות. נסו שוב.'); return; }
-      const vid = currentPushIdentity();
-      if(!vid || !firebaseReady) return;
-      const label = session.role==='branch' ? session.branchName : (session.role==='area' ? session.areaLabel : 'מחלקת שיווק');
-      const docId = (vid + '_' + token).replace(/[\/\s]/g,'_').slice(0,400);
-      db.collection('pushTokens').doc(docId).set({
-        viewerId: vid, label, token, role: session.role,
-        updatedAt: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})
-      }, {merge:true}).then(()=>{
-        toast('התראות הופעלו בהצלחה!');
-        localStorage.setItem('nizatHubPushEnabled','1');
-        const pushBtn = document.getElementById('push-enable-btn');
-        if(pushBtn) pushBtn.style.display = 'none';
-      }).catch(err=>toast('שגיאה בשמירת ההרשמה להתראות: '+err.message));
-    }).catch(function(err){
-      console.error('FCM getToken failed:', err);
-      toast('שגיאה בהפעלת התראות: ' + err.message);
+    navigator.serviceWorker.ready.then(function(swReg){
+      messaging.getToken({vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg}).then(function(token){
+        if(!token){ toast('לא הצלחתי לקבל טוקן להתראות. נסו שוב.'); return; }
+        savePushToken(token).then(()=>{
+          toast('התראות הופעלו בהצלחה!');
+          updatePushButtonsVisibility();
+        }).catch(err=>toast('שגיאה בשמירת ההרשמה להתראות: '+err.message));
+      }).catch(function(err){
+        console.error('FCM getToken failed:', err);
+        toast('שגיאה בהפעלת התראות: ' + err.message);
+      });
     });
   });
+}
+/* רענון טוקן שקט: רץ אוטומטית בכל כניסה למשתמש שכבר אישר הרשאת התראות
+   בעבר (Notification.permission === 'granted'), בלי לבקש שום דבר ממנו.
+   ה-SDK של Firebase יחזיר טוקן חדש אם הישן פג/התיישן, ואם הוא זהה לישן
+   הכתיבה ל-Firestore היא no-op בפועל (merge על אותו docId). זה פותר מצב שבו
+   טוקן ישן "מת" והמשתמש לעולם לא רואה כפתור שיגרום לרענון שלו, כי הכפתור
+   מוצג רק כשההרשאה עוד לא הוכרעה. */
+function silentlyRefreshPushTokenIfGranted(){
+  if(!messaging || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if(FCM_VAPID_KEY.indexOf('PASTE_YOUR_VAPID_KEY_HERE') !== -1) return;
+  navigator.serviceWorker.ready.then(function(swReg){
+    messaging.getToken({vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg}).then(function(token){
+      if(token) savePushToken(token);
+    }).catch(function(err){ console.warn('רענון שקט של טוקן Push נכשל:', err); });
+  }).catch(function(){});
 }
 if(messaging){
   /* הודעות שמגיעות כשהאפליקציה פתוחה ברקע/פעילה — FCM לא מציג אוטומטית התראת
@@ -5345,6 +5429,11 @@ document.addEventListener('click', e=>{
 
 /* ---------- Boot ---------- */
 initLogin();
+/* כשהמשתמש חוזר לטאב (למשל אחרי שהלך לשנות הרשאת התראות בהגדרות הדפדפן
+   ולחזר), מרעננים את מצב כפתורי ה-Push בלי לחכות לרענון המלא של 10 הדקות. */
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible' && typeof updatePushButtonsVisibility === 'function') updatePushButtonsVisibility();
+});
 setInterval(tickCountdowns, 1000);
 checkStandReminders();
 setInterval(checkStandReminders, 5*60*1000);
