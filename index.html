@@ -990,13 +990,13 @@
       </div>
     </div>
     <div class="topbar-left">
-      <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;">👁</button>
-      <button class="icon-toggle-btn" id="push-enable-btn" onclick="enablePushNotifications()" title="הפעלת התראות Push" style="display:none;">🔔+</button>
-      <button class="icon-toggle-btn" id="push-blocked-btn" onclick="showPushBlockedHelp()" title="התראות חסומות בדפדפן — לחצו לעזרה" style="display:none;color:#c0392b;">🔔⚠</button>
-      <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה">🌙</button>
+      <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="icon-toggle-btn" id="push-enable-btn" onclick="enablePushNotifications()" title="הפעלת התראות Push" style="display:none;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>+</button>
+      <button class="icon-toggle-btn" id="push-blocked-btn" onclick="showPushBlockedHelp()" title="התראות חסומות בדפדפן — לחצו לעזרה" style="display:none;color:#c0392b;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><svg class="ui-icon" width="0.7em" height="0.7em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.05em;"><path d="M12 3 2 20h20Z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg></button>
+      <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg></button>
       <div class="notif-wrap">
         <button class="icon-toggle-btn" id="notif-bell" onclick="toggleNotifPanel()" title="התראות">
-          🔔<span id="notif-badge" class="notif-badge" style="display:none;">0</span>
+          <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="notif-badge" class="notif-badge" style="display:none;">0</span>
         </button>
         <div id="notif-panel" class="notif-panel"></div>
       </div>
@@ -1918,22 +1918,51 @@ function clearIdentity(){
 }
 
 /* ============================================================
+   ICONS — מערכת אייקוני SVG אחידה במקום אימוג'ים. כל אייקון בנוי
+   בסגנון קווי אחיד (stroke=currentColor), בגודל 1em כך שהוא גדל/קטן
+   אוטומטית לפי font-size של ההקשר שבו הוא מוצג — בלי צורך לכוונן
+   גודל בנפרד בכל מקום. שלב ראשון: ניווט ראשי, פעמון התראות, מצב
+   תצוגה, וסוגי ההתראות בפאנל. שאר האימוג'ים (מדליות, קטגוריות וכו')
+   יוחלפו בשלב הבא.
+   ============================================================ */
+const ICON_PATHS = {
+  home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+  map: '<path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2Z"/><path d="M9 4v14M15 6v14"/>',
+  trophy: '<path d="M7 4h10v3a5 5 0 0 1-10 0V4Z"/><path d="M7 4H4a3 3 0 0 0 3 4M17 4h3a3 3 0 0 1-3 4"/><path d="M12 11v4M9 21h6"/>',
+  clipboard: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 11h6M9 15h6"/>',
+  calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
+  download: '<path d="M12 4v11"/><path d="m8 11 4 4 4-4"/><path d="M5 19h14"/>',
+  sign: '<path d="M6 21V4"/><path d="M6 5h11l-2.5 3L17 11H6"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M2 12h2.2M19.8 12H22M4.9 19.1l1.5-1.5M17.6 6.4l1.5-1.5"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  alertTriangle: '<path d="M12 3 2 20h20Z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  message: '<path d="M4 5h16v11H8l-4 4Z"/>',
+  megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h2l1 5h2l-1-5h5l6 4V6l-6 4H6a1 1 0 0 0-1 1Z"/>'
+};
+function icon(name, cls){
+  return `<svg class="ui-icon ${cls||''}" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;flex:none;">${ICON_PATHS[name]||''}</svg>`;
+}
+/* ============================================================
    NAV
 ============================================================ */
 function navItems(){
   const items = [
-    {id:'dashboard', label:'דף הבית', icon:'⌂'}
+    {id:'dashboard', label:'דף הבית', icon:icon('home')}
   ];
-  if(session.role==='area') items.push({id:'areaOverview', label:'האזור שלי', icon:'🗺'});
+  if(session.role==='area') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
   items.push(
-    {id:'competitions', label:'תחרויות', icon:'🏆'},
-    {id:'instructions', label:'הוראות ועדכונים', icon:'📋'},
-    {id:'events', label:'יומן אירועים', icon:'🗓'},
-    {id:'materials', label:'חומרי שיווק להורדה', icon:'⬇'},
-    {id:'stands', label:'סטנדים לאישור', icon:'🪧'},
-    {id:'messages', label:'ההודעות שלי', icon:'✉'}
+    {id:'competitions', label:'תחרויות', icon:icon('trophy')},
+    {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
+    {id:'events', label:'יומן אירועים', icon:icon('calendar')},
+    {id:'materials', label:'חומרי שיווק להורדה', icon:icon('download')},
+    {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
+    {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
   );
-  if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:'⚙'});
+  if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
   return items;
 }
 const MOBILE_PRIMARY = ['dashboard','competitions','instructions','materials'];
@@ -5393,7 +5422,7 @@ function toggleTheme(){
   const html = document.documentElement;
   const next = html.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
   html.setAttribute('data-theme', next);
-  document.getElementById('theme-toggle').textContent = next==='dark' ? '☀️' : '🌙';
+  document.getElementById('theme-toggle').innerHTML = next==='dark' ? icon('sun') : icon('moon');
 }
 
 /* ---------- Global search ---------- */
@@ -5424,7 +5453,7 @@ function goToSearchResult(type){
 }
 
 /* ---------- Notifications ---------- */
-const NOTIF_ICON = {instruction:'📋', event:'🗓', material:'⬇', comment:'💬', message:'✉', stand:'🪧', broadcast:'📢'};
+const NOTIF_ICON = {instruction:icon('clipboard'), event:icon('calendar'), material:icon('download'), comment:icon('message'), message:icon('mail'), stand:icon('sign'), broadcast:icon('megaphone')};
 const NOTIF_MAX_AGE_DAYS = 14;
 const NOTIF_MAX_COUNT = 30;
 /* שמירת ההתראות ל-localStorage, בנפרד לכל משתמש (לפי currentPushIdentity),
