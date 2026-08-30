@@ -2874,7 +2874,8 @@ function handleMaterialFolderUpload(evt){
       date: todayHeb(),
       unread: true,
       tags: [],
-      thumbUrl: null
+      thumbUrl: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     if(firebaseReady){
       return db.collection('materials').add(obj);
@@ -2913,7 +2914,8 @@ function handleMaterialFilesUpload(evt){
       date: todayHeb(),
       unread: true,
       tags: [],
-      thumbUrl: null
+      thumbUrl: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     if(firebaseReady){
       return db.collection('materials').add(obj);
