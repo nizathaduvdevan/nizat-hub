@@ -3347,7 +3347,7 @@ function renderGroupsForAdmin(c){
         return `
         <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
-            <span class="comp-group-name">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
+            <span class="comp-group-name" style="${g.colorHex?`color:${g.colorHex};`:''}">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">יעד לסניף ${fmtMoney(g.target)} ₪</span>
           </div>
           ${prizes.length ? `
@@ -3356,9 +3356,9 @@ function renderGroupsForAdmin(c){
               const winner = ranked[idx];
               const rc = RANK_COLORS[idx] || RANK_COLORS[RANK_COLORS.length-1];
               const label = (p.label || ('מקום '+p.rank)).replace(/:\s*$/,''); /* מסיר נקודתיים קיימות בסוף הכיתוב, כדי לא להכפיל אותן */
-              return `<div class="prize-item" style="background:${rc.bg};color:${rc.text};">
-                <span class="prize-rank" style="background:rgba(0,0,0,0.18);color:${rc.text};">${p.rank}</span>
-                <span class="prize-text" style="color:${rc.text};">${label}${winner?`: סניף ${winner.rawName}`:''} — ${p.text}</span>
+              return `<div class="prize-item" style="background:var(--page);color:var(--text-primary);border:1px solid var(--border);">
+                <span class="prize-rank" style="background:${rc.bg};color:${rc.text};">${p.rank}</span>
+                <span class="prize-text">${label}${winner?`: סניף ${winner.rawName}`:''} — ${p.text}</span>
               </div>`;
             }).join('')}
           </div>` : ''}
