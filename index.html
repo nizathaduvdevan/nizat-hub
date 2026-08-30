@@ -1172,6 +1172,9 @@ try {
     firebaseReady = true;
     if(firebase.messaging && firebase.messaging.isSupported && firebase.messaging.isSupported()){
       messaging = firebase.messaging();
+      console.log('🔔 [NIZAT-DEBUG] messaging אותחל:', messaging);
+    } else {
+      console.warn('🔔 [NIZAT-DEBUG] messaging לא אותחל — firebase.messaging לא זמין');
     }
     fbAuth.onAuthStateChanged(function(user){
       currentUserEmail = user ? normalizeEmail(user.email) : null;
@@ -2003,10 +2006,12 @@ function silentlyRefreshPushTokenIfGranted(){
   }).catch(function(){});
 }
 if(messaging){
+  console.log('🔔 [NIZAT-DEBUG] רושם עכשיו את onMessage listener');
   /* הודעות שמגיעות כשהאפליקציה פתוחה ברקע/פעילה — FCM לא מציג אוטומטית התראת
      מערכת במצב הזה, אז מציגים טוסט + פעמון בעצמנו. הודעות כשהאפליקציה סגורה
      לגמרי מטופלות ב-service-worker.js (onBackgroundMessage). */
   messaging.onMessage(function(payload){
+    console.log('🔔 [NIZAT-DEBUG] onMessage (foreground) הופעל בפועל! payload:', payload);
     const title = (payload.notification && payload.notification.title) || 'עדכון חדש';
     const body = (payload.notification && payload.notification.body) || '';
     toast(`${title}${body ? ' — ' + body : ''}`);
