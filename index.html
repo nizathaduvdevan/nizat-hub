@@ -1677,7 +1677,7 @@ const SITE_TEXT_DEFAULTS = {
 const SITE_TEXT_LABELS = {
   competitions_desc: 'תחרויות — תיאור מתחת לכותרת',
   instructions_desc: 'הוראות ועדכונים — תיאור מתחת לכותרת',
-  materials_desc: 'חומרי שיווק להורדה — תיאור מתחת לכותרת',
+  materials_desc: 'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות — תיאור מתחת לכותרת',
   stands_desc: 'סטנדים לאישור — תיאור מתחת לכותרת',
   messages_desc_marketing: 'הודעות פרטיות — תיאור (בצד מחלקת השיווק)',
   messages_desc_branch: 'ההודעות שלי — תיאור (בצד הסניף)',
@@ -1958,7 +1958,7 @@ function navItems(){
     {id:'competitions', label:'תחרויות', icon:icon('trophy')},
     {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
     {id:'events', label:'יומן אירועים', icon:icon('calendar')},
-    {id:'materials', label:'חומרי שיווק להורדה', icon:icon('download')},
+    {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
     {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
     {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
   );
@@ -3238,51 +3238,29 @@ function renderGroupsForAdmin(c){
   return `
     <div class="comp-groups">
       ${c.groups.map(g=>{
-        const totalSales = g.branches.reduce((s,b)=>s+b.sales,0);
-        const totalTarget = g.branches.reduce((s,b)=>s+b.target,0);
-        const pct = totalTarget>0 ? Math.round(totalSales/totalTarget*100) : 0;
         const prizes = g.prizes.slice().sort((x,y)=>x.rank-y.rank);
         const ranked = g.branches.slice().sort((a,b)=>{
           const pa = a.target>0 ? a.sales/a.target : 0, pb = b.target>0 ? b.sales/b.target : 0;
           return pb-pa || b.sales-a.sales;
         });
-        const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
-        const tableRows = ranked.map((b,idx)=>[
-          {bg: g.colorHex||null, text:''},
-          {text: `${medal(idx)} ${b.rawName}`},
-          {text: fmtMoney(b.target)+' ₪'},
-          {text: fmtMoney(b.sales)+' ₪'},
-          {text: (b.target>0?Math.round(b.sales/b.target*100):0)+'%'},
-          {html: managerChip(c, b.areaManager)}
-        ]);
         return `
         <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
             <span class="comp-group-name">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">יעד לסניף ${fmtMoney(g.target)} ₪</span>
           </div>
-          <div class="comp-kpi-row">
-            <div class="comp-kpi"><div class="l">סה״כ יעד קבוצה</div><div class="v" dir="ltr">${fmtMoney(totalTarget)} ₪</div></div>
-            <div class="comp-kpi"><div class="l">סה״כ מכירות</div><div class="v" dir="ltr">${fmtMoney(totalSales)} ₪</div></div>
-            <div class="comp-kpi"><div class="l">אחוז מהיעד</div><div class="v" dir="ltr">${pct}%</div></div>
-            <div class="comp-kpi ${totalTarget-totalSales<=0?'kpi-done':''}"><div class="l">${totalTarget-totalSales<=0?'הקבוצה עברה את היעד':'נותר לקבוצה להשלמת היעד'}</div><div class="v" dir="ltr">${totalTarget-totalSales<=0? '+'+fmtMoney(Math.abs(totalTarget-totalSales)) : fmtMoney(totalTarget-totalSales)} ₪</div></div>
-          </div>
           ${prizes.length ? `
           <div class="prize-list">
             ${prizes.map((p,idx)=>{
               const winner = ranked[idx];
               const rc = RANK_COLORS[idx] || RANK_COLORS[RANK_COLORS.length-1];
+              const label = (p.label || ('מקום '+p.rank)).replace(/:\s*$/,''); /* מסיר נקודתיים קיימות בסוף הכיתוב, כדי לא להכפיל אותן */
               return `<div class="prize-item" style="background:${rc.bg};color:${rc.text};">
                 <span class="prize-rank" style="background:rgba(0,0,0,0.18);color:${rc.text};">${p.rank}</span>
-                <span class="prize-text" style="color:${rc.text};">${p.label||('מקום '+p.rank)}${winner?`: סניף ${winner.rawName}`:''} — ${p.text}</span>
+                <span class="prize-text" style="color:${rc.text};">${label}${winner?`: סניף ${winner.rawName}`:''} — ${p.text}</span>
               </div>`;
             }).join('')}
           </div>` : ''}
-          <button class="comp-group-toggle" onclick="toggleGroupTable('${c.id}',${g.groupNum})">פירוט סניפים בקבוצה (תצוגת אקסל) <span id="grp-arrow-${c.id}-${g.groupNum}">▾</span></button>
-          <div class="comp-group-table" id="grp-table-${c.id}-${g.groupNum}">
-            <div class="scroll-hint"><span class="arrow right">→</span> ניתן להחליק את הטבלה ימינה ושמאלה <span class="arrow left">←</span></div>
-            ${excelStyleTable(['', 'מקום · שם חנות', 'יעד', 'מכירות', '% מהיעד', 'מנהל אזור'], tableRows)}
-          </div>
           ${commentsBox('competitionGroup', `${c.id}::${g.groupNum}`)}
         </div>`;
       }).join('')}
@@ -3736,14 +3714,14 @@ function viewMaterials(){
   const list = ui.materialFilter==='הכל' ? appData.materials : appData.materials.filter(m=>m.category===ui.materialFilter);
   return `
     <div class="page-head">
-      <h1>חומרי שיווק להורדה</h1>
+      <h1>הורדה חומרי שיווק / דיגיטל ורשתות חברתיות</h1>
       <p>${getText('materials_desc')}</p>
     </div>
     <div class="filter-row">
       ${cats.map(c=>`<button class="chip ${ui.materialFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
     </div>
     <div class="materials-grid">
-      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין חומרי שיווק להורדה.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
+      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין הורדה חומרי שיווק / דיגיטל ורשתות חברתיות.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
     </div>
   `;
 }
@@ -3805,11 +3783,13 @@ function viewEvents(){
           <div class="card">
             ${evs.map(ev=>{
               const [dd] = ev.date.split('.');
+              const rangeText = ev.endDate && ev.endDate !== ev.date ? `${ev.date} – ${ev.endDate}` : ev.date;
               return `
               <div class="cal-row">
                 <div class="cal-date"><div class="dd">${dd}</div><div class="mm">${HEB_MONTHS[parseInt(mm,10)-1].slice(0,3)}</div></div>
                 <div class="cal-info">
                   <div class="t">${catIcon[ev.category]||'📌'} ${ev.title} <span class="badge cat" style="margin-right:6px;">${ev.category}</span></div>
+                  <div class="m" dir="ltr" style="font-size:12px;color:var(--muted);">${rangeText}</div>
                   <div class="m">${ev.desc}</div>
                 </div>
               </div>`;
@@ -5026,7 +5006,7 @@ function saveSiteTexts(){
 }
 
 function adminList(type){
-  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'חומרי שיווק להורדה', events:'אירועים'};
+  const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', events:'אירועים'};
   const items = appData[type];
   return `
     <div class="admin-toolbar">
@@ -5049,7 +5029,7 @@ function adminRow(type, it){
   if(type==='competitions') meta = `${STATUS_LABEL[it.status]} · <span dir="ltr">${it.start} – ${it.end}</span>${it.groups && it.groups.length ? ` · ${it.groups.length} קבוצות (מיובא מאקסל)` : ''}${it.salesUpdatedAt ? ` · מכירות עודכנו ${it.salesUpdatedAt}` : ''}`;
   if(type==='instructions') meta = `${it.category} · ${PRIORITY_LABEL[it.priority]} · ${it.date}`;
   if(type==='materials') meta = `${it.category} · ${it.type} · ${it.size}`;
-  if(type==='events') meta = `${it.category} · ${it.date}`;
+  if(type==='events') meta = `${it.category} · ${it.date}${it.endDate && it.endDate!==it.date ? ' – '+it.endDate : ''}`;
   return `
     <div class="admin-row">
       <div class="admin-row-main">
@@ -5093,7 +5073,7 @@ function adminStats(){
     <div class="stat-row">
       <div class="stat-tile"><div class="label">סניפים רשומים</div><div class="value">${getTotalBranches()}</div><div class="delta flat">מתוך רשת מלאה</div></div>
       <div class="stat-tile"><div class="label">תחרויות פעילות</div><div class="value">${activeCompsCount}</div><div class="delta ${activeCompsCount?'good':'flat'}">כרגע פתוחות</div></div>
-      <div class="stat-tile"><div class="label">חומרי שיווק להורדה</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
+      <div class="stat-tile"><div class="label">הורדה חומרי שיווק / דיגיטל ורשתות חברתיות</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
       <div class="stat-tile"><div class="label">תגובות ומשוב מהסניפים</div><div class="value">${appData.comments.length}</div><div class="delta flat">סה״כ מצטבר</div></div>
     </div>
     <div class="card" style="padding:18px 20px;">
@@ -5118,7 +5098,8 @@ function openForm(type, editId){
     fieldsHtml = `
       <div class="field"><label>כותרת</label><input id="f-title" value="${item?.title||''}"></div>
       <div class="field"><label>קטגוריה</label><input id="f-category" value="${item?.category||''}" placeholder="השקה / הדרכה / מבצע / תחרות / ביקורת / כנס"></div>
-      <div class="field"><label>תאריך</label><input id="f-date" value="${item?.date||''}" placeholder="DD.MM.YYYY"></div>
+      <div class="field"><label>תאריך התחלה</label><input id="f-date" value="${item?.date||''}" placeholder="DD.MM.YYYY"></div>
+      <div class="field"><label>תאריך סיום (אופציונלי)</label><input id="f-end-date" value="${item?.endDate||''}" placeholder="DD.MM.YYYY"></div>
       <div class="field"><label>תיאור</label><textarea id="f-desc">${item?.desc||''}</textarea></div>
     `;
   } else if(type==='competitions'){
@@ -5282,7 +5263,7 @@ function saveForm(){
   const {type, editId} = formState;
   let obj;
   if(type==='events'){
-    obj = { title: val('f-title'), category: val('f-category'), date: val('f-date'), desc: val('f-desc'), unread: true };
+    obj = { title: val('f-title'), category: val('f-category'), date: val('f-date'), endDate: val('f-end-date') || null, desc: val('f-desc'), unread: true };
   } else if(type==='competitions'){
     const existing = editId ? appData.competitions.find(x=>x.id==editId) : null;
     // pendingImportGroups is only non-null when an Excel was attached THIS form session
