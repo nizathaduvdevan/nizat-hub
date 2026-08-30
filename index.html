@@ -5073,13 +5073,13 @@ function adminRow(type, it){
   if(type==='events') meta = `${it.category} · ${it.date}${it.endDate && it.endDate!==it.date ? ' – '+it.endDate : ''}`;
   return `
     <div class="admin-row">
-      <div class="admin-row-main">
+      <div class="admin-row-main" style="cursor:pointer;" onclick="openForm('${type}', '${it.id}')">
         <div class="t">${it.title || it.name}</div>
         <div class="m">${meta}</div>
       </div>
-      ${type==='competitions' && it.groups && it.groups.length ? `<button class="icon-btn" onclick="triggerDailyReportImport('${it.id}')" title="עדכון דוח מכירות יומי">📈</button>` : ''}
-      <button class="icon-btn" onclick="openForm('${type}', '${it.id}')" title="עריכה">✎</button>
-      <button class="icon-btn danger" onclick="confirmDelete('${type}', '${it.id}')" title="מחיקה">🗑</button>
+      ${type==='competitions' && it.groups && it.groups.length ? `<button class="icon-btn" onclick="event.stopPropagation();triggerDailyReportImport('${it.id}')" title="עדכון דוח מכירות יומי">📈</button>` : ''}
+      <button class="icon-btn" onclick="event.stopPropagation();openForm('${type}', '${it.id}')" title="עריכה">✎</button>
+      <button class="icon-btn danger" onclick="event.stopPropagation();confirmDelete('${type}', '${it.id}')" title="מחיקה">🗑</button>
     </div>
   `;
 }
