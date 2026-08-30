@@ -1990,21 +1990,16 @@ function savePushToken(token, opts){
   if(!vid || !firebaseReady || !token) return Promise.resolve();
   const label = session.role==='branch' ? session.branchName : (session.role==='area' ? session.areaLabel : 'מחלקת שיווק');
   const docId = (vid + '_' + token).replace(/[\/\s]/g,'_').slice(0,400);
+  // הערה: בכוונה *לא* מוחקים כאן טוקנים אחרים עם אותו viewerId — משתמש אחד
+  // יכול להיות מחובר מכמה מכשירים (טלפון + מחשב) עם אותו מייל בו-זמנית,
+  // וכל מכשיר צריך לשמור על הטוקן שלו בנפרד כדי להמשיך לקבל Push. ניקוי
+  // טוקנים שבאמת מתים קורה בצד השרת (ה-Cloud Function), על בסיס תגובה
+  // אמיתית מ-FCM שהטוקן לא רשום יותר — לא על בסיס "שונה מהטוקן הנוכחי".
   return db.collection('pushTokens').doc(docId).set({
     viewerId: vid, label, token, role: session.role,
     updatedAt: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})
   }, {merge:true}).then(()=>{
     localStorage.setItem('nizatHubPushEnabled','1');
-    // ניקוי טוקנים ישנים של אותה זהות עם ערך token שונה (למשל אחרי שהמכשיר
-    // קיבל טוקן חדש בעקבות ניקוי נתונים) — כדי לא לשלוח לשווא לטוקן מת.
-    return db.collection('pushTokens').where('viewerId','==',vid).get().then(function(snap){
-      const batch = db.batch();
-      let hasStale = false;
-      snap.forEach(function(doc){
-        if(doc.id !== docId && doc.data().token !== token){ batch.delete(doc.ref); hasStale = true; }
-      });
-      if(hasStale) return batch.commit();
-    }).catch(function(err){ console.warn('ניקוי טוקנים ישנים נכשל (לא קריטי):', err); });
   });
 }
 /* מבקש הרשאת התראות מהדפדפן, מקבל טוקן FCM, ושומר אותו ב-Firestore (pushTokens)
