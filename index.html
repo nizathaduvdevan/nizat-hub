@@ -2891,6 +2891,45 @@ function handleMaterialFolderUpload(evt){
   });
   evt.target.value = '';
 }
+/* בחירת קבצים ספציפיים (לא תיקייה שלמה) — משתמשת בחלון בחירת קבצים רגיל של
+   הדפדפן/המערכת, שמאפשר לראות ולסמן קבצים בודדים (עם Ctrl/Shift), בשונה
+   מבחירת תיקייה (webkitdirectory) שמכריחה להעלות הכל-או-כלום ואינה מציגה
+   קבצים בכלל בתוך חלון הבחירה. מכיוון שאין כאן שם תיקייה לשאוב ממנו קטגוריה
+   אוטומטית, מבקשים אותה פעם אחת מהמשתמש. */
+function handleMaterialFilesUpload(evt){
+  const files = [...evt.target.files];
+  if(!files.length) return;
+  const category = (prompt('שם קטגוריה לקבצים שנבחרו:', '') || '').trim() || 'ללא קטגוריה';
+  toast(`מעלה ${files.length} קבצים נבחרים...`);
+  let done = 0, failed = 0;
+  const uploadOne = (file) => uploadFileToCloudinary(file).then(function(result){
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    const obj = {
+      name: file.name.replace(/\.[^.]+$/, ''),
+      category,
+      type: ext || 'קובץ',
+      size: formatFileSize(file.size),
+      fileUrl: result.secure_url,
+      date: todayHeb(),
+      unread: true,
+      tags: [],
+      thumbUrl: null
+    };
+    if(firebaseReady){
+      return db.collection('materials').add(obj);
+    } else {
+      obj.id = nextIds.materials++;
+      appData.materials.push(obj);
+      return Promise.resolve();
+    }
+  }).then(()=>{ done++; }).catch(err=>{ console.error('file upload item failed:', file.name, err); failed++; });
+
+  Promise.all(files.map(uploadOne)).then(()=>{
+    renderContent();
+    toast(`הועלו ${done} מתוך ${files.length} קבצים` + (failed ? ` (${failed} נכשלו)` : ''));
+  });
+  evt.target.value = '';
+}
 function addCustomMaterialTag(){
   const input = document.getElementById('f-material-new-tag');
   const label = input.value.trim();
@@ -5014,11 +5053,13 @@ function adminList(type){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${type==='competitions' ? `<button class="btn-import" onclick="triggerCompetitionImport()">📥 ייבוא מאקסל</button>` : ''}
         ${type==='materials' ? `<button class="btn-import" onclick="document.getElementById('material-folder-input').click()">📁 העלאת תיקייה שלמה</button>` : ''}
+        ${type==='materials' ? `<button class="btn-import" onclick="document.getElementById('material-files-input').click()">🗂 בחירת קבצים בודדים</button>` : ''}
         <button class="btn-add" onclick="openForm('${type}')">+ הוספת פריט חדש</button>
       </div>
     </div>
     ${type==='competitions' ? `<input type="file" id="daily-report-input" accept=".xlsx,.xls" style="display:none;" onchange="handleDailyReportFile(event)">` : ''}
     ${type==='materials' ? `<input type="file" id="material-folder-input" webkitdirectory directory multiple style="display:none;" onchange="handleMaterialFolderUpload(event)">` : ''}
+    ${type==='materials' ? `<input type="file" id="material-files-input" multiple style="display:none;" onchange="handleMaterialFilesUpload(event)">` : ''}
     <div class="card">
       ${items.map(it=>adminRow(type, it)).join('') || '<div class="empty-state">אין פריטים עדיין. לחצו על "הוספת פריט חדש".</div>'}
     </div>
