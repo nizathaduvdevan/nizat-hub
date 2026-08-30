@@ -3171,14 +3171,14 @@ function competitionUpdatesHtml(c){
     <div class="comp-updates" style="margin:14px 0;border-top:1px solid var(--gridline);padding-top:12px;">
       <div style="font-size:14px;font-weight:600;margin-bottom:8px;">📢 עדכונים לתחרות</div>
       ${isMarketing ? `
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="comp-update-input-${c.id}" placeholder="הוספת עדכון חדש..." style="flex:1;padding:8px 10px;border:1px solid var(--gridline);border-radius:8px;font-size:13.5px;font-family:inherit;" onkeydown="if(event.key==='Enter'){addCompetitionUpdate('${c.id}');}">
-        <button class="btn-confirm" style="width:auto;padding:8px 16px;" onclick="addCompetitionUpdate('${c.id}')">הוספה</button>
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:flex-end;">
+        <textarea id="comp-update-input-${c.id}" placeholder="הוספת עדכון חדש... (Enter יורד שורה, לחיצה על הכפתור שולחת)" rows="2" style="flex:1;padding:8px 10px;border:1px solid var(--gridline);border-radius:8px;font-size:13.5px;font-family:inherit;resize:vertical;"></textarea>
+        <button class="btn-confirm" style="width:auto;padding:8px 16px;flex:none;" onclick="addCompetitionUpdate('${c.id}')">הוספה</button>
       </div>` : ''}
       ${updates.length ? updates.map(u=>`
         <div style="padding:8px 0;border-bottom:1px solid var(--gridline);display:flex;gap:10px;align-items:flex-start;">
           <div style="font-size:12px;color:var(--muted);white-space:nowrap;flex:none;padding-top:2px;">${u.date}</div>
-          <div style="font-size:13.5px;flex:1;">${u.text}</div>
+          <div style="font-size:13.5px;flex:1;white-space:pre-wrap;">${u.text}</div>
           ${isMarketing ? `<button class="icon-btn danger" style="width:24px;height:24px;font-size:11px;flex:none;" title="מחיקת עדכון" onclick="deleteCompetitionUpdate('${c.id}','${u.id}')">✕</button>` : ''}
         </div>
       `).join('') : `<div style="font-size:13px;color:var(--muted);">${isMarketing ? 'אין עדיין עדכונים — הוסיפו את הראשון למעלה.' : 'עדיין אין עדכונים לתחרות זו.'}</div>`}
@@ -3347,7 +3347,7 @@ function renderGroupsForAdmin(c){
         return `
         <div class="comp-group-block" ${g.colorHex ? `style="border-right:4px solid ${g.colorHex};"` : ''}>
           <div class="comp-group-head">
-            <span class="comp-group-name" style="${g.colorHex?`color:${g.colorHex};`:''}">${g.colorHex?`<span class="stand-color-dot" style="background:${g.colorHex};"></span> `:''}${g.name} · ${g.branches.length} סניפים</span>
+            <span class="comp-group-name" style="${g.colorHex?`background:${g.colorHex};color:#000000;padding:3px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:6px;`:''}">${g.name} · ${g.branches.length} סניפים</span>
             <span class="comp-target-chip" dir="ltr">יעד לסניף ${fmtMoney(g.target)} ₪</span>
           </div>
           ${prizes.length ? `
