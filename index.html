@@ -1273,7 +1273,7 @@ function initFirestoreSync(){
         snap.docChanges().forEach(function(change){
           if(change.type === 'added'){
             const d = change.doc.data();
-            appData.notifications.unshift({
+            addNotification({
               id: Date.now() + Math.random(),
               title: 'עדכון חדש מהשיווק',
               body: d.title,
@@ -1714,6 +1714,7 @@ function enterApp(role, payload){
   session.branchInfo = role==='branch' ? payload : null;
   session.areaName = role==='area' ? payload.areaName : null;
   session.areaLabel = role==='area' ? payload.label : null;
+  loadNotificationsFromStorage();
 
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
@@ -2015,7 +2016,7 @@ if(messaging){
     const title = (payload.notification && payload.notification.title) || 'עדכון חדש';
     const body = (payload.notification && payload.notification.body) || '';
     toast(`${title}${body ? ' — ' + body : ''}`);
-    appData.notifications.unshift({
+    addNotification({
       id: Date.now()+Math.random(), title, body, date: todayHeb(), type:'broadcast', read:false
     });
     renderNotifPanel();
@@ -4111,7 +4112,7 @@ function submitPrivateMessageFromModal(itemType, itemId){
   }
   msgObj.id = nextIds.privateMessages++;
   appData.privateMessages.push(msgObj);
-  appData.notifications.unshift({
+  addNotification({
     id: Date.now(),
     title: 'התקבלה הודעה פרטית חדשה',
     body: `${currentSenderName()} · ${itemTitle}: ${text.slice(0,60)}${text.length>60?'…':''}`,
@@ -4254,7 +4255,7 @@ function submitMessageReply(msgId, boxId){
   m.replies.push(reply);
   if(from==='marketing'){ m.unreadForBranch = true; }
   else { m.unreadForMarketing = true; }
-  appData.notifications.unshift({
+  addNotification({
     id: Date.now(),
     title: from==='marketing' ? `${MARKETING_CONTACT_NAME} השיבה להודעה שלכם` : 'התקבלה תגובה חדשה מסניף',
     body: from==='marketing' ? `בנוגע ל"${m.itemTitle}": ${text.slice(0,60)}${text.length>60?'…':''}` : `${m.branchName}: ${text.slice(0,60)}${text.length>60?'…':''}`,
@@ -4501,7 +4502,7 @@ function saveStandsImport(){
   }
   newCampaigns.forEach(camp=>{
     appData.standCampaigns.push(camp);
-    appData.notifications.unshift({
+    addNotification({
       id: Date.now() + camp.id,
       title: 'יש לאשר את הסטנד',
       body: `${camp.label} — ${camp.branches.length} סניפים סומנו לאישור הצבה, עד ${camp.takedownDate}.`,
@@ -4620,7 +4621,7 @@ function confirmStand(campId, idx){
   }
   b.confirmed = true;
   b.confirmedAt = confirmedAt;
-  appData.notifications.unshift({
+  addNotification({
     id: Date.now(),
     title: 'סטנד אושר',
     body: `${b.matchedBranchName} אישר/ה שהסטנד "${camp.label}" תקין ומוצב בסניף.`,
@@ -4665,7 +4666,7 @@ function checkStandReminders(){
     if(!camp.reminder5Sent && daysLeft<=5 && daysLeft>3){
       camp.reminder5Sent = true;
       if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder5Sent:true}).catch(()=>{});
-      appData.notifications.unshift({
+      addNotification({
         id: Date.now()+Math.random(),
         title: '🪧 תזכורת: יש להוריד סטנד בקרוב',
         body: `${camp.label} — יש להוריד את הסטנד בעוד כ-5 ימים (${camp.takedownDate}).`,
@@ -4679,7 +4680,7 @@ function checkStandReminders(){
     if(!camp.reminder3Sent && daysLeft<=3 && daysLeft>=-3){
       camp.reminder3Sent = true;
       if(firebaseReady) db.collection('standCampaigns').doc(camp.id).update({reminder3Sent:true}).catch(()=>{});
-      appData.notifications.unshift({
+      addNotification({
         id: Date.now()+Math.random(),
         title: '⏰ תזכורת דחופה: להוריד סטנד — נדרש אישור',
         body: `${camp.label} — יש להוריד את הסטנד עד ${camp.takedownDate}. יש לאשר קבלת התזכורת במסך "סטנדים לאישור".`,
@@ -5362,11 +5363,32 @@ function goToSearchResult(type){
 }
 
 /* ---------- Notifications ---------- */
-const NOTIF_ICON = {instruction:'📋', event:'🗓', material:'⬇', comment:'💬', message:'✉', stand:'🪧'};
+const NOTIF_ICON = {instruction:'📋', event:'🗓', material:'⬇', comment:'💬', message:'✉', stand:'🪧', broadcast:'📢'};
 const NOTIF_MAX_AGE_DAYS = 14;
 const NOTIF_MAX_COUNT = 30;
+/* שמירת ההתראות ל-localStorage, בנפרד לכל משתמש (לפי currentPushIdentity),
+   כדי שהן ישרדו רענוני דף/כניסות חוזרות ולא רק יחיו בזיכרון עד לסגירת הטאב. */
+function notifStorageKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubNotifications_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function saveNotificationsToStorage(){
+  try{ localStorage.setItem(notifStorageKey(), JSON.stringify(appData.notifications)); }catch(e){ /* storage unavailable — session-only */ }
+}
+function loadNotificationsFromStorage(){
+  try{
+    const raw = localStorage.getItem(notifStorageKey());
+    appData.notifications = raw ? JSON.parse(raw) : [];
+  }catch(e){ appData.notifications = []; }
+}
+/* מוסיפה התראה חדשה ושומרת מיד — יש להשתמש בזו במקום appData.notifications.unshift ישירות. */
+function addNotification(n){
+  appData.notifications.unshift(n);
+  saveNotificationsToStorage();
+}
 function pruneNotifications(){
   const now = Date.now();
+  const before = appData.notifications.length;
   appData.notifications = appData.notifications.filter(n=>{
     const t = parseHebDate(n.date);
     if(isNaN(t)) return true;
@@ -5376,9 +5398,11 @@ function pruneNotifications(){
     appData.notifications.sort((a,b)=>b.id-a.id);
     appData.notifications = appData.notifications.slice(0, NOTIF_MAX_COUNT);
   }
+  if(appData.notifications.length !== before) saveNotificationsToStorage();
 }
 function deleteNotification(id){
   appData.notifications = appData.notifications.filter(n=>n.id!==id);
+  saveNotificationsToStorage();
   renderNotifPanel();
 }
 function renderNotifPanel(){
@@ -5406,6 +5430,7 @@ function toggleNotifPanel(){
 }
 function markAllNotifsRead(){
   appData.notifications.forEach(n=>n.read=true);
+  saveNotificationsToStorage();
   renderNotifPanel();
 }
 function showNotifToastPop(n){
