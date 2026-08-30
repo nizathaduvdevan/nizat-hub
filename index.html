@@ -1715,6 +1715,7 @@ function enterApp(role, payload){
   session.areaName = role==='area' ? payload.areaName : null;
   session.areaLabel = role==='area' ? payload.label : null;
   loadNotificationsFromStorage();
+  initBroadcastNotifSync();
 
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
@@ -2016,10 +2017,10 @@ if(messaging){
     const title = (payload.notification && payload.notification.title) || 'עדכון חדש';
     const body = (payload.notification && payload.notification.body) || '';
     toast(`${title}${body ? ' — ' + body : ''}`);
-    addNotification({
-      id: Date.now()+Math.random(), title, body, date: todayHeb(), type:'broadcast', read:false
-    });
-    renderNotifPanel();
+    /* לא מוסיפים כאן ל-appData.notifications — מאזין ה-Firestore על קולקציית
+       broadcasts (initBroadcastNotifSync) עושה את זה בצורה אמינה יותר, כי
+       הוא עובד גם כשההודעה מגיעה ברקע/כשהאתר סגור (מצב שבו onMessage הזה
+       כלל לא רץ). */
   });
 }
 function isItemRead(type, itemId){
@@ -5386,6 +5387,56 @@ function addNotification(n){
   appData.notifications.unshift(n);
   saveNotificationsToStorage();
 }
+/* מזהי שידורים (broadcasts) שהמשתמש מחק בעצמו מפאנל ההתראות — נשמר בנפרד
+   כדי שהשידור לא "יחזור לחיות" בפעם הבאה שנשלוף מ-Firestore. */
+function dismissedBroadcastsKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubDismissedBroadcasts_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function getDismissedBroadcastIds(){
+  try{ return new Set(JSON.parse(localStorage.getItem(dismissedBroadcastsKey())||'[]')); }catch(e){ return new Set(); }
+}
+function addDismissedBroadcastId(id){
+  try{
+    const set = getDismissedBroadcastIds();
+    set.add(id);
+    localStorage.setItem(dismissedBroadcastsKey(), JSON.stringify([...set]));
+  }catch(e){ /* ignore */ }
+}
+/* שולף את היסטוריית השידורים (broadcasts) מ-Firestore ומשלב אותה בפאנל
+   ההתראות — עובד בלי קשר אם ההודעה התקבלה כשהאתר היה פתוח, ברקע, או סגור
+   לגמרי, ובלי קשר לאיזה מכשיר. נקרא בכל כניסה למערכת + נשאר "חי" (onSnapshot)
+   כדי לתפוס גם שידורים חדשים שנשלחים תוך כדי שהאתר פתוח. */
+let unsubBroadcastNotifs = null;
+function initBroadcastNotifSync(){
+  if (!firebaseReady || !db) return;
+  if (unsubBroadcastNotifs) unsubBroadcastNotifs();
+  const cutoff = Date.now() - NOTIF_MAX_AGE_DAYS*86400000;
+  unsubBroadcastNotifs = db.collection('broadcasts').orderBy('sentAt', 'desc').limit(NOTIF_MAX_COUNT)
+    .onSnapshot(function(snap){
+      const dismissed = getDismissedBroadcastIds();
+      const existingIds = new Set(appData.notifications.filter(n=>n.type==='broadcast').map(n=>n.id));
+      let changed = false;
+      snap.docs.forEach(function(doc){
+        const d = doc.data();
+        if (dismissed.has(doc.id) || existingIds.has(doc.id)) return;
+        const sentAtMs = d.sentAt && d.sentAt.toMillis ? d.sentAt.toMillis() : Date.now();
+        if (sentAtMs < cutoff) return;
+        const isFreshlyArrived = (Date.now() - sentAtMs) < 5*60000; /* פחות מ-5 דקות = חדש */
+        appData.notifications.push({
+          id: doc.id, title: d.title || 'עדכון מ-NIZAT HUB', body: d.body || '',
+          date: todayHeb(), type:'broadcast', read: !isFreshlyArrived, _sentAtMs: sentAtMs
+        });
+        changed = true;
+      });
+      if (changed){
+        saveNotificationsToStorage();
+        renderNotifPanel();
+      }
+    }, function(err){
+      console.error('Firestore sync error (broadcasts notifications):', err);
+    });
+}
 function pruneNotifications(){
   const now = Date.now();
   const before = appData.notifications.length;
@@ -5401,6 +5452,8 @@ function pruneNotifications(){
   if(appData.notifications.length !== before) saveNotificationsToStorage();
 }
 function deleteNotification(id){
+  const n = appData.notifications.find(n=>n.id===id);
+  if (n && n.type === 'broadcast') addDismissedBroadcastId(id);
   appData.notifications = appData.notifications.filter(n=>n.id!==id);
   saveNotificationsToStorage();
   renderNotifPanel();
