@@ -3161,6 +3161,66 @@ function tickCountdowns(){
     timerEl.innerHTML = countdownSegsHtml(p);
   });
 }
+/* ---------- שרשור עדכונים לתחרות — עדכון חדש מופיע תמיד למעלה, כך שסניפים
+   יכולים לראות את כל השתלשלות העדכונים מתחילת התחרות ועד סופה, בכל שלב.
+   נשמר כמערך פנימי בתוך מסמך התחרות עצמו (c.updates), לא בקולקציה נפרדת. ---------- */
+function competitionUpdatesHtml(c){
+  const updates = (c.updates || []).slice().sort((a,b)=>b.id-a.id); /* חדש למעלה */
+  const isMarketing = session.role==='marketing';
+  return `
+    <div class="comp-updates" style="margin:14px 0;border-top:1px solid var(--gridline);padding-top:12px;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px;">📢 עדכונים לתחרות</div>
+      ${isMarketing ? `
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="comp-update-input-${c.id}" placeholder="הוספת עדכון חדש..." style="flex:1;padding:8px 10px;border:1px solid var(--gridline);border-radius:8px;font-size:13.5px;font-family:inherit;" onkeydown="if(event.key==='Enter'){addCompetitionUpdate('${c.id}');}">
+        <button class="btn-confirm" style="width:auto;padding:8px 16px;" onclick="addCompetitionUpdate('${c.id}')">הוספה</button>
+      </div>` : ''}
+      ${updates.length ? updates.map(u=>`
+        <div style="padding:8px 0;border-bottom:1px solid var(--gridline);display:flex;gap:10px;align-items:flex-start;">
+          <div style="font-size:12px;color:var(--muted);white-space:nowrap;flex:none;padding-top:2px;">${u.date}</div>
+          <div style="font-size:13.5px;flex:1;">${u.text}</div>
+          ${isMarketing ? `<button class="icon-btn danger" style="width:24px;height:24px;font-size:11px;flex:none;" title="מחיקת עדכון" onclick="deleteCompetitionUpdate('${c.id}','${u.id}')">✕</button>` : ''}
+        </div>
+      `).join('') : `<div style="font-size:13px;color:var(--muted);">${isMarketing ? 'אין עדיין עדכונים — הוסיפו את הראשון למעלה.' : 'עדיין אין עדכונים לתחרות זו.'}</div>`}
+    </div>
+  `;
+}
+function addCompetitionUpdate(compId){
+  const input = document.getElementById('comp-update-input-'+compId);
+  const text = (input?.value || '').trim();
+  if(!text) return;
+  const comp = appData.competitions.find(x=>x.id==compId);
+  if(!comp) return;
+  const entry = {
+    id: Date.now(),
+    date: todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}),
+    text
+  };
+  const newUpdates = [...(comp.updates || []), entry];
+  if(firebaseReady){
+    db.collection('competitions').doc(compId).update({updates: newUpdates})
+      .then(()=>{ toast('העדכון נוסף'); })
+      .catch(err=>toast('שגיאה בהוספת העדכון: '+err.message));
+  } else {
+    comp.updates = newUpdates;
+    renderContent();
+  }
+  if(input) input.value = '';
+}
+function deleteCompetitionUpdate(compId, updateId){
+  if(!confirm('למחוק את העדכון הזה?')) return;
+  const comp = appData.competitions.find(x=>x.id==compId);
+  if(!comp) return;
+  const newUpdates = (comp.updates || []).filter(u=>String(u.id)!==String(updateId));
+  if(firebaseReady){
+    db.collection('competitions').doc(compId).update({updates: newUpdates})
+      .then(()=>{ toast('העדכון נמחק'); })
+      .catch(err=>toast('שגיאה במחיקת העדכון: '+err.message));
+  } else {
+    comp.updates = newUpdates;
+    renderContent();
+  }
+}
 function compCard(c){
   const mine = session.branchName;
   const hasGroups = c.groups && c.groups.length;
@@ -3197,6 +3257,7 @@ function compCard(c){
     </div>
     ${compCountdownHtml(c)}
     <p class="comp-desc">${c.desc}</p>
+    ${competitionUpdatesHtml(c)}
     ${hasGroups ? groupsSection : `
     <div class="comp-foot">
       <span class="prize-chip">🎁 ${c.prize}</span>
@@ -5316,6 +5377,7 @@ function saveForm(){
       title: val('f-title'), category: val('f-category'), status: val('f-status'),
       start: val('f-start'), end: val('f-end'), prize: val('f-prize'), desc: val('f-desc'),
       leaderboard: existing ? existing.leaderboard : [],
+      updates: existing ? (existing.updates || []) : [],
       groups: pendingImportGroups!==null ? pendingImportGroups : (existing ? (existing.groups || []) : []),
       managerColors: pendingImportGroups!==null ? (pendingImportManagerColors || {}) : (existing ? (existing.managerColors || {}) : {}),
       rawTable: pendingImportGroups!==null ? (pendingImportRawTable || null) : (existing ? (existing.rawTable || null) : null),
