@@ -1249,6 +1249,7 @@ let unsubStandConfirmations = null;
 let unsubStandTakedownAcks = null;
 let unsubInstructionCompletions = null;
 let unsubItemReads = null;
+let unsubBroadcasts = null;
 let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
 let unsubSiteTexts = null;
@@ -1428,6 +1429,19 @@ function initFirestoreSync(){
       renderContent();
     }, function(err){
       console.error('Firestore sync error (item reads):', err);
+    });
+
+  /* היסטוריית שידורי Push (broadcasts) — לשימוש בתצוגת "מי קרא" למחלקת השיווק
+     בטאב "שידור עדכון". */
+  if (unsubBroadcasts) unsubBroadcasts();
+  unsubBroadcasts = db.collection('broadcasts').orderBy('sentAt', 'desc').limit(NOTIF_MAX_COUNT)
+    .onSnapshot(function(snap){
+      appData.broadcasts = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      if(session.role==='marketing') renderContent();
+    }, function(err){
+      console.error('Firestore sync error (broadcasts):', err);
     });
 
   /* מעקב מי התקין את ה-PWA (כתובה ע"י הסקריפט הנפרד בתחתית הדף, ב-appinstalled) —
@@ -1640,7 +1654,8 @@ let appData = {
   comments: [],
   privateMessages: [],
   standCampaigns: [],
-  notifications: []
+  notifications: [],
+  broadcasts: []
 };
 
 let nextIds = {competitions:2, instructions:1, materials:1, events:1, comments:1, privateMessages:1, standCampaigns:18};
@@ -4847,7 +4862,52 @@ function adminBroadcast(){
       </div>
       <button class="btn-confirm" onclick="sendBroadcastPush()">📢 שליחת עדכון עכשיו</button>
     </div>
+    ${broadcastHistoryHtml()}
   `;
+}
+/* רשימת כל מי שאמור לאשר קריאה על שידור — כל הסניפים + כל מנהלי האזור. */
+function allBroadcastRecipients(){
+  const branches = BRANCH_DIRECTORY.map(br=>({id:'branch:'+br.email, label:'סניף ' + br.name}));
+  const areas = Object.keys(AREA_MANAGER_INFO).map(email=>({id:'area:'+AREA_MANAGER_INFO[email].label, label:'מנהל אזור · ' + AREA_MANAGER_INFO[email].label}));
+  return [...branches, ...areas];
+}
+function broadcastHistoryHtml(){
+  const list = appData.broadcasts || [];
+  if(!list.length) return '';
+  return `
+    <div class="card">
+      <h3 style="margin:0 0 12px;">היסטוריית שידורים — מעקב אישור קריאה</h3>
+      ${list.map(b=>broadcastReadRow(b)).join('')}
+    </div>
+  `;
+}
+function broadcastReadRow(b){
+  const recipients = allBroadcastRecipients();
+  const readSet = new Set((appData.itemReads||[]).filter(r=>r.type==='broadcast' && r.itemId==b.id).map(r=>r.viewerId));
+  const readCount = recipients.filter(v=>readSet.has(v.id)).length;
+  const total = recipients.length;
+  const notRead = recipients.filter(v=>!readSet.has(v.id));
+  const domId = 'bcast-read-' + b.id;
+  return `
+    <div class="admin-row">
+      <div class="admin-row-main" style="cursor:pointer;" onclick="toggleBroadcastReadDetails('${b.id}')">
+        <div class="t">${b.title || ''}</div>
+        <div class="m">${b.body || ''}</div>
+        <div class="m">✔ אושרה קריאה על ידי ${readCount} מתוך ${total} · לחצו להרחבה</div>
+      </div>
+      <div id="${domId}" style="display:none;padding:8px 4px 4px;border-top:1px solid var(--border);margin-top:6px;">
+        ${notRead.length
+          ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">טרם אישרו קריאה (${notRead.length}):</div>
+             <div style="display:flex;flex-wrap:wrap;gap:6px;">${notRead.map(v=>`<span style="background:#fdecea;color:#c0392b;border-radius:6px;padding:3px 8px;font-size:12px;">${v.label}</span>`).join('')}</div>`
+          : `<div style="font-size:12px;color:#2e7d32;">כולם אישרו קריאה ✓</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+function toggleBroadcastReadDetails(id){
+  const el = document.getElementById('bcast-read-' + id);
+  if(el) el.style.display = (el.style.display==='none') ? 'block' : 'none';
 }
 function sendBroadcastPush(){
   const title = val('broadcast-title');
@@ -5452,10 +5512,21 @@ function pruneNotifications(){
   if(appData.notifications.length !== before) saveNotificationsToStorage();
 }
 function deleteNotification(id){
-  const n = appData.notifications.find(n=>n.id===id);
-  if (n && n.type === 'broadcast') addDismissedBroadcastId(id);
-  appData.notifications = appData.notifications.filter(n=>n.id!==id);
+  const n = appData.notifications.find(n=>n.id==id);
+  if (n && n.type === 'broadcast') addDismissedBroadcastId(n.id);
+  appData.notifications = appData.notifications.filter(n=>n.id!=id);
   saveNotificationsToStorage();
+  renderNotifPanel();
+}
+/* מסמן התראה בודדת כ"נקראה" (בלחיצה על "אשר/י קריאה") — לאחר מכן מוצג כפתור
+   מחיקה במקום. עבור התראות משידור (broadcast), זה גם נכתב ל-Firestore
+   (itemReads) כדי שמחלקת השיווק תוכל לראות מי אישר קריאה ומי לא. */
+function markNotificationRead(id){
+  const n = appData.notifications.find(n=>n.id==id);
+  if (!n) return;
+  n.read = true;
+  saveNotificationsToStorage();
+  if (n.type === 'broadcast' && typeof markItemRead === 'function') markItemRead('broadcast', n.id);
   renderNotifPanel();
 }
 function renderNotifPanel(){
@@ -5471,7 +5542,10 @@ function renderNotifPanel(){
       <div class="notif-item ${n.read?'':'unread'}">
         <div class="ic">${NOTIF_ICON[n.type]||'🔔'}</div>
         <div style="flex:1;min-width:0;"><div class="nt">${n.title}</div><div class="nb">${n.body}</div><div class="nd">${n.date}</div></div>
-        <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex:none;" title="מחיקת התראה" onclick="event.stopPropagation();deleteNotification(${n.id})">✕</button>
+        ${n.read
+          ? `<button class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex:none;" title="מחיקת התראה" onclick="event.stopPropagation();deleteNotification('${n.id}')">✕</button>`
+          : `<button class="link-btn" style="flex:none;font-size:12px;" onclick="event.stopPropagation();markNotificationRead('${n.id}')">אשר/י קריאה</button>`
+        }
       </div>
     `).join('') || '<div class="empty-state">אין התראות חדשות</div>'}
   `;
