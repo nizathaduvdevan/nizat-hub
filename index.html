@@ -1749,7 +1749,7 @@ function enterApp(role, payload){
   document.getElementById('user-label').textContent = label;
   document.getElementById('user-avatar').textContent = avatarText;
 
-  ui.view = role==='marketing' ? 'admin' : (role==='area' ? 'areaOverview' : 'dashboard');
+  ui.view = 'dashboard';
   history.replaceState({nizatHubView: ui.view}, '', '#' + ui.view);
   renderNav();
   renderContent();
@@ -3366,7 +3366,7 @@ function renderByAreaManager(c){
   `;
 }
 /* ---------- טאב 3: סיכום אזורי כללי — טבלת אקסל: מנהל אזור (בצבעו) | אחוז מהיעד |
-   סכום נמכר | יעד, ממוין מהיעד הגבוה לנמוך, עם שורת סה"כ ורודה בתחתית. ---------- */
+   סכום נמכר | יעד, ממוין מאחוז היעד הגבוה לנמוך, עם שורת סה"כ ורודה בתחתית. ---------- */
 function renderAreaManagerSummary(c){
   const byManager = {};
   c.groups.forEach(g=>{
@@ -3378,7 +3378,11 @@ function renderAreaManagerSummary(c){
       byManager[mgr].target += b.target;
     });
   });
-  const rows = Object.keys(byManager).map(mgr=>({mgr, ...byManager[mgr]})).sort((a,b)=>b.target-a.target);
+  const rows = Object.keys(byManager).map(mgr=>{
+    const d = byManager[mgr];
+    const pct = d.target>0 ? (d.sales/d.target*100) : 0;
+    return {mgr, ...d, pct};
+  }).sort((a,b)=>b.pct-a.pct);
   const totalTarget = rows.reduce((s,r)=>s+r.target,0);
   const totalSales = rows.reduce((s,r)=>s+r.sales,0);
   const totalPct = totalTarget>0 ? (totalSales/totalTarget*100) : 0;
@@ -3394,10 +3398,9 @@ function renderAreaManagerSummary(c){
   const bodyHtml = rows.map((r,idx)=>{
     const hex = (c.managerColors && c.managerColors[r.mgr]) || '#ffffff';
     const mgrTextColor = contrastTextColor(hex);
-    const pct = r.target>0 ? (r.sales/r.target*100) : 0;
     return `<tr>
       <td style="background:${hex};color:${mgrTextColor};${cellStyle}font-weight:600;">${idx===0?'👑 ':''}${r.mgr}</td>
-      <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${pct.toFixed(2)}%</td>
+      <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${r.pct.toFixed(2)}%</td>
       <td style="background:#ffffff;color:#1a1a1a;${cellStyle}" dir="ltr">${r.sales ? fmtMoney(r.sales)+' ₪' : ''}</td>
       <td style="background:#ffffff;color:#1a1a1a;${cellStyle}font-weight:700;" dir="ltr">${fmtMoney(r.target)} ₪</td>
     </tr>`;
