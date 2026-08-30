@@ -4919,10 +4919,13 @@ function broadcastReadRow(b){
   const domId = 'bcast-read-' + b.id;
   return `
     <div class="admin-row">
-      <div class="admin-row-main" style="cursor:pointer;" onclick="toggleBroadcastReadDetails('${b.id}')">
-        <div class="t">${b.title || ''}</div>
-        <div class="m">${b.body || ''}</div>
-        <div class="m">✔ אושרה קריאה על ידי ${readCount} מתוך ${total} · לחצו להרחבה</div>
+      <div class="admin-row-main" style="cursor:pointer;display:flex;gap:10px;align-items:flex-start;" onclick="toggleBroadcastReadDetails('${b.id}')">
+        <div style="flex:1;min-width:0;">
+          <div class="t">${b.title || ''}</div>
+          <div class="m">${b.body || ''}</div>
+          <div class="m">✔ אושרה קריאה על ידי ${readCount} מתוך ${total} · לחצו להרחבה</div>
+        </div>
+        <button class="icon-btn danger" title="מחיקת שידור מההיסטוריה" onclick="event.stopPropagation();deleteBroadcastHistory('${b.id}')">✕</button>
       </div>
       <div id="${domId}" style="display:none;padding:8px 4px 4px;border-top:1px solid var(--border);margin-top:6px;">
         ${notRead.length
@@ -4933,6 +4936,22 @@ function broadcastReadRow(b){
       </div>
     </div>
   `;
+}
+/* מחיקת שידור מההיסטוריה (Firestore בלבד — לא שולח שום דבר, רק מנקה את
+   הרשומה + רשומות "מי קרא" הקשורות אליה). זמין רק למחלקת השיווק (Firestore
+   Rules כבר אוכפים isAdmin() על מחיקת broadcasts). */
+function deleteBroadcastHistory(id){
+  if(!confirm('למחוק את השידור הזה מההיסטוריה? הפעולה בלתי הפיכה.')) return;
+  db.collection('broadcasts').doc(id).delete().then(()=>{
+    toast('השידור נמחק מההיסטוריה');
+    // ניקוי רשומות "מי קרא" היתומות שנשארו משידור שנמחק
+    return db.collection('itemReads').where('type','==','broadcast').where('itemId','==',id).get();
+  }).then(snap=>{
+    if(!snap || snap.empty) return;
+    const batch = db.batch();
+    snap.forEach(doc=>batch.delete(doc.ref));
+    return batch.commit();
+  }).catch(err=>toast('שגיאה במחיקת השידור: '+err.message));
 }
 function toggleBroadcastReadDetails(id){
   const el = document.getElementById('bcast-read-' + id);

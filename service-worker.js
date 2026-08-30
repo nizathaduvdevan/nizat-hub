@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'nizat-hub-static-v1';
+const CACHE_VERSION = 'nizat-hub-static-v2';
 const BASE = '/nizat-hub/';
 const OFFLINE_URL = BASE + 'offline.html';
 const STATIC_ASSETS = [
@@ -40,8 +40,8 @@ messaging.onBackgroundMessage(function(payload){
   const title = (payload.notification && payload.notification.title) || 'NIZAT HUB';
   const options = {
     body: (payload.notification && payload.notification.body) || '',
-    icon: BASE + 'icons/icon-192.png',
-    badge: BASE + 'icons/icon-192.png',
+    icon: BASE + 'icons/notif-icon-192.png',
+    badge: BASE + 'icons/notif-badge-96.png',
     dir: 'rtl'
   };
   self.registration.showNotification(title, options).then(function(){
