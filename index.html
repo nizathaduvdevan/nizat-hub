@@ -2860,7 +2860,8 @@ function handleMaterialThumbChange(evt){
 function handleMaterialFolderUpload(evt){
   const files = [...evt.target.files];
   if(!files.length) return;
-  const folderName = (files[0].webkitRelativePath || '').split('/')[0] || 'תיקייה מיובאת';
+  const detectedName = (files[0].webkitRelativePath || '').split('/')[0] || 'תיקייה מיובאת';
+  const folderName = (prompt('שם קטגוריה לקבצים מהתיקייה (אפשר לשנות מהשם המקורי):', detectedName) || '').trim() || detectedName;
   toast(`מעלה ${files.length} קבצים מתוך "${folderName}"...`);
   let done = 0, failed = 0;
   const uploadOne = (file) => uploadFileToCloudinary(file).then(function(result){
@@ -3749,15 +3750,16 @@ function setInstrStatusFilter(f){ instrStatusFilter = f; renderContent(); }
 /* ---------- Materials ---------- */
 function viewMaterials(){
   markSectionRead('materials');
-  const cats = ["הכל", ...new Set(appData.materials.map(m=>m.category))];
-  const list = ui.materialFilter==='הכל' ? appData.materials : appData.materials.filter(m=>m.category===ui.materialFilter);
+  const cats = [...new Set(appData.materials.map(m=>m.category))];
+  const activeFilter = (ui.materialFilter && cats.includes(ui.materialFilter)) ? ui.materialFilter : cats[0];
+  const list = activeFilter ? appData.materials.filter(m=>m.category===activeFilter) : appData.materials;
   return `
     <div class="page-head">
       <h1>הורדה חומרי שיווק / דיגיטל ורשתות חברתיות</h1>
       <p>${getText('materials_desc')}</p>
     </div>
     <div class="filter-row">
-      ${cats.map(c=>`<button class="chip ${ui.materialFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
+      ${cats.map(c=>`<button class="chip ${activeFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
     </div>
     <div class="materials-grid">
       ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין הורדה חומרי שיווק / דיגיטל ורשתות חברתיות.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
