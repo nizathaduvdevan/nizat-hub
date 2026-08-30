@@ -2265,11 +2265,11 @@ function viewDashboard(){
       </div>`;
     } else {
       compSectionHtml = `
-      <div class="card comp-card" style="border-color:rgba(69,122,31,0.35); background:linear-gradient(180deg, rgba(69,122,31,0.05), var(--surface-1));">
+      <div class="card comp-card" style="border-color:rgba(69,122,31,0.35); background:linear-gradient(180deg, rgba(69,122,31,0.05), var(--surface-1));cursor:pointer;" onclick="goTo('competitions')">
         <span class="badge active"><span class="dot"></span>תחרות פעילה מובילה</span>
         <h2 style="margin:10px 0 4px;font-size:18px;">${comp.title}</h2>
         <p class="comp-desc" style="margin-top:4px;">${comp.desc}</p>
-        <button class="link-btn" onclick="goTo('competitions')">לצפייה בכל התחרויות ←</button>
+        <button class="link-btn" onclick="event.stopPropagation();goTo('competitions')">לצפייה בכל התחרויות ←</button>
       </div>`;
     }
   }
@@ -3165,12 +3165,10 @@ function compCard(c){
   if(hasGroups){
     if(session.role==='branch'){
       const match = matchBranchInCompetition(c, session.branchInfo);
-      const myKey = match ? match.branch.rawName : null;
-      const ranking = renderNetworkRanking(c, myKey);
       groupsSection = (match ? renderGroupForBranch(c, match.group, match.branch) : `<div class="comp-no-match">לא זוהתה התאמה אוטומטית בין הסניף שלכם לנתוני התחרות. פנו למחלקת השיווק לבירור.</div>`)
-        + renderRawSalesTable(c) + ranking + renderCompetitionTabs(c);
+        + renderRawSalesTable(c) + renderCompetitionTabs(c);
     } else {
-      groupsSection = renderRawSalesTable(c) + renderNetworkRanking(c, null) + renderCompetitionTabs(c);
+      groupsSection = renderRawSalesTable(c) + renderCompetitionTabs(c);
     }
   }
   return `
