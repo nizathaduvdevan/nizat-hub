@@ -1786,7 +1786,7 @@ let session = { role:null, branchName:null, branchInfo:null, areaName:null, area
    realSession שומר את הזהות האמיתית כדי לחזור אליה כשיוצאים ממצב התצוגה. */
 let previewMode = null; // null | {label: string}
 let realSession = null;
-let ui = { view:"dashboard", adminTab:"competitions", materialFilter:"הכל" };
+let ui = { view:"dashboard", adminTab:"competitions", materialFilter:"הכל", department:null };
 
 const STATUS_LABEL = {active:"פעילה", upcoming:"מתוכננת", ended:"הסתיימה"};
 const PRIORITY_LABEL = {urgent:"דחוף", normal:"רגיל"};
@@ -2032,7 +2032,7 @@ function logout(){
   document.getElementById('login-screen').style.display='flex';
   clearIdentity();
   session = {role:null, branchName:null, branchInfo:null, areaName:null, areaLabel:null};
-  ui = {view:"dashboard", adminTab:"competitions", materialFilter:"הכל"};
+  ui = {view:"dashboard", adminTab:"competitions", materialFilter:"הכל", department:null};
 }
 
 /* ---------- Remembered identity (best-effort; falls back to session-only) ---------- */
@@ -2075,11 +2075,40 @@ const ICON_PATHS = {
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   message: '<path d="M4 5h16v11H8l-4 4Z"/>',
   megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h2l1 5h2l-1-5h5l6 4V6l-6 4H6a1 1 0 0 0-1 1Z"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'
+  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  cart: '<circle cx="9" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.5 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L23 7H6"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
 };
 function icon(name, cls){
   return `<svg class="ui-icon ${cls||''}" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;flex:none;">${ICON_PATHS[name]||''}</svg>`;
 }
+/* ============================================================
+   מחלקות — ניווט רב-מחלקתי לסניפים/מנהלי אזור
+   ------------------------------------------------------------
+   DEPARTMENT_SCREENS: המסכים שכל מחלקה חושפת לסניף. שיווק היא היחידה
+   הפעילה כרגע (שאר המחלקות עדיין ריקות — יקבלו את מסכי התוכן שלהן כשיתחילו
+   לפרסם, בלי צורך לגעת בניווט שוב). אין ליצור מסכי תוכן חדשים כאן — כל
+   פריט מפנה למסכים הקיימים בדיוק כמו היום.
+   DEPARTMENT_NAV_ICONS: אייקון לכל כפתור מחלקה בניווט הגלובלי.
+   ============================================================ */
+const DEPARTMENT_SCREENS = {
+  marketing: [
+    {id:'competitions', label:'תחרויות', icon:icon('trophy')},
+    {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
+    {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
+    {id:'events', label:'יומן אירועים', icon:icon('calendar')},
+    {id:'stands', label:'סטנדים לאישור', icon:icon('sign')}
+  ],
+  operations: [],
+  purchasing: [],
+  hr: []
+};
+const DEPARTMENT_NAV_ICONS = {
+  marketing: icon('megaphone'),
+  operations: icon('gear'),
+  purchasing: icon('cart'),
+  hr: icon('users')
+};
 /* ============================================================
    NAV
 ============================================================ */
@@ -2093,22 +2122,36 @@ function hasBranchFacingNavAccess(){
   return depts.indexOf('marketing') !== -1 || depts.length===Object.keys(DEPARTMENTS).length;
 }
 function navItems(){
-  const items = [
-    {id:'dashboard', label:'דף הבית', icon:icon('home')}
-  ];
-  if(session.role==='area') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
-  /* מסכי הצפייה של הסניפים שייכים לתוכן השיווקי כלפי הרשת. */
-  if(hasBranchFacingNavAccess()){
-    items.push(
-      {id:'competitions', label:'תחרויות', icon:icon('trophy')},
-      {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
-      {id:'events', label:'יומן אירועים', icon:icon('calendar')},
-      {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
-      {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
-      {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
-    );
+  /* אנשי צוות (מחלקת שיווק ברמת ההרשאה) — ניווט קיים ללא שינוי. */
+  if(session.role==='marketing'){
+    const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
+    if(hasBranchFacingNavAccess()){
+      items.push(
+        {id:'competitions', label:'תחרויות', icon:icon('trophy')},
+        {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
+        {id:'events', label:'יומן אירועים', icon:icon('calendar')},
+        {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
+        {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
+        {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
+      );
+    }
+    items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
+    return items;
   }
-  if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
+  /* סניפים ומנהלי אזור — ניווט רב-מחלקתי.
+     ui.department===null: ברמה הגלובלית, רואים דף הבית + כפתור כניסה לכל מחלקה.
+     ui.department מוגדר: בתוך מחלקה, רואים "דף הבית" (חזרה לגלובלי) + מסכי המחלקה. */
+  if(ui.department === null){
+    const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
+    Object.keys(DEPARTMENTS).forEach(key=>{
+      items.push({id:'enterDept:'+key, label:DEPARTMENTS[key].short, icon:DEPARTMENT_NAV_ICONS[key], isDeptEntry:true, deptKey:key});
+    });
+    return items;
+  }
+  const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
+  if(session.role==='area' && ui.department==='marketing') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
+  items.push(...(DEPARTMENT_SCREENS[ui.department]||[]));
+  items.push({id:'messages', label:'ההודעות שלי', icon:icon('mail')});
   return items;
 }
 const MOBILE_PRIMARY = ['dashboard','competitions','instructions','materials'];
@@ -2229,6 +2272,10 @@ function markItemRead(type, itemId){
 const NAV_UNREAD_TYPES = {instructions:'instructions', competitions:'competitions', materials:'materials', events:'events'};
 function navUnreadCount(navId){
   if(session.role==='marketing') return 0;
+  if(navId.indexOf('enterDept:')===0){
+    const deptKey = navId.slice('enterDept:'.length);
+    return (DEPARTMENT_SCREENS[deptKey]||[]).reduce((s,scr)=>s+navUnreadCount(scr.id), 0);
+  }
   const key = NAV_UNREAD_TYPES[navId];
   if(!key || !appData[key]) return 0;
   return appData[key].filter(x=>!isItemRead(key, x.id)).length;
@@ -2236,40 +2283,63 @@ function navUnreadCount(navId){
 function renderNav(){
   renderPreviewBanner();
   const items = navItems();
+  const isStaffDeptSep = session.role==='marketing';
   document.getElementById('sidebar').innerHTML = `
-    ${(session.role==='marketing' && hasBranchFacingNavAccess()) ? '<div class="nav-label">תצוגת סניף</div>' : ''}
+    ${(isStaffDeptSep && hasBranchFacingNavAccess()) ? '<div class="nav-label">תצוגת סניף</div>' : ''}
+    ${(!isStaffDeptSep && ui.department) ? `<div class="nav-label">${(DEPARTMENTS[ui.department]||{}).label||''}</div>` : ''}
     ${items.filter(i=>i.id!=='admin').map(i=>navBtn(i)).join('')}
-    ${session.role==='marketing' ? `<div class="nav-sep"></div><div class="nav-label">מחלקת שיווק</div>${navBtn(items.find(i=>i.id==='admin'))}` : ''}
+    ${isStaffDeptSep ? `<div class="nav-sep"></div><div class="nav-label">מחלקת שיווק</div>${navBtn(items.find(i=>i.id==='admin'))}` : ''}
   `;
-  const primaryIds = session.role==='area' ? MOBILE_PRIMARY_AREA : MOBILE_PRIMARY;
-  const primary = items.filter(i=>primaryIds.includes(i.id));
-  const overflow = items.filter(i=>!primaryIds.includes(i.id));
+  /* חלוקה דינמית לראשי/עוד: ברמה הגלובלית (בחירת מחלקה) אין overflow בכלל —
+     בדיוק 5 פריטים (בית + 4 מחלקות) ממלאים את הסרגל התחתון. בתוך מחלקה,
+     עד 4 פריטים ראשיים והשאר (כולל הודעות) עוברים ל"עוד". אנשי צוות ממשיכים
+     במנגנון הישן (MOBILE_PRIMARY). */
+  let primary, overflow;
+  if(!isStaffDeptSep && ui.department===null){
+    primary = items; overflow = [];
+  } else if(!isStaffDeptSep){
+    primary = items.slice(0,4); overflow = items.slice(4);
+  } else {
+    const primaryIds = session.role==='area' ? MOBILE_PRIMARY_AREA : MOBILE_PRIMARY;
+    primary = items.filter(i=>primaryIds.includes(i.id));
+    overflow = items.filter(i=>!primaryIds.includes(i.id));
+  }
   const overflowActive = overflow.some(i=>i.id===ui.view);
   const overflowUnread = overflow.reduce((s,i)=>s+navUnreadCount(i.id),0);
   document.getElementById('mobile-tabbar').innerHTML = `
-    ${primary.map(i=>{
-      const n = navUnreadCount(i.id);
-      return `
-      <button class="${ui.view===i.id?'active':''}" onclick="goTo('${i.id}')">
-        <span class="ic-wrap"><span class="ic">${i.icon}</span>${n?`<span class="tab-badge">${n}</span>`:''}</span><span>${i.label}</span>
-      </button>`;
-    }).join('')}
+    ${primary.map(i=>navTabBtn(i)).join('')}
+    ${overflow.length ? `
     <button class="${overflowActive?'active':''}" onclick="toggleMobileMore()">
       <span class="ic-wrap"><span class="ic">⋯</span>${overflowUnread?`<span class="tab-badge">${overflowUnread}</span>`:''}</span><span>עוד</span>
-    </button>
+    </button>` : ''}
   `;
   document.getElementById('mobile-more-sheet').innerHTML = overflow.map(i=>{
     const n = navUnreadCount(i.id);
+    const active = i.isDeptEntry ? ui.department===i.deptKey : ui.view===i.id;
+    const action = i.isDeptEntry ? `enterDepartment('${i.deptKey}');closeMobileMore();` : `goTo('${i.id}');closeMobileMore();`;
     return `
-    <button class="nav-item ${ui.view===i.id?'active':''}" onclick="goTo('${i.id}');closeMobileMore();">
+    <button class="nav-item ${active?'active':''}" onclick="${action}">
       <span class="ic">${i.icon}</span><span>${i.label}</span>${n?`<span class="nav-badge">${n}</span>`:''}
     </button>`;
   }).join('') + `<button class="mobile-more-logout" onclick="logout()">התנתקות</button>`;
 }
+/* כפתור ניווט לסרגל הצד (דסקטופ) — תומך גם בכפתורי כניסה למחלקה. */
 function navBtn(i){
   const n = navUnreadCount(i.id);
-  return `<button class="nav-item ${ui.view===i.id?'active':''}" onclick="goTo('${i.id}')">
+  const active = i.isDeptEntry ? ui.department===i.deptKey : ui.view===i.id;
+  const action = i.isDeptEntry ? `enterDepartment('${i.deptKey}')` : `goTo('${i.id}')`;
+  return `<button class="nav-item ${active?'active':''}" onclick="${action}">
     <span class="ic">${i.icon}</span><span>${i.label}</span>${n?`<span class="nav-badge">${n}</span>`:''}
+  </button>`;
+}
+/* כפתור ניווט לסרגל התחתון (נייד) — תומך גם בכפתורי כניסה למחלקה. */
+function navTabBtn(i){
+  const n = navUnreadCount(i.id);
+  const active = i.isDeptEntry ? ui.department===i.deptKey : ui.view===i.id;
+  const action = i.isDeptEntry ? `enterDepartment('${i.deptKey}')` : `goTo('${i.id}')`;
+  return `
+  <button class="${active?'active':''}" onclick="${action}">
+    <span class="ic-wrap"><span class="ic">${i.icon}</span>${n?`<span class="tab-badge">${n}</span>`:''}</span><span>${i.label}</span>
   </button>`;
 }
 function toggleMobileMore(){
@@ -2281,7 +2351,13 @@ function closeMobileMore(){
   document.getElementById('mobile-more-backdrop').classList.remove('open');
 }
 let suppressHistoryPush = false;
-function goTo(view){
+/* ניווט ל-'dashboard' תמיד מחזיר לרמה הגלובלית (בין המחלקות) — זו ההתנהגות
+   שהוגדרה: "דף הבית" בתוך מחלקה פירושו חזרה למסך המאוחד, לא איפוס בתוך
+   המחלקה עצמה. opts.keepDepartment משמש רק לניווט פנימי (למשל שחזור היסטוריה,
+   או enterDepartment) שלא אמור לאפס את ui.department. */
+function goTo(view, opts){
+  opts = opts || {};
+  if(view==='dashboard' && !opts.keepDepartment) ui.department = null;
   ui.view = view;
   renderNav();
   renderContent();
@@ -2289,13 +2365,25 @@ function goTo(view){
   if(!suppressHistoryPush){
     // כל שינוי מסך נרשם כערך היסטוריה אמיתי — כך שכפתור "חזרה" (בדפדפן, במובייל,
     // או במחוות ה-swipe) מנווט בין המסכים בתוך ה-HUB במקום לצאת מהאתר לגמרי.
-    history.pushState({nizatHubView: view}, '', '#' + view);
+    history.pushState({nizatHubView: view, nizatHubDept: ui.department}, '', '#' + view);
   }
+}
+/* כניסה למחלקה מהמסך הגלובלי (לחיצה על אחד מכפתורי המחלקות). */
+function enterDepartment(key){
+  ui.department = key;
+  goTo('dashboard', {keepDepartment:true});
+}
+/* קיצור לניווט ישיר למסך מסוים בתוך מחלקה נתונה (למשל מפריט בפיד הגלובלי). */
+function goToDeptScreen(deptKey, view){
+  ui.department = deptKey;
+  goTo(view, {keepDepartment:true});
 }
 window.addEventListener('popstate', function(e){
   const view = (e.state && e.state.nizatHubView) || 'dashboard';
+  const dept = (e.state && ('nizatHubDept' in e.state)) ? e.state.nizatHubDept : null;
   suppressHistoryPush = true;
-  goTo(view);
+  ui.department = dept;
+  goTo(view, {keepDepartment:true});
   suppressHistoryPush = false;
 });
 
@@ -2304,7 +2392,11 @@ window.addEventListener('popstate', function(e){
 ============================================================ */
 function renderContent(){
   const el = document.getElementById('content');
-  if(ui.view==='dashboard') el.innerHTML = viewDashboard();
+  if(ui.view==='dashboard'){
+    if(session.role==='marketing' || ui.department==='marketing') el.innerHTML = viewDashboard();
+    else if(ui.department===null) el.innerHTML = viewGlobalHome();
+    else el.innerHTML = viewDepartmentEmpty(ui.department);
+  }
   else if(ui.view==='competitions') el.innerHTML = viewCompetitions();
   else if(ui.view==='instructions') el.innerHTML = viewInstructions();
   else if(ui.view==='events') el.innerHTML = viewEvents();
@@ -2313,6 +2405,54 @@ function renderContent(){
   else if(ui.view==='stands') el.innerHTML = viewStands();
   else if(ui.view==='messages') el.innerHTML = viewMessages();
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
+}
+/* ---------- דף הבית הגלובלי (רב-מחלקתי) ---------- */
+/* מוצג לסניפים/מנהלי אזור ברמה העליונה, לפני שנכנסים למחלקה ספציפית. פיד
+   מאוחד מכל המחלקות (כרגע רק שיווק מפרסמת, אז זה כמעט זהה למה שהיה קודם —
+   ההבדל היחיד הוא תגית המחלקה על כל פריט וכפתורי הכניסה למחלקות בניווט). */
+function viewGlobalHome(){
+  const feed = [
+    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id, unread:!isItemRead('instructions', i.id), department:itemDepartment(i)})),
+    ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id, department:itemDepartment(c)})),
+    ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', date:e.date, title:e.title, id:e.id, department:itemDepartment(e)}))
+  ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,8);
+  const greetName = session.role==='area' ? session.areaLabel : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);
+  return `
+    <div class="page-head">
+      <h1>שלום, ${greetName} 👋</h1>
+      ${session.branchInfo ? `<p style="margin:-4px 0 8px;font-size:12.5px;color:var(--muted);">${session.branchName}</p>` : ''}
+      <p>עדכונים שוטפים מכל המחלקות</p>
+    </div>
+    <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
+    <div class="card" style="overflow:visible;">
+      ${feed.length ? feed.map(f=>{
+        const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
+        return `
+        <div class="dashboard-feed-item" onclick="goToDeptScreen('${f.department}','${screenId}')">
+          <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
+          <div class="df-main">
+            <div class="df-title">${f.title}</div>
+            <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
+          </div>
+          <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
+          ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
+        </div>
+      `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
+    </div>
+  `;
+}
+/* מסך מחלקה שעדיין לא פרסמה שום תוכן — מוצג עד שהמחלקה מתחילה לפעול. */
+function viewDepartmentEmpty(deptKey){
+  const info = DEPARTMENTS[deptKey] || {label: deptKey};
+  return `
+    <div class="page-head">
+      <h1>${info.label}</h1>
+      <p>עדיין אין כאן תוכן</p>
+    </div>
+    <div class="card"><div class="empty-state">
+      ${info.label} עדיין לא התחילה לפרסם כאן. עדכונים יופיעו במקום הזה ברגע שיהיו.
+    </div></div>
+  `;
 }
 
 /* ---------- Dashboard ---------- */
