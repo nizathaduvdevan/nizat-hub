@@ -1131,9 +1131,61 @@ const FIREBASE_CONFIG = {
 };
 /* דומיין ה-Workspace שדרכו מותר להתחבר בפועל (Google Sign-In מוגבל אליו) */
 const ALLOWED_GOOGLE_DOMAIN = "nizat.co.il";
-/* רשימת כתובות מייל שנכנסות כ"מחלקת שיווק" (הרשאות ניהול תוכן).
-   הוסיפו כאן כל מייל נוסף שצריך גישת ניהול (מופרד בפסיקים, בגרשיים). */
-const ADMIN_EMAILS = ['inbar@nizat.co.il', 'eliran@nizat.co.il', 'yulia@nizat.co.il', 'ai@nizat.co.il'];
+/* ============================================================
+   מחלקות וצוות
+   ------------------------------------------------------------
+   DEPARTMENTS: המחלקות שה-HUB יכול לשרת. כרגע כל התוכן הקיים שייך
+   ל'marketing' — שאר המחלקות מוגדרות מראש כדי שהוספת תוכן שלהן בעתיד
+   תהיה שינוי של שורה אחת ולא פרויקט.
+
+   STAFF: מי מקבל גישת ניהול ולאילו מחלקות. departments:['*'] = גישה מלאה.
+   הערה חשובה: תוכן בלי שדה department נחשב אוטומטית ל'marketing', ולכן
+   כל הנתונים הקיימים ממשיכים לעבוד בדיוק כמו קודם — בלי migration.
+   ============================================================ */
+const DEPARTMENTS = {
+  marketing:  { label: 'מחלקת שיווק',      short: 'שיווק' },
+  operations: { label: 'מחלקת תפעול',      short: 'תפעול' },
+  purchasing: { label: 'מחלקת רכש',        short: 'רכש' },
+  hr:         { label: 'משאבי אנוש',       short: 'משאבי אנוש' }
+};
+const DEFAULT_DEPARTMENT = 'marketing';
+
+const STAFF = {
+  /* שיווק */
+  'inbar@nizat.co.il':  { name: 'ענבר',            departments: ['marketing'] },
+  'yulia@nizat.co.il':  { name: 'יוליה',           departments: ['marketing'] },
+  /* משאבי אנוש */
+  'ori@nizat.co.il':    { name: 'אורי מנקדי',      departments: ['hr'] },
+  'orit@nizat.co.il':   { name: 'אורית אביב',      departments: ['hr'] },
+  /* רכש */
+  'edith@nizat.co.il':  { name: 'אדית לייבוביץ\'', departments: ['purchasing'] },
+  'nofar@nizat.co.il':  { name: 'נופר שרר',        departments: ['purchasing'] },
+  'tradeo@nizat.co.il': { name: 'שירן סוסקין',     departments: ['purchasing'] },
+  /* תפעול */
+  'tzach@nizat.co.il':  { name: 'צח שווקי',        departments: ['operations'] },
+  /* גישה מלאה */
+  'eliran@nizat.co.il': { name: 'אלירן',           departments: ['*'] },
+  'ai@nizat.co.il':     { name: 'ניהול מערכת',     departments: ['*'] }
+};
+
+/* נגזר אוטומטית מ-STAFF — נשאר לתאימות עם קוד קיים שמשתמש ב-ADMIN_EMAILS. */
+const ADMIN_EMAILS = Object.keys(STAFF);
+
+/* המחלקות שהמשתמש הנוכחי רשאי לנהל. '*' מתורגם לכל המחלקות. */
+function staffDepartments(email){
+  const rec = STAFF[email];
+  if(!rec) return [];
+  return rec.departments.indexOf('*') !== -1 ? Object.keys(DEPARTMENTS) : rec.departments;
+}
+/* האם המשתמש הנוכחי רשאי לנהל תוכן של מחלקה מסוימת. */
+function canManageDepartment(dept){
+  if(session.role !== 'marketing') return false;
+  return staffDepartments(currentUserEmail).indexOf(dept || DEFAULT_DEPARTMENT) !== -1;
+}
+/* המחלקה של פריט תוכן — ברירת מחדל 'marketing' לכל התוכן הקיים. */
+function itemDepartment(item){
+  return (item && item.department) || DEFAULT_DEPARTMENT;
+}
 
 /* מנהלי אזור: כל אחד רואה ברירת מחדל את הסניפים באזור שלו (מותאם לפי השם
    הפרטי המופיע כבר בשדה "areaManager"/"מנהל אזור" בתחרויות), פלוס השוואה
@@ -1774,7 +1826,17 @@ function enterApp(role, payload){
   document.getElementById('app-screen').style.display='block';
 
   let label, avatarText, toastMsg;
-  if(role==='marketing'){ label = 'מחלקת שיווק'; avatarText = 'שי'; toastMsg = 'שלום, מחלקת שיווק 👋'; }
+  if(role==='marketing'){
+    /* אנשי צוות ממחלקות שונות — מציגים את השם והמחלקה בפועל, ולא
+       'מחלקת שיווק' לכולם. */
+    const staffRec = STAFF[currentUserEmail];
+    const myDepts = staffDepartments(currentUserEmail);
+    const deptShort = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).short : null;
+    const personName = staffRec ? staffRec.name : 'מחלקת שיווק';
+    label = deptShort ? `${personName} · ${deptShort}` : personName;
+    avatarText = personName.slice(0,2);
+    toastMsg = `שלום, ${personName} 👋`;
+  }
   else if(role==='area'){
     label = session.areaName ? `מנהל אזור · ${session.areaLabel}` : `${session.areaLabel} · תצוגה ארצית`;
     avatarText = session.areaLabel.slice(0,2);
@@ -4157,6 +4219,16 @@ function findItemTitle(itemType, itemId){
   const item = src.find(x=>x.id==itemId);
   return item ? item.title : '(פריט נמחק)';
 }
+/* המחלקה שאליה שייך פריט תוכן — לצורך ניתוב שאלות למחלקה הנכונה.
+   נופל חזרה ל'marketing' לכל תוכן קיים שאין עליו שדה department. */
+function itemDepartmentByRef(itemType, itemId){
+  if(itemType==='competitionGroup'){
+    const [compId] = itemId.split('::');
+    return itemDepartment(appData.competitions.find(x=>x.id==compId));
+  }
+  const src = itemType==='instruction' ? appData.instructions : appData.competitions;
+  return itemDepartment(src.find(x=>x.id==itemId));
+}
 /* מזהה שולח אחיד להודעות פרטיות — עובד גם לסניף וגם למנהל אזור
    (בעבר תמך רק בסניפים, כי session.branchName הוא null עבור מנהלי אזור). */
 function currentSenderName(){
@@ -4371,8 +4443,13 @@ function submitPrivateMessageFromModal(itemType, itemId){
   const text = input.value.trim();
   if(!text){ toast('נא לכתוב תוכן לפני השליחה'); input.focus(); return; }
   const itemTitle = findItemTitle(itemType, itemId);
+  /* נמען מחלקתי: השאלה מנותבת למחלקה שמחזיקה את הפריט שעליו שואלים. כל התוכן
+     הקיים הוא של שיווק, ולכן היום כל ההודעות ממשיכות להגיע לענבר בדיוק כמו
+     קודם — אבל כשתפעול או רכש יפרסמו תוכן, השאלות עליו ינותבו אליהם. */
+  const toDepartment = itemDepartmentByRef(itemType, itemId);
   const msgObj = {
     itemType, itemId, itemTitle,
+    toDepartment,
     branchName: currentSenderName(),
     branchEmail: session.branchInfo ? session.branchInfo.email : '',
     senderRole: session.role,
@@ -5081,9 +5158,15 @@ function viewStandsMarketing(){
   `;
 }
 
-/* ---------- Admin (Marketing) ---------- */
+/* ---------- Admin (ניהול תוכן — לפי מחלקה) ---------- */
+/* טאבים ששייכים בלעדית למחלקת השיווק (תחרויות מכירה, טקסטי האתר ומדדי
+   התקנה) — מחלקות אחרות לא רואות אותם כלל. שאר הטאבים משותפים, אבל התוכן
+   בתוכם מסונן למחלקה של המשתמש. */
+const MARKETING_ONLY_TABS = ['competitions', 'texts', 'pwa', 'stats'];
 function viewAdmin(){
-  const tabs = [
+  const myDepts = staffDepartments(currentUserEmail);
+  const isMarketingDept = myDepts.indexOf('marketing') !== -1;
+  const allTabs = [
     {id:'competitions', label:'תחרויות'},
     {id:'instructions', label:'הוראות'},
     {id:'events', label:'אירועים'},
@@ -5094,9 +5177,13 @@ function viewAdmin(){
     {id:'pwa', label:'התקנות PWA'},
     {id:'broadcast', label:'שידור עדכון (Push)'}
   ];
+  const tabs = allTabs.filter(t => isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1);
+  /* אם הטאב הפעיל אינו מורשה למשתמש הזה (למשל נשמר מסשן קודם), נופלים לראשון המותר. */
+  if(!tabs.some(t=>t.id===ui.adminTab)) ui.adminTab = tabs[0].id;
+  const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
   return `
     <div class="page-head">
-      <h1>ניהול תוכן</h1>
+      <h1>ניהול תוכן${deptLabel ? ` · ${deptLabel}` : ''}</h1>
       <p>${getText('admin_desc')}</p>
     </div>
     <div class="admin-tabs">
@@ -5119,6 +5206,7 @@ function adminBroadcast(){
       <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
         שליחת עדכון מיידי לכל מי שהפעיל התראות Push באפליקציה (מגיע גם כשהאפליקציה סגורה).
         זה נפרד לגמרי מ"הוראות ועדכונים" — משמש לעדכון חד-פעמי ודחוף.
+        <br><strong>שימו לב:</strong> השידור מגיע לכל הסניפים ברשת. ההיסטוריה למטה מציגה את השידורים של המחלקה שלכם בלבד.
       </p>
       <div class="field"><label>כותרת</label><input id="broadcast-title" placeholder="כותרת ההודעה"></div>
       <div class="field"><label>תוכן</label><textarea id="broadcast-body" rows="3" placeholder="תוכן ההודעה..."></textarea></div>
@@ -5141,7 +5229,9 @@ function allBroadcastRecipients(){
   return [...branches, ...areas];
 }
 function broadcastHistoryHtml(){
-  const list = appData.broadcasts || [];
+  /* כל מחלקה רואה רק את השידורים שהיא שלחה. שידורים ותיקים בלי שדה department
+     נחשבים 'marketing' ולכן ממשיכים להופיע אצל השיווק כרגיל. */
+  const list = (appData.broadcasts || []).filter(b => canManageDepartment(itemDepartment(b)));
   if(!list.length) return '';
   return `
     <div class="card">
@@ -5205,6 +5295,7 @@ function sendBroadcastPush(){
   if(!firebaseReady){ toast('שידור Push דורש חיבור ל-Firebase'); return; }
   db.collection('broadcasts').add({
     title, body, length,
+    department: staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT,
     createdBy: currentUserEmail || 'unknown',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(()=>{
@@ -5269,7 +5360,9 @@ function saveSiteTexts(){
 
 function adminList(type){
   const titleMap = {competitions:'תחרויות', instructions:'הוראות', materials:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', events:'אירועים'};
-  const items = appData[type];
+  /* כל מחלקה רואה ומנהלת רק את התוכן שלה. תוכן ותיק בלי שדה department נחשב
+     'marketing' דרך itemDepartment(), ולכן ממשיך להופיע אצל השיווק כרגיל. */
+  const items = (appData[type]||[]).filter(it => canManageDepartment(itemDepartment(it)));
   return `
     <div class="admin-toolbar">
       <div style="font-size:13px;color:var(--text-secondary);">${items.length} פריטים · ${titleMap[type]}</div>
@@ -5312,7 +5405,10 @@ function adminRow(type, it){
   `;
 }
 function adminFeedback(){
-  const list = [...appData.comments].sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
+  /* כל מחלקה רואה רק תגובות על פריטים שבבעלותה. */
+  const list = [...appData.comments]
+    .filter(c => canManageDepartment(itemDepartmentByRef(c.itemType, c.itemId)))
+    .sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
   const findTitle = (c)=>{
     const src = c.itemType==='instruction' ? appData.instructions : appData.competitions;
     const item = src.find(x=>x.id==c.itemId);
@@ -5620,6 +5716,15 @@ function saveForm(){
     };
     pendingMaterialFile = null;
     pendingMaterialThumbUrl = undefined;
+  }
+
+  /* תיוג מחלקה: פריט חדש מתויג במחלקה של מי שיצר אותו (למי שמשויך ליותר
+     ממחלקה אחת — במחלקה הראשונה שלו). בעריכה שומרים על המחלקה המקורית ולא
+     משנים בעלות. תוכן ישן בלי השדה נחשב ל'marketing' דרך itemDepartment(). */
+  if(!obj.department){
+    const existingItem = editId ? (appData[type]||[]).find(x=>x.id==editId) : null;
+    obj.department = existingItem ? itemDepartment(existingItem)
+      : (staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT);
   }
 
   if(FIRESTORE_BACKED_TYPES.indexOf(type) !== -1 && firebaseReady){
