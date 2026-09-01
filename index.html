@@ -2393,7 +2393,9 @@ window.addEventListener('popstate', function(e){
 function renderContent(){
   const el = document.getElementById('content');
   if(ui.view==='dashboard'){
-    if(session.role==='marketing' || ui.department==='marketing') el.innerHTML = viewDashboard();
+    const staffFullOrMarketing = session.role==='marketing' && hasBranchFacingNavAccess();
+    if(staffFullOrMarketing || ui.department==='marketing') el.innerHTML = viewDashboard();
+    else if(session.role==='marketing') el.innerHTML = viewGlobalHome(); /* צוות מחלקה מוגבלת — צפייה בלבד במה שקורה בכל מקום */
     else if(ui.department===null) el.innerHTML = viewGlobalHome();
     else el.innerHTML = viewDepartmentEmpty(ui.department);
   }
@@ -2416,12 +2418,14 @@ function viewGlobalHome(){
     ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id, department:itemDepartment(c)})),
     ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', date:e.date, title:e.title, id:e.id, department:itemDepartment(e)}))
   ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,8);
-  const greetName = session.role==='area' ? session.areaLabel : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);
+  const greetName = session.role==='area' ? session.areaLabel
+    : session.role==='marketing' ? marketingDisplayFor(currentUserEmail).name
+    : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);
   return `
     <div class="page-head">
       <h1>שלום, ${greetName} 👋</h1>
       ${session.branchInfo ? `<p style="margin:-4px 0 8px;font-size:12.5px;color:var(--muted);">${session.branchName}</p>` : ''}
-      <p>עדכונים שוטפים מכל המחלקות</p>
+      <p>${session.role==='marketing' ? 'כך נראה כרגע כל מה שמפורסם לסניפים, מכל המחלקות' : 'עדכונים שוטפים מכל המחלקות'}</p>
     </div>
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
     <div class="card" style="overflow:visible;">
