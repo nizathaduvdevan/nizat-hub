@@ -1813,6 +1813,16 @@ function findBranchByEmail(email){
   const needle = normalizeEmail(email);
   return BRANCH_DIRECTORY.find(b=>b.email===needle) || null;
 }
+/* תווית התצוגה של איש צוות (שם + מחלקה), משמש גם בכניסה רגילה וגם ביציאה
+   ממצב "צפייה כמשתמש". */
+function marketingDisplayFor(email){
+  const rec = STAFF[email];
+  const depts = staffDepartments(email);
+  const deptShort = depts.length===1 ? (DEPARTMENTS[depts[0]]||{}).short
+    : (depts.length===Object.keys(DEPARTMENTS).length ? 'גישה מלאה' : null);
+  const name = rec ? rec.name : 'מחלקת שיווק';
+  return { name, label: deptShort ? `${name} · ${deptShort}` : name };
+}
 function enterApp(role, payload){
   session.role = role;
   session.branchName = role==='branch' ? ('סניף ' + payload.name) : null;
@@ -1829,13 +1839,10 @@ function enterApp(role, payload){
   if(role==='marketing'){
     /* אנשי צוות ממחלקות שונות — מציגים את השם והמחלקה בפועל, ולא
        'מחלקת שיווק' לכולם. */
-    const staffRec = STAFF[currentUserEmail];
-    const myDepts = staffDepartments(currentUserEmail);
-    const deptShort = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).short : null;
-    const personName = staffRec ? staffRec.name : 'מחלקת שיווק';
-    label = deptShort ? `${personName} · ${deptShort}` : personName;
-    avatarText = personName.slice(0,2);
-    toastMsg = `שלום, ${personName} 👋`;
+    const disp = marketingDisplayFor(currentUserEmail);
+    label = disp.label;
+    avatarText = disp.name.slice(0,2);
+    toastMsg = `שלום, ${disp.name} 👋`;
   }
   else if(role==='area'){
     label = session.areaName ? `מנהל אזור · ${session.areaLabel}` : `${session.areaLabel} · תצוגה ארצית`;
@@ -1917,10 +1924,11 @@ function showPushBlockedHelp(){
    ב-Firebase Auth/session אמיתי. realSession שומר את הזהות האמיתית.
 ============================================================ */
 function openPreviewPicker(){
-  if(!(session.role==='marketing' || (previewMode && realSession && realSession.role==='marketing'))) return;
+  const isFullAccess = staffDepartments(currentUserEmail).length===Object.keys(DEPARTMENTS).length;
+  if(!(isFullAccess || (previewMode && realSession && realSession.role==='marketing'))) return;
   document.getElementById('modal-body').innerHTML = `
     <h3>צפייה כמשתמש</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">בחרו סניף או מנהל אזור כדי לראות בדיוק את המסכים שהם רואים — כולל הדשבורד האישי, הדירוג בתחרות, וסטנדים לאישור.</p>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">בחרו איש צוות, סניף, או מנהל אזור כדי לראות בדיוק את המסכים שהם רואים.</p>
     <div id="preview-pick-list" style="max-height:360px;overflow-y:auto;">טוען סניפים…</div>
     <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">ביטול</button></div>
   `;
@@ -1935,7 +1943,16 @@ function openPreviewPicker(){
     const branchRows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he')).map(b=>
       `<div class="preview-pick-row" onclick="startPreviewAsBranch('${b.email}')"><span>${b.name}</span><span style="color:var(--muted);font-size:12px;">${b.manager||''}</span></div>`
     ).join('');
+    /* אנשי צוות ממחלקות מוגבלות (לא בעלי גישה מלאה) — כדי לבדוק בפועל מה
+       הם רואים, בלי לבקש מהם להתחבר בעצמם. */
+    const staffRows = Object.keys(STAFF)
+      .filter(email => staffDepartments(email).length < Object.keys(DEPARTMENTS).length)
+      .map(email=>{
+        const disp = marketingDisplayFor(email);
+        return `<div class="preview-pick-row" onclick="startPreviewAsStaff('${email}')"><span>${disp.name}</span><span style="color:var(--muted);font-size:12px;">${disp.label.split(' · ')[1]||''}</span></div>`;
+      }).join('');
     listEl.innerHTML = `
+      ${staffRows ? `<div class="preview-pick-group">צוות (מחלקות אחרות)</div>${staffRows}` : ''}
       <div class="preview-pick-group">מנהלי אזור</div>${areaRows}
       <div class="preview-pick-group">סניפים</div>${branchRows}
     `;
@@ -1971,13 +1988,29 @@ function startPreviewAsArea(email){
   closeModal();
   goTo('dashboard');
 }
+let realUserEmail = null; /* currentUserEmail האמיתי, נשמר בזמן צפייה כאיש צוות אחר */
+function startPreviewAsStaff(email){
+  const rec = STAFF[email];
+  if(!rec) return;
+  if(!realSession) realSession = {...session};
+  if(realUserEmail===null) realUserEmail = currentUserEmail;
+  currentUserEmail = email;
+  const disp = marketingDisplayFor(email);
+  previewMode = {label: disp.name};
+  document.getElementById('user-label').textContent = disp.label;
+  document.getElementById('user-avatar').textContent = disp.name.slice(0,2);
+  closeModal();
+  goTo('dashboard');
+}
 function exitPreviewMode(){
   if(!realSession) return;
   session = realSession;
   realSession = null;
+  if(realUserEmail !== null){ currentUserEmail = realUserEmail; realUserEmail = null; }
   previewMode = null;
-  document.getElementById('user-label').textContent = 'מחלקת שיווק';
-  document.getElementById('user-avatar').textContent = 'שי';
+  const disp = marketingDisplayFor(currentUserEmail);
+  document.getElementById('user-label').textContent = disp.label;
+  document.getElementById('user-avatar').textContent = disp.name.slice(0,2);
   goTo('admin');
 }
 function renderPreviewBanner(){
@@ -1991,7 +2024,7 @@ function renderPreviewBanner(){
   } else {
     banner.style.display = 'none';
     banner.innerHTML = '';
-    toggleBtn.style.display = (session.role==='marketing') ? 'flex' : 'none';
+    toggleBtn.style.display = (session.role==='marketing' && staffDepartments(currentUserEmail).length===Object.keys(DEPARTMENTS).length) ? 'flex' : 'none';
   }
 }
 function logout(){
