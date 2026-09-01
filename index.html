@@ -2347,10 +2347,10 @@ function viewDashboard(){
     </div>
 
     <div class="dashboard-actions-grid">
-      <button class="dashboard-action-btn" onclick="goTo('instructions')"><span class="da-icon">📋</span><span class="da-label">הוראות</span></button>
-      <button class="dashboard-action-btn" onclick="goTo('materials')"><span class="da-icon">⬇</span><span class="da-label">חומרים</span></button>
-      <button class="dashboard-action-btn" onclick="goTo('competitions')"><span class="da-icon">🏆</span><span class="da-label">תחרויות</span></button>
-      <button class="dashboard-action-btn" onclick="goTo('events')"><span class="da-icon">🗓</span><span class="da-label">אירועים</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('instructions')"><span class="da-icon">${icon('clipboard')}</span><span class="da-label">הוראות</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('materials')"><span class="da-icon">${icon('download')}</span><span class="da-label">חומרים</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('competitions')"><span class="da-icon">${icon('trophy')}</span><span class="da-label">תחרויות</span></button>
+      <button class="dashboard-action-btn" onclick="goTo('messages')"><span class="da-icon">${icon('mail')}</span><span class="da-label">שיווק</span></button>
     </div>
 
     ${compSectionHtml}
@@ -4163,9 +4163,12 @@ function commentsBox(itemType, itemId, forceOpen){
     : [];
   return `
     <div class="comments-box" id="cbox-${boxId}" onclick="event.stopPropagation()">
-      <button class="comments-toggle" onclick="toggleComments('${itemType}','${itemId}')">
-        💬 משוב ותגובות (${list.length}${myPrivate.length ? ' · '+myPrivate.length+' 🔒' : ''}) <span id="ct-arrow-${boxId}">${forceOpen?'▴':'▾'}</span>
-      </button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="comments-toggle" onclick="toggleComments('${itemType}','${itemId}')">
+          💬 משוב ותגובות (${list.length}${myPrivate.length ? ' · '+myPrivate.length+' 🔒' : ''}) <span id="ct-arrow-${boxId}">${forceOpen?'▴':'▾'}</span>
+        </button>
+        ${session.role!=='marketing' ? `<button class="comments-toggle" style="flex:none;" onclick="openPrivateMessageModal('${itemType}','${itemId}')">🔒 שאלה לשיווק</button>` : ''}
+      </div>
       <div class="comments-list ${forceOpen?'open':''}" id="ct-${boxId}">
         ${myPrivate.map(m=>`
           <div class="comment-row private">
