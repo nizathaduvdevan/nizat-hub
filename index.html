@@ -2122,36 +2122,30 @@ function hasBranchFacingNavAccess(){
   return depts.indexOf('marketing') !== -1 || depts.length===Object.keys(DEPARTMENTS).length;
 }
 function navItems(){
-  /* אנשי צוות (מחלקת שיווק ברמת ההרשאה) — ניווט קיים ללא שינוי. */
-  if(session.role==='marketing'){
-    const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
-    if(hasBranchFacingNavAccess()){
-      items.push(
-        {id:'competitions', label:'תחרויות', icon:icon('trophy')},
-        {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
-        {id:'events', label:'יומן אירועים', icon:icon('calendar')},
-        {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
-        {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
-        {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
-      );
-    }
-    items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
+  /* מזהי מחלקה → מסכי ניווט (משותף לסניפים ולאנשי צוות, כדי שכולם יראו
+     בדיוק את אותה תצוגה כשנמצאים באותה מחלקה). */
+  function deptScreenItems(deptKey){
+    const items = [];
+    if(session.role==='area' && deptKey==='marketing') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
+    items.push(...(DEPARTMENT_SCREENS[deptKey]||[]));
+    items.push({id:'messages', label:'ההודעות שלי', icon:icon('mail')});
     return items;
   }
-  /* סניפים ומנהלי אזור — ניווט רב-מחלקתי.
-     ui.department===null: ברמה הגלובלית, רואים דף הבית + כפתור כניסה לכל מחלקה.
-     ui.department מוגדר: בתוך מחלקה, רואים "דף הבית" (חזרה לגלובלי) + מסכי המחלקה. */
   if(ui.department === null){
+    /* ברמה הגלובלית: דף הבית + כניסה לכל מחלקה — זהה לחלוטין לסניפים ולאנשי
+       צוות כאחד. "ניהול תוכן" מתווסף בסוף רק לאנשי צוות, כדי שיהיה נגיש
+       תמיד בלי קשר לאיזו מחלקה נמצאים בה כרגע. */
     const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
     Object.keys(DEPARTMENTS).forEach(key=>{
       items.push({id:'enterDept:'+key, label:DEPARTMENTS[key].short, icon:DEPARTMENT_NAV_ICONS[key], isDeptEntry:true, deptKey:key});
     });
+    if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
     return items;
   }
-  const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}];
-  if(session.role==='area' && ui.department==='marketing') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
-  items.push(...(DEPARTMENT_SCREENS[ui.department]||[]));
-  items.push({id:'messages', label:'ההודעות שלי', icon:icon('mail')});
+  /* בתוך מחלקה: "דף הבית" (חזרה לגלובלי) + מסכי אותה מחלקה — זהה לגמרי בין
+     סניף לאיש צוות. "ניהול תוכן" מתווסף בסוף רק לאנשי צוות. */
+  const items = [{id:'dashboard', label:'דף הבית', icon:icon('home')}, ...deptScreenItems(ui.department)];
+  if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
   return items;
 }
 const MOBILE_PRIMARY = ['dashboard','competitions','instructions','materials'];
@@ -2283,26 +2277,22 @@ function navUnreadCount(navId){
 function renderNav(){
   renderPreviewBanner();
   const items = navItems();
-  const isStaffDeptSep = session.role==='marketing';
+  const isStaff = session.role==='marketing';
   document.getElementById('sidebar').innerHTML = `
-    ${(isStaffDeptSep && hasBranchFacingNavAccess()) ? '<div class="nav-label">תצוגת סניף</div>' : ''}
-    ${(!isStaffDeptSep && ui.department) ? `<div class="nav-label">${(DEPARTMENTS[ui.department]||{}).label||''}</div>` : ''}
+    ${ui.department ? `<div class="nav-label">${(DEPARTMENTS[ui.department]||{}).label||''}</div>` : ''}
     ${items.filter(i=>i.id!=='admin').map(i=>navBtn(i)).join('')}
-    ${isStaffDeptSep ? `<div class="nav-sep"></div><div class="nav-label">מחלקת שיווק</div>${navBtn(items.find(i=>i.id==='admin'))}` : ''}
+    ${isStaff ? `<div class="nav-sep"></div><div class="nav-label">ניהול</div>${navBtn(items.find(i=>i.id==='admin'))}` : ''}
   `;
-  /* חלוקה דינמית לראשי/עוד: ברמה הגלובלית (בחירת מחלקה) אין overflow בכלל —
-     בדיוק 5 פריטים (בית + 4 מחלקות) ממלאים את הסרגל התחתון. בתוך מחלקה,
-     עד 4 פריטים ראשיים והשאר (כולל הודעות) עוברים ל"עוד". אנשי צוות ממשיכים
-     במנגנון הישן (MOBILE_PRIMARY). */
+  /* חלוקה דינמית לראשי/עוד: ברמה הגלובלית (בחירת מחלקה) לסניפים/מנהלי אזור
+     אין overflow בכלל — בדיוק 5 פריטים (בית + 4 מחלקות) ממלאים את הסרגל
+     התחתון. אנשי צוות תמיד רואים עד 4 ראשיים + "עוד" (גם ברמה הגלובלית),
+     כי יש להם פריט נוסף קבוע — "ניהול תוכן" — שתמיד צריך מקום. */
   let primary, overflow;
-  if(!isStaffDeptSep && ui.department===null){
-    primary = items; overflow = [];
-  } else if(!isStaffDeptSep){
-    primary = items.slice(0,4); overflow = items.slice(4);
+  if(ui.department===null){
+    if(isStaff){ primary = items.slice(0,5); overflow = items.slice(5); }
+    else { primary = items; overflow = []; }
   } else {
-    const primaryIds = session.role==='area' ? MOBILE_PRIMARY_AREA : MOBILE_PRIMARY;
-    primary = items.filter(i=>primaryIds.includes(i.id));
-    overflow = items.filter(i=>!primaryIds.includes(i.id));
+    primary = items.slice(0,4); overflow = items.slice(4);
   }
   const overflowActive = overflow.some(i=>i.id===ui.view);
   const overflowUnread = overflow.reduce((s,i)=>s+navUnreadCount(i.id),0);
@@ -2393,10 +2383,8 @@ window.addEventListener('popstate', function(e){
 function renderContent(){
   const el = document.getElementById('content');
   if(ui.view==='dashboard'){
-    const staffFullOrMarketing = session.role==='marketing' && hasBranchFacingNavAccess();
-    if(staffFullOrMarketing || ui.department==='marketing') el.innerHTML = viewDashboard();
-    else if(session.role==='marketing') el.innerHTML = viewGlobalHome(); /* צוות מחלקה מוגבלת — צפייה בלבד במה שקורה בכל מקום */
-    else if(ui.department===null) el.innerHTML = viewGlobalHome();
+    if(ui.department===null) el.innerHTML = viewGlobalHome();
+    else if(ui.department==='marketing') el.innerHTML = viewDashboard();
     else el.innerHTML = viewDepartmentEmpty(ui.department);
   }
   else if(ui.view==='competitions') el.innerHTML = viewCompetitions();
@@ -4678,7 +4666,11 @@ function submitPrivateMessageFromModal(itemType, itemId){
 /* ---------- Private messages inbox ("ההודעות שלי") ---------- */
 function viewMessages(){
   if(session.role==='marketing'){
-    const list = [...appData.privateMessages].filter(m=>!m.deletedForMarketing).sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
+    /* כל מחלקה רואה רק הודעות שמופנות אליה (toDepartment) — הודעה שנוצרה
+       לפני שהמנגנון הזה נבנה תיפול תמיד ל-marketing (ברירת המחדל). */
+    const list = [...appData.privateMessages]
+      .filter(m=>!m.deletedForMarketing && canManageDepartment(m.toDepartment))
+      .sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
     list.forEach(m=>{
       if(m.unreadForMarketing){
         m.unreadForMarketing=false;
