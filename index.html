@@ -2083,19 +2083,31 @@ function icon(name, cls){
 /* ============================================================
    NAV
 ============================================================ */
+/* האם למשתמש הנוכחי יש גישה למסכי הצפייה של הסניפים (תחרויות/הוראות/אירועים/
+   חומרים/סטנדים/הודעות) — רלוונטי רק לסניפים/מנהלי אזור, ולאנשי צוות
+   שהם בפועל מחלקת שיווק או בעלי גישה מלאה. מחלקות אחרות (תפעול/רכש/משאבי
+   אנוש) לא רואים מסכים אלה בכלל, כי הם לא מסוננים ולא רלוונטיים אליהן. */
+function hasBranchFacingNavAccess(){
+  if(session.role !== 'marketing') return true;
+  const depts = staffDepartments(currentUserEmail);
+  return depts.indexOf('marketing') !== -1 || depts.length===Object.keys(DEPARTMENTS).length;
+}
 function navItems(){
   const items = [
     {id:'dashboard', label:'דף הבית', icon:icon('home')}
   ];
   if(session.role==='area') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
-  items.push(
-    {id:'competitions', label:'תחרויות', icon:icon('trophy')},
-    {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
-    {id:'events', label:'יומן אירועים', icon:icon('calendar')},
-    {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
-    {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
-    {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
-  );
+  /* מסכי הצפייה של הסניפים שייכים לתוכן השיווקי כלפי הרשת. */
+  if(hasBranchFacingNavAccess()){
+    items.push(
+      {id:'competitions', label:'תחרויות', icon:icon('trophy')},
+      {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
+      {id:'events', label:'יומן אירועים', icon:icon('calendar')},
+      {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
+      {id:'stands', label:'סטנדים לאישור', icon:icon('sign')},
+      {id:'messages', label:'ההודעות שלי', icon:icon('mail')}
+    );
+  }
   if(session.role==='marketing') items.push({id:'admin', label:'ניהול תוכן', icon:icon('gear')});
   return items;
 }
@@ -2225,7 +2237,7 @@ function renderNav(){
   renderPreviewBanner();
   const items = navItems();
   document.getElementById('sidebar').innerHTML = `
-    ${session.role==='marketing' ? '<div class="nav-label">תצוגת סניף</div>' : ''}
+    ${(session.role==='marketing' && hasBranchFacingNavAccess()) ? '<div class="nav-label">תצוגת סניף</div>' : ''}
     ${items.filter(i=>i.id!=='admin').map(i=>navBtn(i)).join('')}
     ${session.role==='marketing' ? `<div class="nav-sep"></div><div class="nav-label">מחלקת שיווק</div>${navBtn(items.find(i=>i.id==='admin'))}` : ''}
   `;
