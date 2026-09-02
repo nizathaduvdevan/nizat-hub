@@ -6255,6 +6255,7 @@ function adminPromoUpload(){
       </div>
       <input type="file" id="promo-excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handlePromoExcelUpload(event)">
       <button class="btn-import" onclick="document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל (מכר מבצעים)</button>
+      <button class="icon-btn" style="width:auto;padding:8px 14px;font-size:12.5px;margin-inline-start:8px;color:var(--critical,#d03b3b);" onclick="resetPromoProducts()">🗑️ איפוס נתוני מכר (מחיקת הכל)</button>
       <div id="promo-upload-status" style="margin-top:12px;font-size:13px;"></div>
       <div id="promo-unresolved-area"></div>
     </div>
@@ -6270,9 +6271,51 @@ function adminPromoUpload(){
       </div>
       <input type="file" id="promo-booklet-input" accept=".json" style="display:none;" onchange="handlePromoBookletUpload(event)">
       <button class="btn-import" onclick="document.getElementById('promo-booklet-input').click()">📥 העלאת קובץ חוברת מבצעים (JSON)</button>
+      <button class="icon-btn" style="width:auto;padding:8px 14px;font-size:12.5px;margin-inline-start:8px;color:var(--critical,#d03b3b);" onclick="resetPromoBooklet()">🗑️ איפוס חוברת מבצעים (מחיקת הכל)</button>
       <div id="promo-booklet-status" style="margin-top:12px;font-size:13px;"></div>
     </div>
   `;
+}
+/* איפוס ידני - מוחק את כל הקולקציה בלי לחכות להעלאת קובץ חדש. שימושי
+   כשקובץ שגוי כבר יובא (למשל בעקבות באג פענוח) ורוצים "לוח נקי" לפני
+   שמנסים שוב, בלי לחכות לקובץ הבא. דורש אישור מפורש כי זו מחיקה בלתי הפיכה. */
+function resetPromoProducts(){
+  if(!confirm('למחוק את כל נתוני מכר המבצעים הקיימים? הפעולה בלתי הפיכה - תצטרכו להעלות קובץ אקסל מחדש.')) return;
+  const statusEl = document.getElementById('promo-upload-status');
+  if(statusEl) statusEl.textContent = 'מוחק נתוני מכר מבצעים...';
+  db.collection('promoProducts').get().then(function(snap){
+    const delBatches = [];
+    let batch = db.batch(); let n=0;
+    snap.forEach(function(doc){
+      batch.delete(doc.ref); n++;
+      if(n===450){ delBatches.push(batch); batch = db.batch(); n=0; }
+    });
+    if(n>0) delBatches.push(batch);
+    return Promise.all(delBatches.map(b=>b.commit()));
+  }).then(function(){
+    if(statusEl) statusEl.textContent = 'כל נתוני מכר המבצעים נמחקו.';
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = 'שגיאה במחיקה: ' + err.message;
+  });
+}
+function resetPromoBooklet(){
+  if(!confirm('למחוק את כל נתוני חוברת המבצעים הקיימים? הפעולה בלתי הפיכה - תצטרכו להעלות קובץ JSON מחדש.')) return;
+  const statusEl = document.getElementById('promo-booklet-status');
+  if(statusEl) statusEl.textContent = 'מוחק את חוברת המבצעים...';
+  db.collection('promoBooklet').get().then(function(snap){
+    const delBatches = [];
+    let batch = db.batch(); let n=0;
+    snap.forEach(function(doc){
+      batch.delete(doc.ref); n++;
+      if(n===450){ delBatches.push(batch); batch = db.batch(); n=0; }
+    });
+    if(n>0) delBatches.push(batch);
+    return Promise.all(delBatches.map(b=>b.commit()));
+  }).then(function(){
+    if(statusEl) statusEl.textContent = 'חוברת המבצעים נמחקה.';
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = 'שגיאה במחיקה: ' + err.message;
+  });
 }
 /* ייבוא חוברת המבצעים - קובץ JSON קטן {codes:{...}} שמופק מהחוברת (ראו
    שיחה נפרדת על פענוח PDF). מחליף לגמרי את הקולקציה promoBooklet. */
@@ -6356,7 +6399,7 @@ function handlePromoExcelUpload(evt){
        'סך הכל' וגם 'סה"כ' וגם "סך-הכל". */
     function isTotalsColumnHeader(h){
       const norm = String(h).replace(/["'׳״`]/g,'').replace(/[-–]/g,' ').replace(/\s+/g,' ').trim();
-      return norm==='סך הכל' || norm==='סהכ' || norm.toLowerCase()==='total';
+      return norm==='סך הכל' || norm==='סך הכול' || norm==='סהכ' || norm.toLowerCase()==='total';
     }
     const branchCols = [...new Set(headers.slice(3)
       .filter(h=>h!=null && String(h).trim()!=='' && !isTotalsColumnHeader(h))
