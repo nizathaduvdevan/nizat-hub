@@ -2804,6 +2804,45 @@ function matchMyBranchInPromoProduct(product, branchInfo){
   }
   return (best && bestScore < 3.2) ? best : null;
 }
+/* מוצאת את רשומת הסניף בספר הסניפים החי (BRANCH_DIRECTORY) לפי שם גולמי
+   מתוך מוצר מכר מבצעים - אותו מנגנון התאמה בדיוק, כדי לדעת לאיזה אזור
+   (b.area) הסניף שייך, בלי תלות בנתוני תחרות. */
+function findBranchDirectoryEntry(rawName){
+  const target = normalizeBranchName(rawName);
+  for(const b of BRANCH_DIRECTORY){ if(normalizeBranchName(b.name) === target) return b; }
+  let best=null, bestScore=Infinity;
+  for(const b of BRANCH_DIRECTORY){
+    const score = branchMatchScore(target, normalizeBranchName(b.name));
+    if(score < bestScore){ bestScore = score; best = b; }
+  }
+  return (best && bestScore < 3.2) ? best : null;
+}
+/* מקבצת את הסניפים של מוצר מכר-מבצעים לפי אזור, ומחזירה ממוצע לכל אזור. */
+function groupPromoProductByArea(product){
+  const areaMap = {};
+  (product.branches||[]).forEach(b=>{
+    const dirEntry = findBranchDirectoryEntry(b.name);
+    const area = (dirEntry && dirEntry.area) || 'לא משויך';
+    if(!areaMap[area]) areaMap[area] = {area, sum:0, count:0};
+    areaMap[area].sum += (b.sales||0);
+    areaMap[area].count++;
+  });
+  return Object.values(areaMap).map(a=>({area:a.area, avg: a.count ? a.sum/a.count : 0, count:a.count}));
+}
+/* מחשבת את "הערך שלי" במוצר, בהתאם לתפקיד הצופה: סניף רואה את המכירה שלו,
+   מנהל אזור רואה את ממוצע כל הסניפים באזור שלו. */
+function computeMyPromoValue(product){
+  if(session.role==='branch' && session.branchInfo){
+    const b = matchMyBranchInPromoProduct(product, session.branchInfo);
+    return b ? {sales:b.sales, label:'הסניף שלכם', unitLabel:'יחידות שנמכרו'} : null;
+  }
+  if(session.role==='area' && session.areaLabel){
+    const grouped = groupPromoProductByArea(product);
+    const mine = grouped.find(a=>a.area===session.areaLabel);
+    return mine ? {sales: Math.round(mine.avg*10)/10, label:`ממוצע האזור שלכם (${mine.count} סניפים)`, unitLabel:'יחידות בממוצע לסניף'} : null;
+  }
+  return null;
+}
 function cellFillHex(sheet, ri, ci){
   if(!sheet || typeof XLSX==='undefined') return null;
   try{
@@ -5471,10 +5510,46 @@ function addPromoCompareBranch(name){
   closeModal();
   renderContent();
 }
+/* בחירת אזורים להשוואה (למנהלי אזור) - אותו רעיון בדיוק כמו בחירת סניפים,
+   רק שהיחידה היא אזור שלם ולא סניף בודד. */
+function promoCompareAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompareAreas_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function getPromoCompareAreas(){
+  try{ return JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareAreas(arr){
+  try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareArea(area){
+  savePromoCompareAreas(getPromoCompareAreas().filter(a=>a!==area));
+  renderContent();
+}
+function addPromoCompareArea(area){
+  const current = getPromoCompareAreas();
+  if(current.indexOf(area)===-1) savePromoCompareAreas([...current, area]);
+  closeModal();
+  renderContent();
+}
+function openPromoCompareAreaPicker(){
+  const current = getPromoCompareAreas();
+  const allAreas = [...new Set(Object.keys(AREA_MANAGER_INFO).map(email=>AREA_MANAGER_INFO[email].label))].sort((a,b)=>a.localeCompare(b,'he'));
+  const rows = allAreas.filter(a=>a!==session.areaLabel && current.indexOf(a)===-1)
+    .map(a=>`<div class="preview-pick-row" onclick="addPromoCompareArea('${a.replace(/'/g,"\\'")}')"><span>${a}</span></div>`).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת אזור להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div style="max-height:360px;overflow-y:auto;">${rows || '<div class="empty-state">כל האזורים כבר נבחרו.</div>'}</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
 function viewPromoSales(){
   const products = [...(appData.promoProducts||[])];
-  const myBranchInfo = session.branchInfo || null;
-  const compareBranches = getPromoCompareBranches();
+  const areaMode = isAreaViewer();
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
   const query = (ui.promoSearchQuery||'').trim().toLowerCase();
 
   const rows = products
@@ -5482,20 +5557,28 @@ function viewPromoSales(){
     .map(p=>{
       const branches = p.branches || [];
       const avg = branches.length ? branches.reduce((s,b)=>s+(b.sales||0),0) / branches.length : 0;
-      const mine = myBranchInfo ? matchMyBranchInPromoProduct(p, myBranchInfo) : null;
-      let rank = null;
+      const mine = computeMyPromoValue(p);
+      let rank = null, total = null;
       if(mine){
-        const sorted = [...branches].sort((a,b)=>b.sales-a.sales);
-        rank = sorted.findIndex(b=>b===mine) + 1;
+        if(areaMode){
+          const grouped = groupPromoProductByArea(p).sort((a,b)=>b.avg-a.avg);
+          rank = grouped.findIndex(a=>a.area===session.areaLabel) + 1;
+          total = grouped.length;
+        } else {
+          const matched = matchMyBranchInPromoProduct(p, session.branchInfo);
+          const sorted = [...branches].sort((a,b)=>b.sales-a.sales);
+          rank = matched ? sorted.indexOf(matched)+1 : null;
+          total = branches.length;
+        }
       }
-      return {product: p, avg, mine, rank, total: branches.length};
+      return {product: p, avg, mine, rank, total};
     })
     .sort((a,b)=> (b.mine?b.mine.sales:0) - (a.mine?a.mine.sales:0));
 
   return `
     <div class="page-head">
       <h1>מכר מבצעים</h1>
-      <p>נתוני מכירות לפי מוצר, מול ממוצע הרשת וסניפים לבחירתכם.</p>
+      <p>נתוני מכירות לפי מוצר, מול ממוצע הרשת ו${areaMode?'אזורים':'סניפים'} לבחירתכם.</p>
     </div>
     <div class="field" style="margin-bottom:14px;">
       <input type="text" placeholder="חיפוש מוצר, או בחירה מהרשימה..." value="${ui.promoSearchQuery||''}" list="promo-products-datalist" oninput="ui.promoSearchQuery=this.value;renderContent();">
@@ -5504,31 +5587,39 @@ function viewPromoSales(){
       </datalist>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
-      <span style="font-size:12.5px;color:var(--text-secondary);">השוואה לסניפים:</span>
-      ${compareBranches.map(name=>`
+      <span style="font-size:12.5px;color:var(--text-secondary);">השוואה ל${areaMode?'אזורים':'סניפים'}:</span>
+      ${compareList.map(name=>`
         <span style="font-size:12px;padding:4px 8px 4px 6px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);display:inline-flex;align-items:center;gap:4px;">
-          ${name.replace('ניצת ','')}
-          <button style="border:none;background:none;padding:0;cursor:pointer;color:inherit;font-size:13px;line-height:1;" onclick="removePromoCompareBranch('${name.replace(/'/g,"\\'")}')">✕</button>
+          ${areaMode ? name : name.replace('ניצת ','')}
+          <button style="border:none;background:none;padding:0;cursor:pointer;color:inherit;font-size:13px;line-height:1;" onclick="${areaMode?'removePromoCompareArea':'removePromoCompareBranch'}('${name.replace(/'/g,"\\'")}')">✕</button>
         </span>
       `).join('')}
-      <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="openPromoComparePicker()">+ הוספת סניף</button>
+      <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="${areaMode?'openPromoCompareAreaPicker':'openPromoComparePicker'}()">+ הוספת ${areaMode?'אזור':'סניף'}</button>
     </div>
-    ${rows.length ? rows.map(r=>promoProductCard(r)).join('') : `<div class="card"><div class="empty-state">${products.length ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`}
+    ${rows.length ? rows.map(r=>promoProductCard(r, areaMode)).join('') : `<div class="card"><div class="empty-state">${products.length ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`}
   `;
 }
-function promoProductCard(r){
+function promoProductCard(r, areaMode){
   const p = r.product, mine = r.mine, avg = r.avg;
-  const compareBranches = getPromoCompareBranches();
-  const maxVal = Math.max(avg, mine?mine.sales:0, ...compareBranches.map(name=>{
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const groupedByArea = areaMode ? groupPromoProductByArea(p) : null;
+  const valueForEntity = (name) => {
+    if(areaMode){
+      const g = groupedByArea.find(a=>a.area===name);
+      return g ? Math.round(g.avg*10)/10 : 0;
+    }
     const b = (p.branches||[]).find(x=>x.name===name);
     return b ? b.sales : 0;
-  }), 1);
+  };
+  const maxVal = Math.max(avg, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
   const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
   const avgTickPct = Math.min(100, (avg/maxVal)*100);
   const vsAvgText = mine && avg>0
     ? (mine.sales>=avg ? `${Math.round((mine.sales/avg-1)*100)}% מעל הממוצע` : `${Math.round((1-mine.sales/avg)*100)}% מתחת לממוצע`)
     : '';
   const barColor = !mine ? 'var(--muted)' : (mine.sales>=avg*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=avg*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
+  const unitLabel = mine ? mine.unitLabel : 'יחידות שנמכרו';
+  const mineRowLabel = areaMode ? session.areaLabel : 'הסניף שלכם';
   return `
     <div class="card" style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
@@ -5536,38 +5627,38 @@ function promoProductCard(r){
         ${r.rank ? `<span style="font-size:12px;padding:3px 10px;border-radius:8px;background:${barColor==='var(--good,#3B6D11)'?'var(--bg-success,#EAF3DE)':barColor==='var(--critical,#A32D2D)'?'var(--bg-danger,#FCEBEB)':'var(--gridline,#f0f0f0)'};color:${barColor};white-space:nowrap;flex:none;">מקום ${r.rank} מתוך ${r.total}</span>` : ''}
       </div>
       ${mine ? `
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
           <span style="font-size:22px;font-weight:500;">${mine.sales}</span>
-          <span style="font-size:13px;color:var(--text-secondary);">יחידות שנמכרו</span>
+          <span style="font-size:13px;color:var(--text-secondary);">${unitLabel}</span>
         </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${mine.label}</div>
         <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:6px;">
           <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
           <div style="position:absolute;right:${avgTickPct}%;top:-3px;width:2px;height:14px;background:var(--text-secondary);"></div>
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:${compareBranches.length?'12px':'0'};">ממוצע רשת: ${avg.toFixed(1)} יחידות${vsAvgText?' · '+vsAvgText:''}</div>
-      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareBranches.length?'12px':'0'};">אין נתונים לסניף זה במוצר זה.</div>`}
-      ${compareBranches.length ? `
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:${compareList.length?'12px':'0'};">ממוצע רשת: ${avg.toFixed(1)} יחידות${vsAvgText?' · '+vsAvgText:''}</div>
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">אין נתונים זמינים.</div>`}
+      ${compareList.length ? `
         <div style="border-top:1px solid var(--gridline);padding-top:10px;">
           ${mine ? `
             <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
-              <span style="font-size:12px;width:110px;flex:none;font-weight:500;">הסניף שלכם</span>
+              <span style="font-size:12px;width:110px;flex:none;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mineRowLabel}</span>
               <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
                 <div style="height:100%;width:${myPct}%;background:var(--blue,#185FA5);border-radius:4px;"></div>
               </div>
-              <span style="font-size:12px;width:26px;text-align:left;font-weight:500;">${mine.sales}</span>
+              <span style="font-size:12px;width:32px;text-align:left;font-weight:500;">${mine.sales}</span>
             </div>
           ` : ''}
-          ${compareBranches.map(name=>{
-            const b = (p.branches||[]).find(x=>x.name===name);
-            const val = b ? b.sales : 0;
+          ${compareList.map(name=>{
+            const val = valueForEntity(name);
             const pct = Math.min(100, (val/maxVal)*100);
             return `
             <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
-              <span style="font-size:12px;width:110px;flex:none;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name.replace('ניצת ','')}</span>
+              <span style="font-size:12px;width:110px;flex:none;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${areaMode ? name : name.replace('ניצת ','')}</span>
               <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
                 <div style="height:100%;width:${pct}%;background:var(--muted);border-radius:4px;"></div>
               </div>
-              <span style="font-size:12px;width:26px;text-align:left;color:var(--text-secondary);">${val}</span>
+              <span style="font-size:12px;width:32px;text-align:left;color:var(--text-secondary);">${val}</span>
             </div>`;
           }).join('')}
         </div>
