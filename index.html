@@ -1203,7 +1203,26 @@ const AREA_MANAGER_INFO = {
   'arbel@nizat.co.il': {areaName:null, label:'ארבל', title:'מנכ"ל'}
 };
 
-/* ---------- EmailJS — שליחת מייל אמיתי אוטומטי לענבר כשמגיעה הודעה פרטית ---------- */
+/* מיילים "מאחורי הקלעים" שיכולים לראות תוכן פרטי של מנהלי אזור (הוראות
+   לסניפים, אישורי קבלה) גם בלי להיות מנהל האזור עצמו או הסניף היעד -
+   לצורך תמיכה/פיתוח בלבד, לא לפיקוח ניהולי. רשימה סגורה בכוונה. */
+const AREA_PRIVATE_BACKEND_EMAILS = ['eliran@nizat.co.il', 'ai@nizat.co.il'];
+function isAreaPrivateBackendUser(){
+  return currentUserEmail && AREA_PRIVATE_BACKEND_EMAILS.indexOf(currentUserEmail) !== -1;
+}
+/* מנהל אזור "אמיתי" (נאור/שחר/אמיר/נתי/שירן/ליאור) - להבדיל מארבל/עופר
+   שהם תצוגה ארצית (areaName=null) ולא אחראים על קבוצת סניפים ספציפית. */
+function isRealAreaManager(){
+  return session.role==='area' && !!session.areaName;
+}
+/* תגיות מובנות ליומן האישי של מנהל הסניף - כל אחת עם צבע קבוע, כדי
+   שהריבוע בלוח השנה יצבע בעקביות. "אחר" מאפשר טקסט חופשי בלי תגית. */
+const CALENDAR_NOTE_TAGS = {
+  birthday:  {label:'יום הולדת',     color:'#F6C9D6'},
+  training:  {label:'יום עיון',      color:'#C6DCF0'},
+  vacation:  {label:'חופשת עובד',    color:'#F5DDB0'},
+  other:     {label:'אחר',           color:'#DADADA'}
+};
 const EMAILJS_PUBLIC_KEY = 'eq7sWskivLRMUK7xF';
 const EMAILJS_SERVICE_ID = 'service_7n4616e';
 const EMAILJS_TEMPLATE_ID = 'template_hog7ghr';
@@ -1344,6 +1363,9 @@ let unsubItemReads = null;
 let unsubBroadcasts = null;
 let unsubPromoProducts = null;
 let unsubPromoBooklet = null;
+let unsubAreaInstructions = null;
+let unsubAreaInstructionConfirmations = null;
+let unsubBranchCalendarNotes = null;
 let unsubViewerActivity = null;
 let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
@@ -1495,6 +1517,68 @@ function initFirestoreSync(){
     }, function(err){
       console.error('Firestore sync error (stand takedown acks):', err);
     });
+
+  /* הוראות פרטיות ממנהל אזור לסניפים שבניהולו - קולקציה נפרדת לחלוטין
+     מ-instructions (הרשתית), כדי שאין שום סיכוי שהתוכן "יזלוג" למי שלא
+     צריך. השאילתה עצמה מוגבלת לפי תפקיד - סניף רואה רק הוראות שהוא
+     ביעד שלהן, מנהל אזור רואה רק מה שהוא עצמו שלח, ושני מיילי הצוות
+     האחורי (AREA_PRIVATE_BACKEND_EMAILS) רואים הכל ללא סינון. מי שלא
+     נכנס לאף אחת מהקטגוריות האלה - לא נרשם לקולקציה בכלל. */
+  if (unsubAreaInstructions) unsubAreaInstructions();
+  if (unsubAreaInstructionConfirmations) unsubAreaInstructionConfirmations();
+  let areaInstrQuery = null, areaInstrConfQuery = null;
+  if (isAreaPrivateBackendUser()) {
+    areaInstrQuery = db.collection('areaInstructions');
+    areaInstrConfQuery = db.collection('areaInstructionConfirmations');
+  } else if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+    areaInstrQuery = db.collection('areaInstructions').where('targetBranchEmails', 'array-contains', session.branchInfo.email);
+    areaInstrConfQuery = db.collection('areaInstructionConfirmations').where('branchEmail', '==', session.branchInfo.email);
+  } else if (isRealAreaManager()) {
+    areaInstrQuery = db.collection('areaInstructions').where('areaManagerEmail', '==', currentUserEmail);
+    areaInstrConfQuery = db.collection('areaInstructionConfirmations').where('areaManagerEmail', '==', currentUserEmail);
+  }
+  if (areaInstrQuery) {
+    unsubAreaInstructions = areaInstrQuery.onSnapshot(function(snap){
+      appData.areaInstructions = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (area instructions):', err);
+    });
+  } else {
+    appData.areaInstructions = [];
+  }
+  if (areaInstrConfQuery) {
+    unsubAreaInstructionConfirmations = areaInstrConfQuery.onSnapshot(function(snap){
+      appData.areaInstructionConfirmations = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (area instruction confirmations):', err);
+    });
+  } else {
+    appData.areaInstructionConfirmations = [];
+  }
+
+  /* יומן אישי פרטי לגמרי לכל סניף - אף אחד אחר (לא מנהל אזור, לא צוות)
+     לא מסונכרן לקולקציה הזו כלל, לפי בקשה מפורשת. */
+  if (unsubBranchCalendarNotes) unsubBranchCalendarNotes();
+  if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+    unsubBranchCalendarNotes = db.collection('branchCalendarNotes')
+      .where('branchEmail', '==', session.branchInfo.email)
+      .onSnapshot(function(snap){
+        appData.branchCalendarNotes = snap.docs.map(function(doc){
+          return Object.assign({}, doc.data(), { id: doc.id });
+        });
+        renderContent();
+      }, function(err){
+        console.error('Firestore sync error (branch calendar notes):', err);
+      });
+  } else {
+    appData.branchCalendarNotes = [];
+  }
 
   /* ביצועי משימות "נדרש ביצוע" — קולקציה נפרדת, מסמך אחד לכל צירוף הוראה+סניף
      (בדיוק כמו standConfirmations), כדי לא להחזיק מערך של כל הסניפים בתוך
@@ -1828,6 +1912,9 @@ let appData = {
   promoProducts: [],
   promoBooklet: {},
   viewerActivity: [],
+  areaInstructions: [],
+  areaInstructionConfirmations: [],
+  branchCalendarNotes: [],
   promoColumnMappingExtra: {}
 };
 
@@ -2023,7 +2110,7 @@ function openPreviewPicker(){
     if(!listEl) return; // המשתמש כבר סגר את המודל
     const areaRows = Object.keys(AREA_MANAGER_INFO).map(email=>{
       const info = AREA_MANAGER_INFO[email];
-      return `<div class="preview-pick-row" onclick="startPreviewAsArea('${email}')"><span>${info.label}</span><span style="color:var(--muted);font-size:12px;">מנהל אזור</span></div>`;
+      return `<div class="preview-pick-row" onclick="startPreviewAsArea('${email}')"><span>${info.label}</span><span style="color:var(--muted);font-size:12px;">${info.title || 'מנהל אזור'}</span></div>`;
     }).join('');
     const branchRows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he')).map(b=>
       `<div class="preview-pick-row" onclick="startPreviewAsBranch('${b.email}')"><span>${b.name}</span><span style="color:var(--muted);font-size:12px;">${b.manager||''}</span></div>`
@@ -2217,6 +2304,8 @@ function navItems(){
   function deptScreenItems(deptKey){
     const items = [];
     if(session.role==='area' && deptKey==='marketing') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
+    if(isRealAreaManager() && deptKey==='marketing') items.push({id:'sendAreaInstructions', label:'הוראות לסניפים שלי', icon:icon('clipboard')});
+    if(session.role==='branch' && deptKey==='marketing') items.push({id:'areaInstructions', label:'הוראות ממנהל האזור', icon:icon('clipboard')});
     items.push(...(DEPARTMENT_SCREENS[deptKey]||[]));
     items.push({id:'messages', label:'ההודעות שלי', icon:icon('mail')});
     return items;
@@ -2486,6 +2575,8 @@ function renderContent(){
   else if(ui.view==='videos') el.innerHTML = viewVideos();
   else if(ui.view==='stands') el.innerHTML = viewStands();
   else if(ui.view==='promoSales') el.innerHTML = viewPromoSales();
+  else if(ui.view==='sendAreaInstructions') el.innerHTML = viewSendAreaInstructions();
+  else if(ui.view==='areaInstructions') el.innerHTML = viewAreaInstructionsFromManager();
   else if(ui.view==='messages') el.innerHTML = viewMessages();
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
 }
@@ -4464,6 +4555,168 @@ function renderInstructionStatusPanel(instr){
     </div>
   `;
 }
+/* ============================================================
+   הוראות פרטיות ממנהל אזור לסניפים שבניהולו
+   ------------------------------------------------------------
+   קולקציה נפרדת לחלוטין מ-instructions (הרשתית) - ראו initFirestoreSync
+   להסבר על הבידוד. מנהל אזור בוחר "כל הסניפים שלי" (רשימת המיילים
+   נלקחת "צילום מצב" בזמן היצירה, לא מתעדכנת אוטומטית אם סניף מצטרף/עוזב
+   מאוחר יותר) או סניף ספציפי אחד. הסניף יכול לאשר קבלה עם הערה קצרה
+   אופציונלית - דו-כיווני בסיסי, לא צ'אט מלא.
+   ============================================================ */
+function createAreaInstruction(title, body, targetScope, specificBranchEmail){
+  if(!isRealAreaManager()) return;
+  if(!title || !title.trim()){ toast('נא למלא כותרת'); return; }
+  const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel);
+  let targetBranchEmails;
+  if(targetScope==='specific'){
+    if(!specificBranchEmail){ toast('נא לבחור סניף'); return; }
+    targetBranchEmails = [specificBranchEmail];
+  } else {
+    targetBranchEmails = areaBranches.map(b=>b.email).filter(Boolean);
+  }
+  if(!targetBranchEmails.length){ toast('לא נמצאו סניפים ליעד'); return; }
+  db.collection('areaInstructions').add({
+    areaManagerEmail: currentUserEmail,
+    areaLabel: session.areaLabel,
+    title: title.trim(),
+    body: (body||'').trim(),
+    targetScope,
+    targetBranchEmails,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    closeModal();
+    toast('ההוראה נשלחה');
+  }).catch(function(err){ toast('שגיאה: ' + err.message); });
+}
+function getAreaInstructionConfirmation(instructionId, branchEmail){
+  return (appData.areaInstructionConfirmations||[]).find(function(c){
+    return c.instructionId===instructionId && c.branchEmail===branchEmail;
+  }) || null;
+}
+function confirmAreaInstruction(instructionId, areaManagerEmail, note){
+  if(session.role!=='branch' || !session.branchInfo) return;
+  const safeId = instructionId + '__' + session.branchInfo.email.replace(/[^a-zA-Z0-9]/g,'_');
+  db.collection('areaInstructionConfirmations').doc(safeId).set({
+    instructionId,
+    areaManagerEmail,
+    branchEmail: session.branchInfo.email,
+    branchName: session.branchInfo.name,
+    note: (note||'').trim(),
+    confirmedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    toast('האישור נשלח');
+  }).catch(function(err){ toast('שגיאה: ' + err.message); });
+}
+function openConfirmAreaInstructionForm(instructionId, areaManagerEmail){
+  document.getElementById('modal-body').innerHTML = `
+    <h3>אישור קבלה</h3>
+    <div class="field"><label>הערה (אופציונלי)</label><input id="f-area-instr-note" placeholder="למשל: בוצע, או שאלה קצרה"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="confirmAreaInstruction('${instructionId}','${areaManagerEmail}', document.getElementById('f-area-instr-note').value); closeModal();">שליחת אישור</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+/* מסך הסניף: רשימת הוראות שהתקבלו מהאזור שלו + כפתור אישור. */
+function viewAreaInstructionsFromManager(){
+  const myEmail = session.branchInfo ? session.branchInfo.email : null;
+  const list = [...(appData.areaInstructions||[])].sort(function(a,b){
+    const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+    const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+    return tb - ta;
+  });
+  return `
+    <div class="page-head">
+      <h1>הוראות ממנהל האזור</h1>
+      <p>הודעות פרטיות מהאזור שלכם בלבד — לא נראות לסניפים אחרים.</p>
+    </div>
+    ${list.length ? list.map(function(instr){
+      const conf = getAreaInstructionConfirmation(instr.id, myEmail);
+      return `
+        <div class="card" style="margin-bottom:12px;">
+          <div style="font-weight:500;font-size:15px;margin-bottom:4px;">${instr.title}</div>
+          ${instr.body ? `<div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;white-space:pre-wrap;">${instr.body}</div>` : ''}
+          ${conf ? `
+            <div style="font-size:12.5px;color:var(--good,#0ca30c);">✓ אושר על ידכם${conf.note ? ' · '+conf.note : ''}</div>
+          ` : `
+            <button class="btn-confirm" onclick="openConfirmAreaInstructionForm('${instr.id}','${instr.areaManagerEmail}')">✓ אישור קבלה</button>
+          `}
+        </div>
+      `;
+    }).join('') : `<div class="card"><div class="empty-state">אין כרגע הוראות ממנהל האזור שלכם.</div></div>`}
+  `;
+}
+/* מסך מנהל האזור: יצירת הוראה חדשה + מעקב אישורים לכל הוראה ששלח. */
+function viewSendAreaInstructions(){
+  const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel);
+  const list = [...(appData.areaInstructions||[])].sort(function(a,b){
+    const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
+    const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
+    return tb - ta;
+  });
+  return `
+    <div class="page-head">
+      <h1>הוראות לסניפים שלי</h1>
+      <p>הודעות פרטיות לסניפים באזור שלכם בלבד — לא נראות לאזורים אחרים.</p>
+    </div>
+    <button class="btn-add" style="margin-bottom:14px;" onclick="openNewAreaInstructionForm()">+ הוראה חדשה</button>
+    ${list.length ? list.map(function(instr){
+      const targets = instr.targetBranchEmails||[];
+      const confirmations = (appData.areaInstructionConfirmations||[]).filter(function(c){ return c.instructionId===instr.id; });
+      const pct = targets.length ? Math.round(confirmations.length/targets.length*100) : 0;
+      const scopeLabel = instr.targetScope==='specific'
+        ? (areaBranches.find(function(b){return b.email===targets[0];})||{}).name || 'סניף ספציפי'
+        : `כל הסניפים שלי (${targets.length})`;
+      return `
+        <div class="card" style="margin-bottom:12px;">
+          <div style="font-weight:500;font-size:15px;margin-bottom:4px;">${instr.title}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">יעד: ${scopeLabel}</div>
+          ${instr.body ? `<div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;white-space:pre-wrap;">${instr.body}</div>` : ''}
+          <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:6px;">${confirmations.length} מתוך ${targets.length} אישרו קבלה · ${pct}%</div>
+          <div class="comp-progress-track" style="margin-bottom:10px;"><div class="comp-progress-fill ${pct>=100?'full':''}" style="width:${pct}%"></div></div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${targets.map(function(email){
+              const b = areaBranches.find(function(x){return x.email===email;});
+              const conf = confirmations.find(function(c){return c.branchEmail===email;});
+              return `<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--gridline);">
+                <span>${b ? b.name : email}</span>
+                <span style="color:${conf?'var(--good,#0ca30c)':'var(--muted)'};">${conf ? '✓ אושר'+(conf.note?' · '+conf.note:'') : 'ממתין'}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }).join('') : `<div class="card"><div class="empty-state">עדיין לא נשלחו הוראות. לחצו על "הוראה חדשה" כדי להתחיל.</div></div>`}
+  `;
+}
+function openNewAreaInstructionForm(){
+  const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel);
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוראה חדשה לסניפים שלי</h3>
+    <div class="field"><label>כותרת</label><input id="f-area-instr-title" placeholder="למשל: עדכון לגבי מבצע השבוע"></div>
+    <div class="field"><label>תוכן (אופציונלי)</label><textarea id="f-area-instr-body" rows="4" placeholder="פרטים נוספים..."></textarea></div>
+    <div class="field">
+      <label>יעד</label>
+      <select id="f-area-instr-scope" onchange="document.getElementById('f-area-instr-branch-wrap').style.display=this.value==='specific'?'block':'none';">
+        <option value="all">כל הסניפים שלי (${areaBranches.length})</option>
+        <option value="specific">סניף ספציפי</option>
+      </select>
+    </div>
+    <div class="field" id="f-area-instr-branch-wrap" style="display:none;">
+      <label>סניף</label>
+      <select id="f-area-instr-branch">
+        ${areaBranches.map(function(b){ return `<option value="${b.email}">${b.name}</option>`; }).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="createAreaInstruction(document.getElementById('f-area-instr-title').value, document.getElementById('f-area-instr-body').value, document.getElementById('f-area-instr-scope').value, document.getElementById('f-area-instr-branch').value)">שליחה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
 function viewInstructions(){
   const list = [...appData.instructions].sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
   const myEmail = session.branchInfo ? session.branchInfo.email : null;
@@ -4840,7 +5093,17 @@ function viewEvents(){
   `;
 }
 function setEventsView(v){ ui.eventsView = v; renderContent(); }
-/* ---------- לוח שנה חודשי לאירועים — כל חודש בחודשו, ימים עם אירוע מודגשים ---------- */
+/* ---------- לוח שנה חודשי לאירועים — כל חודש בחודשו, ימים עם אירוע מודגשים ----------
+   לסניפים בלבד: שכבה נוספת של תזכורות אישיות פרטיות (יום הולדת/יום עיון/
+   חופשת עובד/אחר), שנשמרות רק אצל הסניף עצמו (branchCalendarNotes). */
+function calendarNoteDateKey(year, month, day){
+  const dd = String(day).padStart(2,'0');
+  const mm = String(month+1).padStart(2,'0');
+  return `${dd}.${mm}.${year}`;
+}
+function notesForDateKey(dateKey){
+  return (appData.branchCalendarNotes||[]).filter(n=>n.date===dateKey);
+}
 function renderEventsCalendarGrid(list){
   if(ui.calYear==null || ui.calMonth==null){
     const now = new Date();
@@ -4848,6 +5111,7 @@ function renderEventsCalendarGrid(list){
     ui.calMonth = now.getMonth();
   }
   const year = ui.calYear, month = ui.calMonth;
+  const isBranch = session.role==='branch' && !!session.branchInfo;
   const catIcon = {"השקה":"🚀","הדרכה":"🎓","מבצע":"🏷","תחרות":"🏆","ביקורת":"🔍","כנס":"🎤"};
   const firstDay = new Date(year, month, 1);
   const startWeekday = firstDay.getDay();
@@ -4875,15 +5139,30 @@ function renderEventsCalendarGrid(list){
     const evs = eventsByDay[day] || [];
     const hasEvents = evs.length>0;
     const isSelected = ui.calSelectedDay===day;
+    let noteHtml = '', cellStyle = '';
+    if(isBranch){
+      const dateKey = calendarNoteDateKey(year, month, day);
+      const notes = notesForDateKey(dateKey);
+      if(notes.length){
+        const first = notes[0];
+        const color = (CALENDAR_NOTE_TAGS[first.tag]||{}).color || '#DADADA';
+        cellStyle = `style="background:${color}55;border-color:${color};"`;
+        const extra = notes.length>1 ? ` (+${notes.length-1})` : '';
+        noteHtml = `<div style="font-size:9px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,#222);padding:0 2px;">${first.text}${extra}</div>`;
+      }
+    }
     cells.push(`
-      <div class="cal-grid-cell ${hasEvents?'has-event':''} ${isSelected?'selected':''}" onclick="selectCalendarDay(${day})">
+      <div class="cal-grid-cell ${hasEvents?'has-event':''} ${isSelected?'selected':''}" ${cellStyle} onclick="selectCalendarDay(${day})">
         <div class="cal-grid-day">${day}</div>
         ${hasEvents ? `<div class="cal-grid-dot"></div>` : ''}
+        ${noteHtml}
       </div>
     `);
   }
 
   const selectedEvents = ui.calSelectedDay ? (eventsByDay[ui.calSelectedDay]||[]) : [];
+  const selectedDateKey = ui.calSelectedDay ? calendarNoteDateKey(year, month, ui.calSelectedDay) : null;
+  const selectedNotes = (isBranch && selectedDateKey) ? notesForDateKey(selectedDateKey) : [];
 
   return `
     <div class="card">
@@ -4906,7 +5185,23 @@ function renderEventsCalendarGrid(list){
               <div>${catIcon[ev.category]||'📌'} ${ev.title} <span class="badge cat" style="margin-right:6px;">${ev.category}</span></div>
               <div style="font-size:12.5px;color:var(--muted);margin-top:3px;">${ev.desc}</div>
             </div>
-          `).join('') : `<div class="empty-state">אין אירועים ביום זה.</div>`}
+          `).join('') : (isBranch ? '' : `<div class="empty-state">אין אירועים ביום זה.</div>`)}
+          ${isBranch ? `
+            <div style="margin-top:${selectedEvents.length?'10px':'0'};">
+              ${selectedNotes.length ? selectedNotes.map(n=>{
+                const tagInfo = CALENDAR_NOTE_TAGS[n.tag];
+                return `
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;margin-bottom:6px;background:${(tagInfo?tagInfo.color:'#DADADA')}55;">
+                  <div style="flex:1;font-size:13px;">
+                    ${tagInfo ? `<span style="font-size:11px;font-weight:600;color:var(--text-secondary);">${tagInfo.label}</span><br>` : ''}
+                    ${n.text}
+                  </div>
+                  <button class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;" onclick="deleteBranchCalendarNote('${n.id}')">🗑</button>
+                </div>`;
+              }).join('') : `<div class="empty-state" style="padding:6px 0;">אין תזכורות אישיות ביום זה.</div>`}
+              <button class="icon-btn" style="width:100%;margin-top:4px;font-size:12.5px;" onclick="openBranchCalendarNoteForm('${selectedDateKey}')">+ הוספת תזכורת</button>
+            </div>
+          ` : ''}
         </div>
       ` : ''}
     </div>
@@ -4922,6 +5217,47 @@ function shiftCalendarMonth(delta){
 function selectCalendarDay(day){
   ui.calSelectedDay = (ui.calSelectedDay===day) ? null : day;
   renderContent();
+}
+/* ---------- תזכורות אישיות בלוח השנה (סניף בלבד) ---------- */
+function openBranchCalendarNoteForm(dateKey){
+  document.getElementById('modal-body').innerHTML = `
+    <h3>תזכורת ל-${dateKey}</h3>
+    <div class="field">
+      <label>סוג</label>
+      <select id="f-note-tag">
+        <option value="">בלי תגית</option>
+        ${Object.keys(CALENDAR_NOTE_TAGS).map(k=>`<option value="${k}">${CALENDAR_NOTE_TAGS[k].label}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>טקסט</label><input id="f-note-text" placeholder="למשל: יום הולדת לרותי מהקופה"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="submitBranchCalendarNote('${dateKey}')">שמירה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(()=>{ const el=document.getElementById('f-note-text'); if(el) el.focus(); }, 50);
+}
+function submitBranchCalendarNote(dateKey){
+  const tag = document.getElementById('f-note-tag').value || null;
+  const text = document.getElementById('f-note-text').value.trim();
+  if(!text){ toast('נא למלא טקסט'); return; }
+  if(session.role!=='branch' || !session.branchInfo){ return; }
+  db.collection('branchCalendarNotes').add({
+    branchEmail: session.branchInfo.email,
+    date: dateKey,
+    tag,
+    text,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){
+    closeModal();
+    toast('התזכורת נוספה');
+  }).catch(function(err){ toast('שגיאה: ' + err.message); });
+}
+function deleteBranchCalendarNote(id){
+  db.collection('branchCalendarNotes').doc(id).delete()
+    .then(function(){ toast('התזכורת נמחקה'); })
+    .catch(function(err){ toast('שגיאה: ' + err.message); });
 }
 
 /* ---------- Performance ---------- */
