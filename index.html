@@ -1341,6 +1341,7 @@ let unsubInstructionCompletions = null;
 let unsubItemReads = null;
 let unsubBroadcasts = null;
 let unsubPromoProducts = null;
+let unsubPromoBooklet = null;
 let unsubViewerActivity = null;
 let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
@@ -1564,6 +1565,25 @@ function initFirestoreSync(){
         console.error('Firestore sync error (viewer activity):', err);
       });
   }
+
+  /* מטא-דאטה של חוברת המבצעים החודשית (רכש) — מסמך אחד לכל קוד מבצע:
+     תבנית מכירה (2 יח' ב-/מוצר שני ב-%/וכו'), מחיר, הערות תצוגה, סעיף
+     בחוברת (במה עדיפות/מקרר בולט/וכו'), הגבלת סניפים (למשל "ביו מרקט"
+     בלבד), קוד מבצע שאליו זה מתאחד (mergedInto) ודגל "חסרה רשימת
+     משתתפים" (needsParticipantList). קולקציה קטנה (מאות מסמכים לכל
+     היותר), נטענת במלואה - בדיוק כמו promoProducts. */
+  if (unsubPromoBooklet) unsubPromoBooklet();
+  unsubPromoBooklet = db.collection('promoBooklet')
+    .onSnapshot(function(snap){
+      appData.promoBooklet = {};
+      snap.docs.forEach(function(doc){
+        appData.promoBooklet[doc.id] = doc.data();
+      });
+      _promoAreaGroupCache = {};
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (promo booklet):', err);
+    });
 
   /* תוספות למיפוי קיצורי-עמודה→סניף במכר מבצעים, שנלמדו לאחר ה-DEFAULT
      המוטבע בקוד (למשל סניף חדש שנפתח). מסמך אחד קטן, לא צריך unsubscribe
@@ -1804,6 +1824,7 @@ let appData = {
   notifications: [],
   broadcasts: [],
   promoProducts: [],
+  promoBooklet: {},
   viewerActivity: [],
   promoColumnMappingExtra: {}
 };
@@ -2864,6 +2885,224 @@ function computeMyPromoValue(product){
   }
   return null;
 }
+
+/* ============================================================
+   מנוע ניתוח מכר מבצעים (רכש) — סיווג לשלוש קבוצות
+   ------------------------------------------------------------
+   בונה, לכל קוד מבצע, את "המימוש שלי" (סניף או סכום סניפי אזור) מול
+   חציון קבוצת השוואה (כל שאר הסניפים, או רק ביו מרקט אם מוגבל), ומסווג
+   ל"בדיקת חריגה" (אפס מקומי מול פעילות רשתית), "בירור פער" (מתחת
+   לחציון) או "לשמר חוזקה" (מעל החציון). בנוי מעל promoProducts (מכר בפועל)
+   + promoBooklet (מטא-דאטה מהחוברת: תבנית/מחיר/הערות/הגבלות/איחודים),
+   כך שאם promoBooklet ריק (עוד לא הועלה החודש) המסך פשוט לא מציג ניתוח,
+   בלי לשבור את שאר האתר. */
+function median(arr){
+  if(!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length%2 ? s[mid] : (s[mid-1]+s[mid])/2;
+}
+function promoMultiplier(template){
+  if(!template) return 1;
+  if(template.indexOf("2 יח") !== -1) return 2;
+  if(template.indexOf('3 יחידות') !== -1) return 3;
+  if(template.indexOf('5 יחידות') !== -1) return 5;
+  if(template.indexOf('מוצר שני') !== -1) return 2;
+  return 1;
+}
+/* בנייה חד-פעמית (פר-רינדור) של: (1) מוצרים ממוזגים לפי קוד מאוחד
+   (mergedInto מסוכם לתוך קוד ההורה), (2) מפת branchName -> sales לכל קוד. */
+let _promoAnalysisCache = null;
+function buildPromoAnalysisBase(){
+  if(_promoAnalysisCache) return _promoAnalysisCache;
+  const booklet = appData.promoBooklet || {};
+  const byCode = {}; /* code -> {title, salesByBranch:{branch:num}} */
+  (appData.promoProducts||[]).forEach(p=>{
+    const code = p.code!=null ? String(p.code) : null;
+    if(!code) return;
+    const meta = booklet[code];
+    const targetCode = (meta && meta.mergedInto) ? meta.mergedInto : code;
+    if(!byCode[targetCode]) byCode[targetCode] = {title:null, salesByBranch:{}};
+    if(!meta || !meta.mergedInto) byCode[targetCode].title = p.title;
+    (p.branches||[]).forEach(b=>{
+      byCode[targetCode].salesByBranch[b.name] = (byCode[targetCode].salesByBranch[b.name]||0) + (b.sales||0);
+    });
+  });
+  _promoAnalysisCache = {byCode};
+  return _promoAnalysisCache;
+}
+const BIO_MARKET_MATCH = 'ביו מרקט';
+function isBioMarketBranch(name){ return (name||'').indexOf(BIO_MARKET_MATCH) !== -1; }
+/* קבוצת ההשוואה הרשתית לקוד נתון: כל הסניפים, חוץ מהמוצאים בפועל
+   (excludeNames) - או רק סניפי ביו מרקט אם המבצע מוגבל אליהם. */
+function promoComparisonPool(meta, excludeNames){
+  const allBranchNames = BRANCH_DIRECTORY.map(b=>b.name);
+  const pool = (meta && meta.restricted==='ביו מרקט') ? allBranchNames.filter(isBioMarketBranch) : allBranchNames;
+  return pool.filter(n=>excludeNames.indexOf(n)===-1);
+}
+function isPromoRelevantForBranch(meta, branchName){
+  if(meta && meta.restricted==='ביו מרקט') return isBioMarketBranch(branchName);
+  return true;
+}
+/* מסווגת ערך אחד (סניף/אזור) מול מערך ערכי השוואה. group: 'anomaly'|'gap'|'strength'|'none' */
+function classifyPromoValue(selfVal, comparisonVals){
+  const med = median(comparisonVals);
+  const positiveOthers = comparisonVals.filter(v=>v>0).length;
+  const totalOthers = comparisonVals.length;
+  const gapNum = med===null ? null : (selfVal-med);
+  const gapPct = (med && med>0) ? ((selfVal/med-1)*100) : null;
+  let group = 'none';
+  if(selfVal===0 && totalOthers>0 && (positiveOthers/totalOthers)>=0.7 && positiveOthers>=10) group = 'anomaly';
+  else if(med!==null && selfVal<med) group = 'gap';
+  else if(med!==null && selfVal>med) group = 'strength';
+  return {med, positiveOthers, totalOthers, gapNum, gapPct, group, selfVal};
+}
+/* דוח מלא לסניף בודד: שלוש קבוצות + ממצאים שסויגו החוצה. */
+function buildPromoBranchReport(branchName){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = appData.promoBooklet || {};
+  const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    if(meta.needsParticipantList){ out.scopedOut.push({code, title:entry.title, reason:'נדרשת רשימת משתתפים — פתוח לחלק מהסניפים בלבד.'}); return; }
+    if(!isPromoRelevantForBranch(meta, branchName)){ out.scopedOut.push({code, title:entry.title, reason:`מבצע ייעודי ל${meta.restricted}, לא רלוונטי לסניף זה.`}); return; }
+    const selfVal = entry.salesByBranch[branchName] || 0;
+    const compVals = promoComparisonPool(meta, [branchName]).map(n=>entry.salesByBranch[n]||0);
+    if(!compVals.length){ out.scopedOut.push({code, title:entry.title, reason:'אין סניפי השוואה זמינים.'}); return; }
+    const cls = classifyPromoValue(selfVal, compVals);
+    if(cls.group==='none') return;
+    out[cls.group].push({code, title:entry.title, meta, cls});
+  });
+  return out;
+}
+/* דוח מלא לאזור (קבוצת סניפים): סכום הסניפים באזור מול "צפי" = חציון
+   הרשת (למעט סניפי האזור) × מספר סניפים באזור. קירוב מוצהר, לא מדד רשמי. */
+function buildPromoAreaReport(areaBranchNames){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = appData.promoBooklet || {};
+  const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    if(meta.needsParticipantList) return;
+    const relevant = areaBranchNames.filter(n=>isPromoRelevantForBranch(meta, n));
+    if(!relevant.length) return;
+    const totalSelf = relevant.reduce((s,n)=>s+(entry.salesByBranch[n]||0),0);
+    const compVals = promoComparisonPool(meta, areaBranchNames).map(n=>entry.salesByBranch[n]||0);
+    const med = median(compVals);
+    if(med===null) return;
+    const expected = med * relevant.length;
+    const gapPct = expected>0 ? ((totalSelf/expected-1)*100) : null;
+    let group = 'none';
+    if(totalSelf===0 && expected>0) group = 'anomaly';
+    else if(totalSelf<expected) group = 'gap';
+    else if(totalSelf>expected) group = 'strength';
+    if(group==='none') return;
+    out[group].push({code, title:entry.title, meta, cls:{selfVal:totalSelf, med:expected, gapPct, branchCount:relevant.length}});
+  });
+  return out;
+}
+function promoInsightText(row, isArea){
+  const {meta, cls} = row;
+  const parts = [];
+  if(row.__group==='anomaly' || (!isArea && cls.group==='anomaly')){
+    parts.push(`אפס מימושים${isArea?' באזור':' בסניף'}, מול ${isArea?'צפי':cls.positiveOthers+' מתוך '+cls.totalOthers+' סניפים אחרים פעילים'}${isArea?'':'; החציון הוא '+cls.med}.`);
+    parts.push('סדר בדיקה מוצע: השתתפות ומגוון פתוח ← הזמנה/זמינות ← הגדרת המבצע בקופה ← שילוט ומיקום ← מכר תחליפים.');
+  } else if(row.__group==='gap' || (!isArea && cls.group==='gap')){
+    if(meta.note && meta.note.indexOf('בחוץ מדף')!==-1) parts.push('כדאי לבדוק שילוט/מיקום מול ההנחיה: ' + meta.note.replace('מימושים.','').trim());
+    if(meta.template && (meta.template.indexOf('שני')!==-1 || meta.template.indexOf("2 יח")!==-1)) parts.push('מבצע זוגות/שני יחידות — ייתכן שלקוחות לא משלימים את המימוש.');
+    if(!parts.length) parts.push('פער מתחת לחציון קבוצת ההשוואה; מומלץ בדיקת זמינות ומיקום.');
+  } else {
+    parts.push(cls.med===0 ? 'פעילות חיובית מול בסיס השוואה נמוך — לא בהכרח הצטיינות.' : 'מעל החציון — לשמר זמינות ולבדוק אם ניתן לשתף שיטת עבודה.');
+  }
+  if(meta.restricted) parts.push(`⚠ מבצע ייעודי ל${meta.restricted} בלבד.`);
+  const mult = promoMultiplier(meta.template);
+  if(mult>1 && !isArea) parts.push(`כל מימוש = ${mult} פריטים (${cls.selfVal} מימושים ≈ ${cls.selfVal*mult} פריטים).`);
+  return parts.join(' ');
+}
+function promoGroupLabel(group){
+  return group==='anomaly' ? 'בדיקת חריגה' : (group==='gap' ? 'בירור פער' : 'לשמר חוזקה');
+}
+function promoGroupColor(group){
+  return group==='anomaly' ? 'var(--critical)' : (group==='gap' ? 'var(--warning)' : 'var(--good)');
+}
+function promoAnalysisRowHtml(row, group, isArea){
+  row.__group = group;
+  const c = row.cls;
+  const priceTxt = row.meta.price ? '₪'+Number(row.meta.price).toFixed(2) : '';
+  const codeTxt = row.code;
+  const gapPctTxt = c.gapPct==null ? '—' : ((c.gapPct>0?'+':'')+c.gapPct.toFixed(0)+'%');
+  return `
+    <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:6px;">
+      <div style="display:flex;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap;">
+        <div class="admin-row-main">
+          <div class="t">${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
+          <div class="m">${row.meta.template||''} ${priceTxt}</div>
+        </div>
+        <span style="font-size:12px;padding:3px 10px;border-radius:8px;white-space:nowrap;flex:none;background:${promoGroupColor(group)}1a;color:${promoGroupColor(group)};">
+          ${isArea ? c.selfVal : c.selfVal} ${isArea?'/ צפי '+ (c.med!=null?c.med.toFixed(1):'—') : '/ חציון '+c.med} · ${gapPctTxt}
+        </span>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-secondary);">${promoInsightText(row, isArea)}</div>
+    </div>
+  `;
+}
+function promoAnalysisSectionHtml(title, group, rows, isArea, emptyMsg){
+  const sorted = [...rows].sort((a,b)=>{
+    if(group==='anomaly') return (b.cls.positiveOthers||0)-(a.cls.positiveOthers||0);
+    if(group==='strength') return (b.cls.gapPct||0)-(a.cls.gapPct||0);
+    return Math.abs(b.cls.gapNum||(b.cls.selfVal-b.cls.med)||0) - Math.abs(a.cls.gapNum||(a.cls.selfVal-a.cls.med)||0);
+  }).slice(0,5);
+  return `
+    <div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים, מוצגים עד 5)</span></h3>
+      </div>
+      <div class="card">
+        ${sorted.length ? sorted.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+      </div>
+    </div>
+  `;
+}
+/* המסך הראשי לניתוח מכר מבצעים (סניף/אזור) - מוצג מעל עיון-לפי-מוצר. */
+function viewPromoAnalysis(){
+  const bookletCount = Object.keys(appData.promoBooklet||{}).length;
+  if(!bookletCount){
+    return `<div class="card"><div class="empty-state">עדיין לא הועלתה חוברת המבצעים החודשית — הניתוח יופיע כאן ברגע שרכש יעלה אותה ב"ניהול תוכן".</div></div>`;
+  }
+  const areaMode = isAreaViewer();
+  let report, scopeLabel;
+  if(areaMode){
+    const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel).map(b=>b.name);
+    report = buildPromoAreaReport(areaBranches);
+    scopeLabel = `אזור ${session.areaLabel} (${areaBranches.length} סניפים)`;
+  } else if(session.role==='branch' && session.branchInfo){
+    report = buildPromoBranchReport(session.branchInfo.name);
+    scopeLabel = session.branchInfo.name;
+  } else {
+    return '';
+  }
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — ${scopeLabel}</div>
+      <div style="font-size:12.5px;color:var(--text-secondary);">השוואה מול חציון ${areaMode?'הרשת (למעט סניפי האזור)':'שאר הסניפים'}. לרוב המבצעים אין רשימת השתתפות רשמית — הזכאות בפועל לא אומתה.</div>
+    </div>
+    ${promoAnalysisSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, areaMode, 'אין ממצאי חריגת אפס כרגע.')}
+    ${promoAnalysisSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, areaMode, 'אין ממצאי פער כרגע.')}
+    ${promoAnalysisSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, areaMode, 'אין ממצאי חוזקה כרגע.')}
+    ${report.scopedOut.length ? `
+      <div style="margin-top:6px;">
+        <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">ממצאים שהוצאו מהניתוח</h3>
+        <div class="card">
+          ${report.scopedOut.map(s=>`<div class="admin-row"><div class="admin-row-main"><div class="t" style="font-size:13px;">${s.title||''} <span style="font-family:monospace;font-size:11px;color:var(--muted);">#${s.code}</span></div><div class="m">${s.reason}</div></div></div>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
 function cellFillHex(sheet, ri, ci){
   if(!sheet || typeof XLSX==='undefined') return null;
   try{
@@ -5648,17 +5887,28 @@ function clearPromoSearch(){
   if(input) input.value = '';
   updatePromoSearch('');
 }
+function setPromoTab(tab){ ui.promoTab = tab; renderContent(); }
 function viewPromoSales(){
   const products = [...(appData.promoProducts||[])];
   const areaMode = isAreaViewer();
   const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
   const initialRows = buildPromoRows(ui.promoSearchQuery||'');
+  const tab = ui.promoTab || 'analysis';
 
   return `
     <div class="page-head">
       <h1>מכר מבצעים</h1>
-      <p>נתוני מכירות לפי מוצר, מול ממוצע הרשת ו${areaMode?'אזורים':'סניפים'} לבחירתכם.</p>
+      <p>ניתוח מימושי מבצעים מול חוברת המבצעים, ועיון חופשי לפי מוצר.</p>
     </div>
+    <div class="admin-tabs" style="margin-bottom:16px;">
+      <button class="admin-tab ${tab==='analysis'?'active':''}" onclick="setPromoTab('analysis')">דוח פעולה</button>
+      <button class="admin-tab ${tab==='browse'?'active':''}" onclick="setPromoTab('browse')">עיון לפי מוצר</button>
+    </div>
+    ${tab==='analysis' ? viewPromoAnalysis() : viewPromoBrowse(products, areaMode, compareList, initialRows)}
+  `;
+}
+function viewPromoBrowse(products, areaMode, compareList, initialRows){
+  return `
     <div class="field" style="margin-bottom:14px;position:relative;">
       <div style="display:flex;gap:0;">
         <input type="text" id="promo-search-input" placeholder="חיפוש מוצר..." value="${ui.promoSearchQuery||''}"
@@ -5990,8 +6240,9 @@ function fullPromoColumnMapping(){
 let pendingPromoImportRows = null; /* שורות הגיליון הגולמיות, ממתינות לפתרון קיצורים לא-מוכרים */
 function adminPromoUpload(){
   const count = (appData.promoProducts||[]).length;
+  const bookletCount = Object.keys(appData.promoBooklet||{}).length;
   return `
-    <div class="card">
+    <div class="card" style="margin-bottom:14px;">
       <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
         ייבוא נתוני מכר מבצעים לפי סניף, ישירות מקובץ האקסל המקורי. בכל פעם
         שמעלים קובץ חדש, הנתונים הישנים נמחקים ומוחלפים בחדשים. עמודות שכבר
@@ -6002,11 +6253,81 @@ function adminPromoUpload(){
         כרגע במערכת: <b>${count}</b> מוצרים.
       </div>
       <input type="file" id="promo-excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handlePromoExcelUpload(event)">
-      <button class="btn-import" onclick="document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל</button>
+      <button class="btn-import" onclick="document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל (מכר מבצעים)</button>
       <div id="promo-upload-status" style="margin-top:12px;font-size:13px;"></div>
       <div id="promo-unresolved-area"></div>
     </div>
+    <div class="card">
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
+        קובץ חוברת המבצעים החודשית (JSON מוכן, מופק מהחוברת המקורית) — מוסיף
+        לכל קוד מבצע את התבנית, המחיר, ההערות, הגבלות סניף וקודים מאוחדים.
+        בלי זה, מסך "דוח פעולה" לא יוכל להציג ניתוח. גם כאן — קובץ חדש מחליף
+        את הישן במלואו.
+      </p>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        כרגע במערכת: <b>${bookletCount}</b> קודי מבצע מהחוברת.
+      </div>
+      <input type="file" id="promo-booklet-input" accept=".json" style="display:none;" onchange="handlePromoBookletUpload(event)">
+      <button class="btn-import" onclick="document.getElementById('promo-booklet-input').click()">📥 העלאת קובץ חוברת מבצעים (JSON)</button>
+      <div id="promo-booklet-status" style="margin-top:12px;font-size:13px;"></div>
+    </div>
   `;
+}
+/* ייבוא חוברת המבצעים - קובץ JSON קטן {codes:{...}} שמופק מהחוברת (ראו
+   שיחה נפרדת על פענוח PDF). מחליף לגמרי את הקולקציה promoBooklet. */
+function handlePromoBookletUpload(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('promo-booklet-status');
+  if(statusEl) statusEl.textContent = 'קורא את קובץ ה-JSON...';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    let parsed;
+    try{
+      parsed = JSON.parse(e.target.result);
+      if(!parsed || typeof parsed!=='object' || !parsed.codes) throw new Error('מבנה קובץ לא תקין - חסר שדה codes');
+    }catch(err){
+      if(statusEl) statusEl.textContent = 'שגיאה בקריאת הקובץ: ' + err.message;
+      return;
+    }
+    const codes = parsed.codes;
+    if(statusEl) statusEl.textContent = `נמחקים ${Object.keys(appData.promoBooklet||{}).length} רשומות ישנות...`;
+    db.collection('promoBooklet').get().then(function(snap){
+      const delBatches = [];
+      let batch = db.batch(); let n=0;
+      snap.forEach(function(doc){
+        batch.delete(doc.ref); n++;
+        if(n===450){ delBatches.push(batch); batch = db.batch(); n=0; }
+      });
+      if(n>0) delBatches.push(batch);
+      return Promise.all(delBatches.map(b=>b.commit()));
+    }).then(function(){
+      const codeKeys = Object.keys(codes);
+      if(statusEl) statusEl.textContent = `כותב ${codeKeys.length} קודי מבצע חדשים...`;
+      const writeBatches = [];
+      let batch = db.batch(); let n=0;
+      codeKeys.forEach(function(code){
+        const m = codes[code];
+        const ref = db.collection('promoBooklet').doc(code);
+        batch.set(ref, {
+          template: m.template||null, price: m.price!=null?Number(m.price):null,
+          note: m.note||'', section: m.section||null, restricted: m.restricted||null,
+          mergedInto: m.mergedInto||null, needsParticipantList: !!m.needsParticipantList,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        n++;
+        if(n===450){ writeBatches.push(batch); batch = db.batch(); n=0; }
+      });
+      if(n>0) writeBatches.push(batch);
+      return Promise.all(writeBatches.map(b=>b.commit()));
+    }).then(function(){
+      if(statusEl) statusEl.textContent = `הועלו ${Object.keys(codes).length} קודי מבצע בהצלחה.`;
+    }).catch(function(err){
+      if(statusEl) statusEl.textContent = 'שגיאה בשמירה: ' + err.message;
+    });
+  };
+  reader.readAsText(file);
+  evt.target.value = '';
 }
 function handlePromoExcelUpload(evt){
   const file = evt.target.files[0];
