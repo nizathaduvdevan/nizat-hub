@@ -1340,6 +1340,8 @@ let unsubStandTakedownAcks = null;
 let unsubInstructionCompletions = null;
 let unsubItemReads = null;
 let unsubBroadcasts = null;
+let unsubPromoProducts = null;
+let unsubViewerActivity = null;
 let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
 let unsubSiteTexts = null;
@@ -1534,6 +1536,43 @@ function initFirestoreSync(){
       console.error('Firestore sync error (broadcasts):', err);
     });
 
+  /* נתוני מכר מבצעים (רכש) — כל מסמך הוא מוצר/מבצע עם מכירות פר-סניף
+     (branchSales: {מספר סניף: כמות}). קולקציה קטנה יחסית (מאות מסמכים
+     לכל היותר), נטענת במלואה. */
+  if (unsubPromoProducts) unsubPromoProducts();
+  unsubPromoProducts = db.collection('promoProducts')
+    .onSnapshot(function(snap){
+      appData.promoProducts = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (promo products):', err);
+    });
+
+  /* פעילות צופים (מי נכנס ומתי) - רק לתצוגת מחלקת שיווק ב"סטטיסטיקות". */
+  if(session.role==='marketing'){
+    if(unsubViewerActivity) unsubViewerActivity();
+    unsubViewerActivity = db.collection('viewerActivity')
+      .onSnapshot(function(snap){
+        appData.viewerActivity = snap.docs.map(function(doc){
+          return Object.assign({}, doc.data(), { id: doc.id });
+        });
+        renderContent();
+      }, function(err){
+        console.error('Firestore sync error (viewer activity):', err);
+      });
+  }
+
+  /* תוספות למיפוי קיצורי-עמודה→סניף במכר מבצעים, שנלמדו לאחר ה-DEFAULT
+     המוטבע בקוד (למשל סניף חדש שנפתח). מסמך אחד קטן, לא צריך unsubscribe
+     נפרד — נטען פעם אחת מספיק כי הוא כמעט אף פעם לא משתנה. */
+  db.collection('config').doc('promoColumnMapping').get().then(function(doc){
+    appData.promoColumnMappingExtra = doc.exists ? (doc.data().mapping || {}) : {};
+  }).catch(function(err){
+    console.error('Firestore sync error (promo column mapping):', err);
+  });
+
   /* מעקב מי התקין את ה-PWA (כתובה ע"י הסקריפט הנפרד בתחתית הדף, ב-appinstalled) —
      מוצג רק למחלקת השיווק, במסך "ניהול תוכן". */
   if (unsubPwaInstalls) unsubPwaInstalls();
@@ -1616,6 +1655,23 @@ function loadBranchDirectory(){
   return branchDirectoryPromise;
 }
 function getTotalBranches(){ return BRANCH_DIRECTORY.length; }
+/* רישום פעילות כניסה - מסמך אחד לכל צופה (סניף/מנהל אזור/צוות), מתעדכן
+   בכל כניסה: מונה ביקורים + תאריך אחרון. לא לוג מפורט של כל כניסה בנפרד -
+   מספיק בשביל השאלה "מי בכלל נכנס ומתי", בלי לייצר קולקציה שגדלה בלי גבול. */
+function logViewerActivity(role, payload){
+  if(!firebaseReady || !db) return;
+  let vid, label;
+  if(role==='branch'){ vid = 'branch:' + (payload.email||payload.name); label = payload.name; }
+  else if(role==='area'){ vid = 'area:' + payload.label; label = 'מנהל אזור · ' + payload.label; }
+  else { vid = 'marketing:' + currentUserEmail; label = marketingDisplayFor(currentUserEmail).name; }
+  const docId = vid.replace(/[\/\s]/g,'_');
+  db.collection('viewerActivity').doc(docId).set({
+    viewerId: vid, label, role,
+    visitCount: firebase.firestore.FieldValue.increment(1),
+    lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+    lastSeenDate: todayHeb()
+  }, {merge:true}).catch(err=>console.warn('viewer activity log failed (לא קריטי):', err));
+}
 
 let appData = {
   siteTexts: {},
@@ -1745,7 +1801,10 @@ let appData = {
   privateMessages: [],
   standCampaigns: [],
   notifications: [],
-  broadcasts: []
+  broadcasts: [],
+  promoProducts: [],
+  viewerActivity: [],
+  promoColumnMappingExtra: {}
 };
 
 let nextIds = {competitions:2, instructions:1, materials:1, events:1, comments:1, privateMessages:1, standCampaigns:18};
@@ -1831,6 +1890,7 @@ function enterApp(role, payload){
   session.areaLabel = role==='area' ? payload.label : null;
   loadNotificationsFromStorage();
   initBroadcastNotifSync();
+  logViewerActivity(role, payload);
 
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
@@ -2077,7 +2137,9 @@ const ICON_PATHS = {
   megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h2l1 5h2l-1-5h5l6 4V6l-6 4H6a1 1 0 0 0-1 1Z"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
   cart: '<circle cx="9" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.5 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L23 7H6"/>',
-  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  chart: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="13" y="8" width="3" height="10"/><rect x="19" y="5" width="3" height="13"/>',
+  play: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4Z"/>'
 };
 function icon(name, cls){
   return `<svg class="ui-icon ${cls||''}" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;flex:none;">${ICON_PATHS[name]||''}</svg>`;
@@ -2096,11 +2158,14 @@ const DEPARTMENT_SCREENS = {
     {id:'competitions', label:'תחרויות', icon:icon('trophy')},
     {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
     {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
+    {id:'videos', label:'סרטוני הדרכה', icon:icon('play')},
     {id:'events', label:'יומן אירועים', icon:icon('calendar')},
     {id:'stands', label:'סטנדים לאישור', icon:icon('sign')}
   ],
   operations: [],
-  purchasing: [],
+  purchasing: [
+    {id:'promoSales', label:'מכר מבצעים', icon:icon('chart')}
+  ],
   hr: []
 };
 const DEPARTMENT_NAV_ICONS = {
@@ -2385,6 +2450,7 @@ function renderContent(){
   if(ui.view==='dashboard'){
     if(ui.department===null) el.innerHTML = viewGlobalHome();
     else if(ui.department==='marketing') el.innerHTML = viewDashboard();
+    else if((DEPARTMENT_SCREENS[ui.department]||[]).length) el.innerHTML = viewDepartmentLanding(ui.department);
     else el.innerHTML = viewDepartmentEmpty(ui.department);
   }
   else if(ui.view==='competitions') el.innerHTML = viewCompetitions();
@@ -2392,9 +2458,26 @@ function renderContent(){
   else if(ui.view==='events') el.innerHTML = viewEvents();
   else if(ui.view==='areaOverview') el.innerHTML = viewAreaOverview();
   else if(ui.view==='materials') el.innerHTML = viewMaterials();
+  else if(ui.view==='videos') el.innerHTML = viewVideos();
   else if(ui.view==='stands') el.innerHTML = viewStands();
+  else if(ui.view==='promoSales') el.innerHTML = viewPromoSales();
   else if(ui.view==='messages') el.innerHTML = viewMessages();
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
+}
+/* מסך נחיתה למחלקה שיש לה מסכי תוכן (בשונה מ-viewDepartmentEmpty, שמיועד
+   למחלקה שעדיין לא פרסמה כלום). מציג כרטיסי בחירה לכל מסך במחלקה. */
+function viewDepartmentLanding(deptKey){
+  const info = DEPARTMENTS[deptKey] || {label: deptKey};
+  const screens = DEPARTMENT_SCREENS[deptKey] || [];
+  return `
+    <div class="page-head">
+      <h1>${info.label}</h1>
+      <p>בחרו מה לצפות</p>
+    </div>
+    <div class="dashboard-actions-grid">
+      ${screens.map(s=>`<button class="dashboard-action-btn" onclick="goTo('${s.id}')"><span class="da-icon">${s.icon}</span><span class="da-label">${s.label}</span></button>`).join('')}
+    </div>
+  `;
 }
 /* ---------- דף הבית הגלובלי (רב-מחלקתי) ---------- */
 /* מוצג לסניפים/מנהלי אזור ברמה העליונה, לפני שנכנסים למחלקה ספציפית. פיד
@@ -2706,6 +2789,20 @@ function branchMatchScore(target, name){
   if(idx>=0) return 1 + (tWords.length-nWords.length)*0.4 + idx*0.15;
   if(wordSubsetMatch(target, name)) return 1.8;
   return 2.5 + levenshtein(target, name) * 0.35;
+}
+/* מוצאת את "הסניף שלי" בתוך רשימת הסניפים של מוצר מכר מבצעים — משתמשת
+   באותו מנגנון התאמת שמות בדיוק כמו matchBranchInCompetition, כדי לא ליצור
+   לוגיקת התאמה מקבילה. */
+function matchMyBranchInPromoProduct(product, branchInfo){
+  if(!product.branches || !product.branches.length || !branchInfo) return null;
+  const target = normalizeBranchName(branchInfo.name);
+  for(const b of product.branches){ if(normalizeBranchName(b.name) === target) return b; }
+  let best=null, bestScore=Infinity;
+  for(const b of product.branches){
+    const score = branchMatchScore(target, normalizeBranchName(b.name));
+    if(score < bestScore){ bestScore = score; best = b; }
+  }
+  return (best && bestScore < 3.2) ? best : null;
 }
 function cellFillHex(sheet, ri, ci){
   if(!sheet || typeof XLSX==='undefined') return null;
@@ -3151,6 +3248,7 @@ function handleMaterialFolderUpload(evt){
       size: formatFileSize(file.size),
       fileUrl: result.secure_url,
       date: todayHeb(),
+      time: new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       unread: true,
       tags: [],
       thumbUrl: null,
@@ -3191,6 +3289,7 @@ function handleMaterialFilesUpload(evt){
       size: formatFileSize(file.size),
       fileUrl: result.secure_url,
       date: todayHeb(),
+      time: new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       unread: true,
       tags: [],
       thumbUrl: null,
@@ -4106,9 +4205,10 @@ function setInstrStatusFilter(f){ instrStatusFilter = f; renderContent(); }
 /* ---------- Materials ---------- */
 function viewMaterials(){
   markSectionRead('materials');
-  const cats = [...new Set(appData.materials.map(m=>m.category))];
+  const nonVideoMaterials = appData.materials.filter(m=>!m.isVideo);
+  const cats = [...new Set(nonVideoMaterials.map(m=>m.category))];
   const activeFilter = (ui.materialFilter && cats.includes(ui.materialFilter)) ? ui.materialFilter : cats[0];
-  const list = activeFilter ? appData.materials.filter(m=>m.category===activeFilter) : appData.materials;
+  const list = activeFilter ? nonVideoMaterials.filter(m=>m.category===activeFilter) : nonVideoMaterials;
   return `
     <div class="page-head">
       <h1>הורדה חומרי שיווק / דיגיטל ורשתות חברתיות</h1>
@@ -4118,11 +4218,86 @@ function viewMaterials(){
       ${cats.map(c=>`<button class="chip ${activeFilter===c?'active':''}" onclick="setMaterialFilter('${c}')">${c}</button>`).join('')}
     </div>
     <div class="materials-grid">
-      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${appData.materials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין הורדה חומרי שיווק / דיגיטל ורשתות חברתיות.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
+      ${list.map(m=>materialCard(m)).join('') || `<div class="empty-state">${nonVideoMaterials.length ? 'אין חומרים בקטגוריה זו כרגע.' : ('עדיין אין הורדה חומרי שיווק / דיגיטל ורשתות חברתיות.' + (session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להעלות חומר ראשון.' : ''))}</div>`}
     </div>
   `;
 }
 function setMaterialFilter(c){ ui.materialFilter=c; renderContent(); }
+/* ---------- סרטוני הדרכה (שיווק) — קישורי YouTube "לא רשום", מוטמעים
+   בתוך האתר. נשמרים כרשומת materials רגילה עם isVideo:true, כדי לא ליצור
+   קולקציה/הרשאות נפרדות ב-Firestore. ---------- */
+function extractYouTubeId(url){
+  const m = (url||'').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+function viewVideos(){
+  const videos = appData.materials.filter(m=>m.isVideo).sort((a,b)=>parseHebDate(b.date)-parseHebDate(a.date));
+  const canManage = canManageDepartment('marketing');
+  return `
+    <div class="page-head">
+      <h1>סרטוני הדרכה</h1>
+      <p>סרטונים קצרים שמסבירים איך להציב אלמנטים ותצוגות בסניף.</p>
+    </div>
+    ${canManage ? `<button class="btn-add" style="margin-bottom:14px;" onclick="openVideoForm()">+ הוספת סרטון</button>` : ''}
+    ${videos.length ? videos.map(v=>{
+      const ytId = extractYouTubeId(v.fileUrl);
+      return `
+      <div class="card" style="margin-bottom:14px;">
+        <div style="font-weight:500;font-size:15px;margin-bottom:8px;">${v.name}</div>
+        ${ytId ? `<div style="position:relative;padding-top:56.25%;border-radius:10px;overflow:hidden;background:#000;">
+          <iframe src="https://www.youtube.com/embed/${ytId}" style="position:absolute;inset:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>` : `<div class="empty-state">קישור לא תקין.</div>`}
+        ${v.category ? `<div style="font-size:12.5px;color:var(--text-secondary);margin-top:8px;">${v.category}</div>` : ''}
+        ${canManage ? `<div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="icon-btn" onclick="openVideoForm('${v.id}')" title="עריכה">✎</button>
+          <button class="icon-btn danger" onclick="confirmDelete('materials', '${v.id}')" title="מחיקה">🗑</button>
+        </div>` : ''}
+      </div>`;
+    }).join('') : `<div class="card"><div class="empty-state">עדיין אין סרטוני הדרכה.${canManage ? ' לחצו על "הוספת סרטון" כדי להעלות ראשון.' : ''}</div></div>`}
+  `;
+}
+function openVideoForm(editId){
+  const item = editId ? appData.materials.find(x=>x.id==editId) : null;
+  document.getElementById('modal-body').innerHTML = `
+    <h3>${editId ? 'עריכת' : 'הוספת'} סרטון הדרכה</h3>
+    <div class="field"><label>כותרת</label><input id="f-video-name" value="${item?.name||''}" placeholder="למשל: איך להציב סטנד Lavido"></div>
+    <div class="field"><label>קטגוריה (אופציונלי)</label><input id="f-video-category" value="${item?.category||''}" placeholder="הצבת סטנדים / תצוגה / ..."></div>
+    <div class="field">
+      <label>קישור YouTube</label>
+      <input id="f-video-url" value="${item?.fileUrl||''}" placeholder="https://youtu.be/...">
+      <div class="field-hint">העלו את הסרטון ל-YouTube במצב "לא רשום" (Unlisted), והדביקו כאן את הקישור.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="saveVideoForm('${editId||''}')">שמירה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function saveVideoForm(editId){
+  const name = document.getElementById('f-video-name').value.trim();
+  const category = document.getElementById('f-video-category').value.trim();
+  const url = document.getElementById('f-video-url').value.trim();
+  if(!name){ toast('נא למלא כותרת'); return; }
+  if(!extractYouTubeId(url)){ toast('קישור YouTube לא תקין'); return; }
+  const existing = editId ? appData.materials.find(x=>x.id==editId) : null;
+  const obj = {
+    name, category, fileUrl: url, isVideo: true, type: 'YouTube', size: '',
+    date: existing ? existing.date : todayHeb(),
+    time: existing ? (existing.time||null) : new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
+    unread: existing ? (existing.unread||false) : true,
+    tags: existing ? (existing.tags||[]) : [],
+    thumbUrl: null,
+    department: existing ? itemDepartment(existing) : (staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT)
+  };
+  closeModal();
+  if(editId){
+    db.collection('materials').doc(editId).update(obj).then(()=>toast('הסרטון עודכן')).catch(err=>toast('שגיאה: '+err.message));
+  } else {
+    obj.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection('materials').add(obj).then(()=>toast('הסרטון נוסף')).catch(err=>toast('שגיאה: '+err.message));
+  }
+}
 const IMAGE_FILE_TYPES = ['JPG','JPEG','PNG','GIF','WEBP','SVG'];
 /* תגיות מובנות לחומרי שיווק. אייקונים כלליים (לא לוגו רשמי מדויק) — כדי לא
    לשכפל סימן מסחרי, אבל עדיין ברור אינטואיטיבית איזו פלטפורמה מיועדת. */
@@ -4147,7 +4322,7 @@ function materialCard(m){
   <div class="card material-card">
     ${thumbSrc ? `<img class="file-thumb" src="${thumbSrc}" alt="${m.name}">` : `<div class="file-icon">${m.type}</div>`}
     <div class="material-name">${m.name}</div>
-    <div class="material-meta">${m.category} · ${m.size} · עודכן ${m.date}</div>
+    <div class="material-meta">${m.category} · ${m.size} · עודכן ${m.date}${m.time ? ' '+m.time : ''}</div>
     ${m.tags && m.tags.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;">${m.tags.map(t=>materialTagBadge(t)).join('')}</div>` : ''}
     <a class="download-btn" href="${m.fileUrl}" target="_blank" rel="noopener" download="${m.name}">⬇ הורדה</a>
   </div>`;
@@ -5254,6 +5429,152 @@ function standCardHtml(camp, b, idx, pending, confirmedAt){
     </div>
   `;
 }
+/* ---------- מכר מבצעים (רכש) ---------- */
+/* בחירת סניפים להשוואה — גלובלית לכל המוצרים (לא נבחרת מחדש בכל מוצר),
+   נשמרת ב-localStorage לפי זהות הצופה, כפי שהוחלט בשיחה. */
+function promoCompareKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompare_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function getPromoCompareBranches(){
+  try{ return JSON.parse(localStorage.getItem(promoCompareKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareBranches(arr){
+  try{ localStorage.setItem(promoCompareKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareBranch(name){
+  savePromoCompareBranches(getPromoCompareBranches().filter(n=>n!==name));
+  renderContent();
+}
+function openPromoComparePicker(){
+  const current = getPromoCompareBranches();
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת סניף להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div id="promo-pick-list" style="max-height:360px;overflow-y:auto;">טוען סניפים…</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+  loadBranchDirectory().then(function(){
+    const listEl = document.getElementById('promo-pick-list');
+    if(!listEl) return;
+    const rows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'))
+      .filter(b=>current.indexOf(b.name)===-1)
+      .map(b=>`<div class="preview-pick-row" onclick="addPromoCompareBranch('${b.name.replace(/'/g,"\\'")}')"><span>${b.name}</span></div>`)
+      .join('');
+    listEl.innerHTML = rows || '<div class="empty-state">כל הסניפים כבר נבחרו.</div>';
+  });
+}
+function addPromoCompareBranch(name){
+  const current = getPromoCompareBranches();
+  if(current.indexOf(name)===-1) savePromoCompareBranches([...current, name]);
+  closeModal();
+  renderContent();
+}
+function viewPromoSales(){
+  const products = [...(appData.promoProducts||[])];
+  const myBranchInfo = session.branchInfo || null;
+  const compareBranches = getPromoCompareBranches();
+  const query = (ui.promoSearchQuery||'').trim().toLowerCase();
+
+  const rows = products
+    .filter(p => !query || (p.title||'').toLowerCase().includes(query))
+    .map(p=>{
+      const branches = p.branches || [];
+      const avg = branches.length ? branches.reduce((s,b)=>s+(b.sales||0),0) / branches.length : 0;
+      const mine = myBranchInfo ? matchMyBranchInPromoProduct(p, myBranchInfo) : null;
+      let rank = null;
+      if(mine){
+        const sorted = [...branches].sort((a,b)=>b.sales-a.sales);
+        rank = sorted.findIndex(b=>b===mine) + 1;
+      }
+      return {product: p, avg, mine, rank, total: branches.length};
+    })
+    .sort((a,b)=> (b.mine?b.mine.sales:0) - (a.mine?a.mine.sales:0));
+
+  return `
+    <div class="page-head">
+      <h1>מכר מבצעים</h1>
+      <p>נתוני מכירות לפי מוצר, מול ממוצע הרשת וסניפים לבחירתכם.</p>
+    </div>
+    <div class="field" style="margin-bottom:14px;">
+      <input type="text" placeholder="חיפוש מוצר, או בחירה מהרשימה..." value="${ui.promoSearchQuery||''}" list="promo-products-datalist" oninput="ui.promoSearchQuery=this.value;renderContent();">
+      <datalist id="promo-products-datalist">
+        ${products.map(p=>`<option value="${(p.title||'').replace(/"/g,'&quot;')}">`).join('')}
+      </datalist>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
+      <span style="font-size:12.5px;color:var(--text-secondary);">השוואה לסניפים:</span>
+      ${compareBranches.map(name=>`
+        <span style="font-size:12px;padding:4px 8px 4px 6px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);display:inline-flex;align-items:center;gap:4px;">
+          ${name.replace('ניצת ','')}
+          <button style="border:none;background:none;padding:0;cursor:pointer;color:inherit;font-size:13px;line-height:1;" onclick="removePromoCompareBranch('${name.replace(/'/g,"\\'")}')">✕</button>
+        </span>
+      `).join('')}
+      <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="openPromoComparePicker()">+ הוספת סניף</button>
+    </div>
+    ${rows.length ? rows.map(r=>promoProductCard(r)).join('') : `<div class="card"><div class="empty-state">${products.length ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`}
+  `;
+}
+function promoProductCard(r){
+  const p = r.product, mine = r.mine, avg = r.avg;
+  const compareBranches = getPromoCompareBranches();
+  const maxVal = Math.max(avg, mine?mine.sales:0, ...compareBranches.map(name=>{
+    const b = (p.branches||[]).find(x=>x.name===name);
+    return b ? b.sales : 0;
+  }), 1);
+  const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
+  const avgTickPct = Math.min(100, (avg/maxVal)*100);
+  const vsAvgText = mine && avg>0
+    ? (mine.sales>=avg ? `${Math.round((mine.sales/avg-1)*100)}% מעל הממוצע` : `${Math.round((1-mine.sales/avg)*100)}% מתחת לממוצע`)
+    : '';
+  const barColor = !mine ? 'var(--muted)' : (mine.sales>=avg*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=avg*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
+  return `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+        <div style="font-weight:500;font-size:15px;">${p.title}</div>
+        ${r.rank ? `<span style="font-size:12px;padding:3px 10px;border-radius:8px;background:${barColor==='var(--good,#3B6D11)'?'var(--bg-success,#EAF3DE)':barColor==='var(--critical,#A32D2D)'?'var(--bg-danger,#FCEBEB)':'var(--gridline,#f0f0f0)'};color:${barColor};white-space:nowrap;flex:none;">מקום ${r.rank} מתוך ${r.total}</span>` : ''}
+      </div>
+      ${mine ? `
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+          <span style="font-size:22px;font-weight:500;">${mine.sales}</span>
+          <span style="font-size:13px;color:var(--text-secondary);">יחידות שנמכרו</span>
+        </div>
+        <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:6px;">
+          <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
+          <div style="position:absolute;right:${avgTickPct}%;top:-3px;width:2px;height:14px;background:var(--text-secondary);"></div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:${compareBranches.length?'12px':'0'};">ממוצע רשת: ${avg.toFixed(1)} יחידות${vsAvgText?' · '+vsAvgText:''}</div>
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareBranches.length?'12px':'0'};">אין נתונים לסניף זה במוצר זה.</div>`}
+      ${compareBranches.length ? `
+        <div style="border-top:1px solid var(--gridline);padding-top:10px;">
+          ${mine ? `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;font-weight:500;">הסניף שלכם</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${myPct}%;background:var(--blue,#185FA5);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:26px;text-align:left;font-weight:500;">${mine.sales}</span>
+            </div>
+          ` : ''}
+          ${compareBranches.map(name=>{
+            const b = (p.branches||[]).find(x=>x.name===name);
+            const val = b ? b.sales : 0;
+            const pct = Math.min(100, (val/maxVal)*100);
+            return `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name.replace('ניצת ','')}</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${pct}%;background:var(--muted);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:26px;text-align:left;color:var(--text-secondary);">${val}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
 function viewStandsBranch(){
   const myName = session.branchInfo ? session.branchInfo.name : null;
   const myEmail = session.branchInfo ? session.branchInfo.email : null;
@@ -5352,13 +5673,17 @@ function viewAdmin(){
     {id:'instructions', label:'הוראות'},
     {id:'events', label:'אירועים'},
     {id:'materials', label:'חומרים'},
+    {id:'promoUpload', label:'מכר מבצעים'},
     {id:'feedback', label:'משוב מהסניפים'},
     {id:'stats', label:'סטטיסטיקות'},
     {id:'texts', label:'טקסטים באתר'},
     {id:'pwa', label:'התקנות PWA'},
     {id:'broadcast', label:'שידור עדכון (Push)'}
   ];
-  const tabs = allTabs.filter(t => isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1);
+  const tabs = allTabs.filter(t => {
+    if(t.id==='promoUpload') return canManageDepartment('purchasing');
+    return isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1;
+  });
   /* אם הטאב הפעיל אינו מורשה למשתמש הזה (למשל נשמר מסשן קודם), נופלים לראשון המותר. */
   if(!tabs.some(t=>t.id===ui.adminTab)) ui.adminTab = tabs[0].id;
   const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
@@ -5374,12 +5699,253 @@ function viewAdmin(){
     ${ui.adminTab==='instructions' ? adminList('instructions') : ''}
     ${ui.adminTab==='events' ? adminList('events') : ''}
     ${ui.adminTab==='materials' ? adminList('materials') : ''}
+    ${ui.adminTab==='promoUpload' ? adminPromoUpload() : ''}
     ${ui.adminTab==='feedback' ? adminFeedback() : ''}
     ${ui.adminTab==='stats' ? adminStats() : ''}
     ${ui.adminTab==='texts' ? adminTexts() : ''}
     ${ui.adminTab==='pwa' ? adminPwaInstalls() : ''}
     ${ui.adminTab==='broadcast' ? adminBroadcast() : ''}
   `;
+}
+/* מיפוי ברירת מחדל בין קיצור העמודה באקסל לשם הסניף המלא - נבנה יחד עם
+   אלירן ב-30.08.2026. תוספות עתידיות (קיצורים חדשים שנפתרים ידנית בעת
+   העלאה) נשמרות בנפרד ב-Firestore (config/promoColumnMapping) ומתמזגות
+   עם המיפוי הזה - כך שאין צורך לגעת בקוד שוב. */
+const DEFAULT_PROMO_COLUMN_MAPPING = {
+  'ת"א': 'ניצת תל אביב אבן גבירול',
+  'י-ם': 'ניצת ירושלים כנפי נשרים',
+  'הרצל': 'ניצת הרצליה',
+  'רעננה': 'ניצת רעננה אוסטרובסקי',
+  'גוש עציון': 'ניצת גוש עציון',
+  'זכרון': 'ניצת זכרון יעקב',
+  'חיפה': 'ניצת חיפה קומוי (נוה שאנן)',
+  'פ"ת': 'ניצת פתח תקווה סגולה',
+  'ק. 8': 'ניצת קריית שמונה',
+  'עפול': 'ניצת עפולה',
+  'אשקל': 'ניצת אשקלון',
+  'שמש': 'ניצת בית שמש',
+  'שוק': 'ניצת תל אביב שוק הכרמל',
+  'נתניה': 'ניצת קרית השרון',
+  'פרדס': 'ניצת פרדס חנה',
+  'ישי': 'ניצת רמת ישי',
+  'טבר': 'ניצת טבריה',
+  'בוגרשוב': 'ניצת תל אביב בוגרשוב',
+  'שרון': 'ניצת רמת השרון',
+  'בנימינ': 'ניצת בינימינה',
+  'חורב': 'ניצת חיפה חורב',
+  'כרמי': 'ניצת כרמיאל',
+  'באר7': 'ניצת ב"ש מול 7',
+  'אתא': 'ניצת קרית אתא',
+  'יוקנ': 'ניצת יקנעם',
+  'רחוב': 'ניצת רחובות מוטי קינד',
+  'ראשון': 'ניצת ראשל"צ תרמ"ב',
+  'מודיע': 'ניצת ביו מרקט מודיעין',
+  'אריאל': 'ניצת אריאל',
+  'קסטי': 'ניצת קסטינה',
+  'ברוד': 'ניצת תל אביב ברודצקי',
+  'סבא': 'ניצת כפ"ס הירוקה (דימרי סנטר)',
+  'רגבה': 'ניצת רגבה',
+  'אשדוד': 'ניצת אשדוד',
+  'פינה': 'ניצת ראש פינה',
+  'חולון': 'ניצת חולון',
+  'ביג7': 'ניצת באר שבע ביג',
+  'מונד': 'ניצת תל מונד',
+  'טופ': 'ניצת תל אביב טופ דן',
+  'ביתר': 'ניצת בית"ר עלית',
+  'ר.צפון': 'ניצת רענננה בטבע בע"מ',
+  'יכין': 'ניצת פתח תקווה יכין',
+  'אילת': 'ניצת אילת',
+  'טבעון': 'ניצת קרית טבעון',
+  'מוצק': 'ניצת קרית מוצקין',
+  'ניות': 'ניצת ירושלים ניות',
+  'מכבי': 'ניצת תל אביב יהודה המכבי',
+  'דיזנ': 'ניצת תל אביב דיזנגוף',
+  'סמילנ': 'ניצת נתניה סמילנסקי',
+  'חדרה': 'ניצת חדרה',
+  'כרכור': 'ניצת כרכור',
+  'יהוד': 'ניצת יהוד',
+  'אגריפס': 'ניצת ירושלים אגריפס',
+  'גבעת': 'ניצת גבעתיים סירקין',
+  'מבשרת': 'ניצת מבשרת ציון',
+  'פיאנו': 'ניצת נתניה פיאנו עיר ימים',
+  'תלפיות': 'ניצת ירושלים תלפיות',
+  'הוד': 'ניצת הוד השרון',
+  'גן': 'ניצת רמת גן',
+  'ר.מערב': 'ניצת ראשל"צ מערב',
+  'אפרת': 'ניצת אפרת',
+  'פלור': 'ניצת תל אביב פלורנטין',
+  'נהריה': 'ניצת נהריה',
+  'יבנה': 'ניצת יבנה',
+  'ר.הרצל': 'ניצת רחובות הרצל',
+  'שינקין': 'ניצת תל אביב שנקין',
+  'שרונה': 'ניצת תל אביב שרונה',
+  'אונו': 'ניצת קרית אונו',
+  'מ.מרכז': 'ניצת מודיעין מרכז העיר',
+  'אבן .י.': 'ניצת אבן יהודה',
+  'שוהם': 'ניצת שוהם',
+  'ביו כפ"ס': 'ניצת ביו מרקט כפ"ס',
+  'עקיבא': 'ניצת אור עקיבא',
+  'גת': 'ניצת כרמי גת',
+  'ויתקין': 'ניצת כפר ויתקין',
+  'חשמ': 'ניצת תל אביב החשמונאים',
+  'קדי': 'ניצת קדימה',
+  'כורזי': 'ניצת גבעתיים כורזין',
+  'שוסט': 'ניצת תל אביב מרכז שוסטר',
+  'עד ה': 'ניצת עד הלום'
+};
+/* המיפוי המלא בפועל = ברירת המחדל + תוספות שנלמדו ונשמרו ב-Firestore. */
+function fullPromoColumnMapping(){
+  return Object.assign({}, DEFAULT_PROMO_COLUMN_MAPPING, appData.promoColumnMappingExtra||{});
+}
+let pendingPromoImportRows = null; /* שורות הגיליון הגולמיות, ממתינות לפתרון קיצורים לא-מוכרים */
+function adminPromoUpload(){
+  const count = (appData.promoProducts||[]).length;
+  return `
+    <div class="card">
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
+        ייבוא נתוני מכר מבצעים לפי סניף, ישירות מקובץ האקסל המקורי. בכל פעם
+        שמעלים קובץ חדש, הנתונים הישנים נמחקים ומוחלפים בחדשים. עמודות שכבר
+        מוכרות מזוהות אוטומטית — רק קיצור חדש/לא מוכר (למשל סניף שנפתח עכשיו)
+        יוצג לבחירה ידנית, ונשמר לפעם הבאה.
+      </p>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        כרגע במערכת: <b>${count}</b> מוצרים.
+      </div>
+      <input type="file" id="promo-excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handlePromoExcelUpload(event)">
+      <button class="btn-import" onclick="document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל</button>
+      <div id="promo-upload-status" style="margin-top:12px;font-size:13px;"></div>
+      <div id="promo-unresolved-area"></div>
+    </div>
+  `;
+}
+function handlePromoExcelUpload(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('promo-upload-status');
+  if(statusEl) statusEl.textContent = 'קורא את קובץ האקסל...';
+  const reader = new FileReader();
+  reader.onload = function(e){
+    let rows;
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellStyles:true});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+      if(!rows.length) throw new Error('הקובץ ריק');
+    }catch(err){
+      if(statusEl) statusEl.textContent = 'שגיאה בקריאת הקובץ: ' + err.message;
+      return;
+    }
+    pendingPromoImportRows = rows;
+    const headers = rows[0] || [];
+    const branchCols = headers.slice(3).filter(h=>h!=null && String(h).trim()!=='');
+    const mapping = fullPromoColumnMapping();
+    const unresolved = [...new Set(branchCols.map(String))].filter(col=>!mapping[col]);
+    if(unresolved.length===0){
+      if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
+      finalizePromoImport(mapping);
+    } else {
+      if(statusEl) statusEl.textContent = `${branchCols.length-unresolved.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. נותרו ${unresolved.length} לפתרון ידני למטה.`;
+      renderPromoUnresolvedForm(unresolved);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  evt.target.value = '';
+}
+/* מציגה טופס קטן לפתרון קיצורי עמודות שאינם מוכרים - בחירת סניף מרשימה
+   מלאה, פעם אחת לכל קיצור. הבחירה נשמרת ב-Firestore לתמיד. */
+function renderPromoUnresolvedForm(unresolvedCols){
+  const areaEl = document.getElementById('promo-unresolved-area');
+  if(!areaEl) return;
+  areaEl.innerHTML = '<div style="margin-top:10px;font-size:13px;color:var(--text-secondary);">טוען רשימת סניפים...</div>';
+  loadBranchDirectory().then(function(){
+    const sortedBranches = [...BRANCH_DIRECTORY].sort((a,b)=>a.name.localeCompare(b.name,'he'));
+    areaEl.innerHTML = `
+      <div style="border-top:1px solid var(--gridline);margin-top:14px;padding-top:14px;">
+        <div style="font-weight:500;font-size:14px;margin-bottom:10px;">קיצורים לא מוכרים — בחרו סניף לכל אחד:</div>
+        ${unresolvedCols.map((col,idx)=>`
+          <div class="field" style="margin-bottom:10px;">
+            <label>"${col}"</label>
+            <select id="promo-resolve-${idx}">
+              <option value="">— בחרו סניף —</option>
+              ${sortedBranches.map(b=>`<option value="${b.name.replace(/"/g,'&quot;')}">${b.name}</option>`).join('')}
+            </select>
+          </div>
+        `).join('')}
+        <button class="btn-confirm" onclick='savePromoUnresolvedAndImport(${JSON.stringify(unresolvedCols)})'>שמירה והמשך ייבוא</button>
+      </div>
+    `;
+  });
+}
+function savePromoUnresolvedAndImport(unresolvedCols){
+  const statusEl = document.getElementById('promo-upload-status');
+  const newEntries = {};
+  for(let i=0;i<unresolvedCols.length;i++){
+    const val = (document.getElementById('promo-resolve-'+i)||{}).value;
+    if(!val){ toast('יש לבחור סניף לכל הקיצורים לפני שממשיכים'); return; }
+    newEntries[unresolvedCols[i]] = val;
+  }
+  const merged = Object.assign({}, appData.promoColumnMappingExtra||{}, newEntries);
+  if(statusEl) statusEl.textContent = 'שומר מיפוי חדש...';
+  db.collection('config').doc('promoColumnMapping').set({ mapping: merged }, {merge:true}).then(function(){
+    appData.promoColumnMappingExtra = merged;
+    document.getElementById('promo-unresolved-area').innerHTML = '';
+    finalizePromoImport(fullPromoColumnMapping());
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = 'שגיאה בשמירת המיפוי: ' + err.message;
+  });
+}
+/* בונה את רשימת המוצרים מהשורות הגולמיות + המיפוי הסופי, ומחליף את כל
+   התוכן הקיים ב-Firestore (מוחק ישן, כותב חדש) - אצווה, בדיוק כמו קודם. */
+function finalizePromoImport(mapping){
+  const statusEl = document.getElementById('promo-upload-status');
+  const rows = pendingPromoImportRows;
+  if(!rows){ if(statusEl) statusEl.textContent = 'שגיאה: אין קובץ טעון.'; return; }
+  const products = [];
+  for(let r=1;r<rows.length;r++){
+    const row = rows[r];
+    if(!row || row[0]==null) continue;
+    const code = row[0], title = row[1], total = row[2];
+    const seen = {};
+    for(let c=3;c<row.length;c++){
+      const colHeader = rows[0][c];
+      if(colHeader==null) continue;
+      const branchName = mapping[String(colHeader)];
+      const val = row[c];
+      if(branchName && val){ seen[branchName] = (seen[branchName]||0) + Number(val); }
+    }
+    const branches = Object.keys(seen).map(name=>({name, sales: seen[name]}));
+    products.push({code, title, total, branches});
+  }
+  if(statusEl) statusEl.textContent = `נמחקים ${(appData.promoProducts||[]).length} מוצרים ישנים...`;
+  db.collection('promoProducts').get().then(function(snap){
+    const delBatches = [];
+    let batch = db.batch(); let n=0;
+    snap.forEach(function(doc){
+      batch.delete(doc.ref); n++;
+      if(n===450){ delBatches.push(batch); batch = db.batch(); n=0; }
+    });
+    if(n>0) delBatches.push(batch);
+    return Promise.all(delBatches.map(b=>b.commit()));
+  }).then(function(){
+    if(statusEl) statusEl.textContent = `כותב ${products.length} מוצרים חדשים...`;
+    const writeBatches = [];
+    let batch = db.batch(); let n=0;
+    products.forEach(function(p){
+      const ref = db.collection('promoProducts').doc();
+      batch.set(ref, { code:p.code||null, title:p.title||'', total:p.total||0, branches:p.branches||[], department:'purchasing', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      n++;
+      if(n===450){ writeBatches.push(batch); batch = db.batch(); n=0; }
+    });
+    if(n>0) writeBatches.push(batch);
+    return Promise.all(writeBatches.map(b=>b.commit()));
+  }).then(function(){
+    if(statusEl) statusEl.textContent = `הועלו בהצלחה ${products.length} מוצרים.`;
+    pendingPromoImportRows = null;
+    toast('נתוני מכר מבצעים עודכנו בהצלחה');
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = 'שגיאה בהעלאה: ' + err.message;
+  });
 }
 function adminBroadcast(){
   return `
@@ -5565,8 +6131,8 @@ function adminList(type){
 function adminRow(type, it){
   let meta = '';
   if(type==='competitions') meta = `${STATUS_LABEL[it.status]} · <span dir="ltr">${it.start} – ${it.end}</span>${it.groups && it.groups.length ? ` · ${it.groups.length} קבוצות (מיובא מאקסל)` : ''}${it.salesUpdatedAt ? ` · מכירות עודכנו ${it.salesUpdatedAt}` : ''}`;
-  if(type==='instructions') meta = `${it.category} · ${PRIORITY_LABEL[it.priority]} · ${it.date}`;
-  if(type==='materials') meta = `${it.category} · ${it.type} · ${it.size}`;
+  if(type==='instructions') meta = `${it.category} · ${PRIORITY_LABEL[it.priority]} · ${it.date}${it.time ? ' '+it.time : ''}`;
+  if(type==='materials') meta = `${it.category} · ${it.type} · ${it.size} · ${it.date}${it.time ? ' '+it.time : ''}`;
   if(type==='events'){
     const audienceLabel = it.audience==='branch' ? ` · 🎯 סניפי: ${(BRANCH_DIRECTORY.find(b=>b.email===it.targetBranchEmail)||{}).name || it.targetBranchEmail}`
       : it.audience==='area' ? ` · 🎯 אזורי: ${it.targetAreaLabel}`
@@ -5615,20 +6181,57 @@ function adminFeedback(){
 }
 function adminStats(){
   const activeCompsCount = appData.competitions.filter(c=>c.status==='active').length;
+  const activity = appData.viewerActivity || [];
+  const branchActivity = {};
+  activity.forEach(a=>{ if(a.role==='branch') branchActivity[a.viewerId] = a; });
+  const totalBranches = getTotalBranches();
+  const nowMs = Date.now();
+  const weekAgoMs = nowMs - 7*86400000;
+  const everEntered = BRANCH_DIRECTORY.filter(b=>branchActivity['branch:'+b.email]).length;
+  const enteredThisWeek = BRANCH_DIRECTORY.filter(b=>{
+    const a = branchActivity['branch:'+b.email];
+    if(!a) return false;
+    const t = parseHebDate(a.lastSeenDate);
+    return !isNaN(t) && t >= weekAgoMs;
+  }).length;
+  const neverEntered = BRANCH_DIRECTORY.filter(b=>!branchActivity['branch:'+b.email])
+    .sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  const enteredButStale = BRANCH_DIRECTORY.filter(b=>{
+    const a = branchActivity['branch:'+b.email];
+    if(!a) return false;
+    const t = parseHebDate(a.lastSeenDate);
+    return !isNaN(t) && t < weekAgoMs;
+  }).sort((a,b)=>{
+    const ta = parseHebDate((branchActivity['branch:'+a.email]||{}).lastSeenDate) || 0;
+    const tb = parseHebDate((branchActivity['branch:'+b.email]||{}).lastSeenDate) || 0;
+    return ta - tb; /* הכי ותיק-לא-נכנס קודם */
+  });
   return `
     <div class="stat-row">
-      <div class="stat-tile"><div class="label">סניפים רשומים</div><div class="value">${getTotalBranches()}</div><div class="delta flat">מתוך רשת מלאה</div></div>
-      <div class="stat-tile"><div class="label">תחרויות פעילות</div><div class="value">${activeCompsCount}</div><div class="delta ${activeCompsCount?'good':'flat'}">כרגע פתוחות</div></div>
+      <div class="stat-tile"><div class="label">סניפים רשומים</div><div class="value">${totalBranches}</div><div class="delta flat">מתוך רשת מלאה</div></div>
+      <div class="stat-tile"><div class="label">נכנסו אי פעם</div><div class="value">${everEntered}</div><div class="delta ${everEntered===totalBranches?'good':'flat'}">מתוך ${totalBranches}</div></div>
+      <div class="stat-tile"><div class="label">נכנסו השבוע</div><div class="value">${enteredThisWeek}</div><div class="delta ${enteredThisWeek>0?'good':'flat'}">7 הימים האחרונים</div></div>
       <div class="stat-tile"><div class="label">הורדה חומרי שיווק / דיגיטל ורשתות חברתיות</div><div class="value">${appData.materials.length}</div><div class="delta flat">זמינים בספרייה</div></div>
-      <div class="stat-tile"><div class="label">תגובות ומשוב מהסניפים</div><div class="value">${appData.comments.length}</div><div class="delta flat">סה״כ מצטבר</div></div>
     </div>
+    ${neverEntered.length ? `
+    <div class="card" style="padding:18px 20px;margin-bottom:14px;">
+      <h3 style="margin:0 0 10px;font-size:14.5px;color:var(--critical,#A32D2D);">מעולם לא נכנסו (${neverEntered.length})</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${neverEntered.map(b=>`<span style="font-size:12px;padding:3px 9px;border-radius:8px;background:var(--bg-danger,#FCEBEB);color:var(--critical,#A32D2D);">${b.name}</span>`).join('')}
+      </div>
+    </div>` : ''}
+    ${enteredButStale.length ? `
     <div class="card" style="padding:18px 20px;">
-      <h3 style="margin:0 0 6px;font-size:14.5px;">לוח זה מיועד להדגמה</h3>
-      <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0;">
-        בגרסה מלאה, נתונים אלו יתעדכנו אוטומטית ממערכת ההתחברויות וההורדות בפועל של הסניפים,
-        ויאפשרו למחלקת השיווק לזהות אילו סניפים לא צפו בעדכונים קריטיים.
-      </p>
-    </div>
+      <h3 style="margin:0 0 10px;font-size:14.5px;">נכנסו בעבר, לא לאחרונה (${enteredButStale.length})</h3>
+      ${enteredButStale.slice(0,15).map(b=>{
+        const a = branchActivity['branch:'+b.email];
+        return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gridline);font-size:13px;">
+          <span>${b.name}</span><span style="color:var(--text-secondary);">נכנס לאחרונה ${a.lastSeenDate} · סה"כ ${a.visitCount||1} כניסות</span>
+        </div>`;
+      }).join('')}
+      ${enteredButStale.length>15 ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">ועוד ${enteredButStale.length-15}...</div>` : ''}
+    </div>` : ''}
+    ${(!neverEntered.length && !enteredButStale.length && everEntered>0) ? `<div class="card"><div class="empty-state">כל הסניפים נכנסו לאחרונה — מצוין!</div></div>` : ''}
   `;
 }
 
@@ -5892,6 +6495,7 @@ function saveForm(){
     const selectedTags = [...document.querySelectorAll('.f-material-tag-cb:checked')].map(cb=>cb.value);
     obj = {
       name: val('f-name'), category: val('f-category'), type: fileInfo.type, size: fileInfo.size, fileUrl: fileInfo.url, date: todayHeb(), unread: true,
+      time: existingMaterial ? (existingMaterial.time || null) : new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       tags: selectedTags,
       thumbUrl: pendingMaterialThumbUrl!==undefined ? pendingMaterialThumbUrl : (existingMaterial ? (existingMaterial.thumbUrl || null) : null)
     };
