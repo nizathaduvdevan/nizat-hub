@@ -2846,7 +2846,7 @@ function findBranchDirectoryEntry(rawName){
   _branchDirEntryCache[rawName] = found;
   return found;
 }
-/* מקבצת את הסניפים של מוצר מכר-מבצעים לפי אזור, ומחזירה ממוצע לכל אזור. */
+/* מקבצת את הסניפים של מוצר מכר-מבצעים לפי אזור, ומחזירה חציון לכל אזור. */
 let _promoAreaGroupCache = {};
 function groupPromoProductByArea(product){
   if(_promoAreaGroupCache.hasOwnProperty(product.id)) return _promoAreaGroupCache[product.id];
@@ -2859,12 +2859,12 @@ function groupPromoProductByArea(product){
     areaMap[area].count++;
     areaMap[area].branches.push({name:b.name, sales:b.sales||0});
   });
-  const result = Object.values(areaMap).map(a=>({area:a.area, avg: a.count ? a.sum/a.count : 0, count:a.count, branches:a.branches}));
+  const result = Object.values(areaMap).map(a=>({area:a.area, med: median(a.branches.map(x=>x.sales)), count:a.count, branches:a.branches}));
   _promoAreaGroupCache[product.id] = result;
   return result;
 }
 /* פירוט כל סניפי האזור שלי במוצר נתון, ממוין מהגבוה לנמוך - זה מה שנותן
-   למנהל האזור לראות בדיוק כמה כל סניף שלו מכר, לא רק ממוצע כללי. */
+   למנהל האזור לראות בדיוק כמה כל סניף שלו מכר, לא רק חציון כללי. */
 function myAreaBranchBreakdown(product){
   if(!isAreaViewer()) return [];
   const grouped = groupPromoProductByArea(product);
@@ -2872,7 +2872,7 @@ function myAreaBranchBreakdown(product){
   return mine ? [...mine.branches].sort((a,b)=>b.sales-a.sales) : [];
 }
 /* מחשבת את "הערך שלי" במוצר, בהתאם לתפקיד הצופה: סניף רואה את המכירה שלו,
-   מנהל אזור רואה את ממוצע כל הסניפים באזור שלו. */
+   מנהל אזור רואה את חציון כל הסניפים באזור שלו. */
 function computeMyPromoValue(product){
   if(session.role==='branch' && session.branchInfo){
     const b = matchMyBranchInPromoProduct(product, session.branchInfo);
@@ -2881,7 +2881,7 @@ function computeMyPromoValue(product){
   if(session.role==='area' && session.areaLabel){
     const grouped = groupPromoProductByArea(product);
     const mine = grouped.find(a=>a.area===session.areaLabel);
-    return mine ? {sales: Math.round(mine.avg*10)/10, label:`ממוצע האזור שלכם (${mine.count} סניפים)`, unitLabel:'יחידות בממוצע לסניף'} : null;
+    return mine ? {sales: Math.round(mine.med*10)/10, label:`חציון האזור שלכם (${mine.count} סניפים)`, unitLabel:'יחידות (חציון)'} : null;
   }
   return null;
 }
@@ -2965,7 +2965,6 @@ function buildPromoBranchReport(branchName){
   Object.keys(byCode).forEach(code=>{
     const meta = booklet[code] || {};
     const entry = byCode[code];
-    if(meta.needsParticipantList){ out.scopedOut.push({code, title:entry.title, reason:'נדרשת רשימת משתתפים — פתוח לחלק מהסניפים בלבד.'}); return; }
     if(!isPromoRelevantForBranch(meta, branchName)){ out.scopedOut.push({code, title:entry.title, reason:`מבצע ייעודי ל${meta.restricted}, לא רלוונטי לסניף זה.`}); return; }
     const selfVal = entry.salesByBranch[branchName] || 0;
     const compVals = promoComparisonPool(meta, [branchName]).map(n=>entry.salesByBranch[n]||0);
@@ -2977,7 +2976,9 @@ function buildPromoBranchReport(branchName){
   return out;
 }
 /* דוח מלא לאזור (קבוצת סניפים): סכום הסניפים באזור מול "צפי" = חציון
-   הרשת (למעט סניפי האזור) × מספר סניפים באזור. קירוב מוצהר, לא מדד רשמי. */
+   הרשת (למעט סניפי האזור) × מספר סניפים באזור. קירוב מוצהר, לא מדד רשמי.
+   בכל שורה מצורפת גם רשימת הסניפים באזור עם 0 מימושים באותו קוד - חשוב
+   למנהל האזור לראות בדיוק אילו סניפים ספציפיים לא מימשו, לא רק את הסכום. */
 function buildPromoAreaReport(areaBranchNames){
   const {byCode} = buildPromoAnalysisBase();
   const booklet = appData.promoBooklet || {};
@@ -2985,10 +2986,10 @@ function buildPromoAreaReport(areaBranchNames){
   Object.keys(byCode).forEach(code=>{
     const meta = booklet[code] || {};
     const entry = byCode[code];
-    if(meta.needsParticipantList) return;
     const relevant = areaBranchNames.filter(n=>isPromoRelevantForBranch(meta, n));
     if(!relevant.length) return;
     const totalSelf = relevant.reduce((s,n)=>s+(entry.salesByBranch[n]||0),0);
+    const zeroBranches = relevant.filter(n=>(entry.salesByBranch[n]||0)===0);
     const compVals = promoComparisonPool(meta, areaBranchNames).map(n=>entry.salesByBranch[n]||0);
     const med = median(compVals);
     if(med===null) return;
@@ -2999,7 +3000,7 @@ function buildPromoAreaReport(areaBranchNames){
     else if(totalSelf<expected) group = 'gap';
     else if(totalSelf>expected) group = 'strength';
     if(group==='none') return;
-    out[group].push({code, title:entry.title, meta, cls:{selfVal:totalSelf, med:expected, gapPct, branchCount:relevant.length}});
+    out[group].push({code, title:entry.title, meta, cls:{selfVal:totalSelf, med:expected, gapPct, branchCount:relevant.length, zeroBranches}});
   });
   return out;
 }
@@ -3007,16 +3008,23 @@ function promoInsightText(row, isArea){
   const {meta, cls} = row;
   const parts = [];
   if(row.__group==='anomaly' || (!isArea && cls.group==='anomaly')){
-    parts.push(`אפס מימושים${isArea?' באזור':' בסניף'}, מול ${isArea?'צפי':cls.positiveOthers+' מתוך '+cls.totalOthers+' סניפים אחרים פעילים'}${isArea?'':'; החציון הוא '+cls.med}.`);
-    parts.push('סדר בדיקה מוצע: השתתפות ומגוון פתוח ← הזמנה/זמינות ← הגדרת המבצע בקופה ← שילוט ומיקום ← מכר תחליפים.');
+    if(isArea){
+      parts.push(`אפס מימושים באזור. הצפי (חציון הרשת × מספר סניפים) היה ${cls.med.toFixed(1)}.`);
+    } else {
+      parts.push(`0 מימושים בסניף, מול ${cls.positiveOthers} מתוך ${cls.totalOthers} סניפים אחרים פעילים. החציון הוא ${cls.med}.`);
+    }
   } else if(row.__group==='gap' || (!isArea && cls.group==='gap')){
     if(meta.note && meta.note.indexOf('בחוץ מדף')!==-1) parts.push('כדאי לבדוק שילוט/מיקום מול ההנחיה: ' + meta.note.replace('מימושים.','').trim());
     if(meta.template && (meta.template.indexOf('שני')!==-1 || meta.template.indexOf("2 יח")!==-1)) parts.push('מבצע זוגות/שני יחידות — ייתכן שלקוחות לא משלימים את המימוש.');
     if(!parts.length) parts.push('פער מתחת לחציון קבוצת ההשוואה; מומלץ בדיקת זמינות ומיקום.');
   } else {
-    parts.push(cls.med===0 ? 'פעילות חיובית מול בסיס השוואה נמוך — לא בהכרח הצטיינות.' : 'מעל החציון — לשמר זמינות ולבדוק אם ניתן לשתף שיטת עבודה.');
+    parts.push(cls.med===0 ? 'פעילות חיובית מול בסיס השוואה נמוך — לא בהכרח הצטיינות.' : 'מעל החציון — לשמר זמינות.');
+  }
+  if(isArea && cls.zeroBranches && cls.zeroBranches.length){
+    parts.push(`סניפים באזור עם 0 מימושים: ${cls.zeroBranches.join(', ')}.`);
   }
   if(meta.restricted) parts.push(`⚠ מבצע ייעודי ל${meta.restricted} בלבד.`);
+  if(meta.needsParticipantList) parts.push('⚠ בחוברת סומן כ"פתוח לחלק מהסניפים בלבד" - נתוני המכר מראים בפועל מי מוכר ומי לא, כך שסניף עם מכירות בפועל נחשב משתתף מאומת.');
   const mult = promoMultiplier(meta.template);
   if(mult>1 && !isArea) parts.push(`כל מימוש = ${mult} פריטים (${cls.selfVal} מימושים ≈ ${cls.selfVal*mult} פריטים).`);
   return parts.join(' ');
@@ -3033,11 +3041,12 @@ function promoAnalysisRowHtml(row, group, isArea){
   const priceTxt = row.meta.price ? '₪'+Number(row.meta.price).toFixed(2) : '';
   const codeTxt = row.code;
   const gapPctTxt = c.gapPct==null ? '—' : ((c.gapPct>0?'+':'')+c.gapPct.toFixed(0)+'%');
+  const areaPrefix = c.areaLabel ? `<span style="color:var(--blue,#185FA5);font-weight:600;">אזור ${c.areaLabel}</span> · ` : '';
   return `
     <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap;">
         <div class="admin-row-main">
-          <div class="t">${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
+          <div class="t">${areaPrefix}${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
           <div class="m">${row.meta.template||''} ${priceTxt}</div>
         </div>
         <span style="font-size:12px;padding:3px 10px;border-radius:8px;white-space:nowrap;flex:none;background:${promoGroupColor(group)}1a;color:${promoGroupColor(group)};">
@@ -3066,11 +3075,102 @@ function promoAnalysisSectionHtml(title, group, rows, isArea, emptyMsg){
     </div>
   `;
 }
+/* דוח מאקרו לתצוגה ארצית (ארבל/עופר) - לא ברמת סניף, אלא ברמת אזור מול
+   אזור. לכל קוד מבצע, כל אזור מושווה מול חציון "הממוצע לסניף" של שאר
+   האזורים (מנורמל למספר הסניפים באזור, כדי שאזור גדול לא ייראה חזק
+   באופן מלאכותי רק כי יש בו יותר סניפים). */
+function buildPromoNationalReport(){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = appData.promoBooklet || {};
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const areaBranchMap = {};
+  areaLabels.forEach(a=>{ areaBranchMap[a] = BRANCH_DIRECTORY.filter(b=>b.area===a).map(b=>b.name); });
+  const out = {anomaly:[], gap:[], strength:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    const areaStats = areaLabels.map(a=>{
+      const branches = (areaBranchMap[a]||[]).filter(n=>isPromoRelevantForBranch(meta, n));
+      if(!branches.length) return null;
+      const total = branches.reduce((s,n)=>s+(entry.salesByBranch[n]||0),0);
+      const zeroBranches = branches.filter(n=>(entry.salesByBranch[n]||0)===0);
+      return {area:a, total, perBranch: total/branches.length, count:branches.length, zeroBranches};
+    }).filter(Boolean);
+    if(areaStats.length<2) return; /* אין מה להשוות בין פחות משני אזורים */
+    areaStats.forEach(as=>{
+      const others = areaStats.filter(x=>x.area!==as.area).map(x=>x.perBranch);
+      const med = median(others);
+      if(med===null) return;
+      const expected = med * as.count;
+      const gapPct = expected>0 ? ((as.total/expected-1)*100) : null;
+      let group = 'none';
+      if(as.total===0 && expected>0) group = 'anomaly';
+      else if(as.total<expected) group = 'gap';
+      else if(as.total>expected) group = 'strength';
+      if(group==='none') return;
+      out[group].push({code, title:entry.title, meta, cls:{selfVal:as.total, med:expected, gapPct, branchCount:as.count, zeroBranches:as.zeroBranches, areaLabel:as.area}});
+    });
+  });
+  return out;
+}
+/* טבלת KPI תמציתית לכל אזור: סה"כ מימושים ברשת (כל הקודים), ומספר קודים
+   בכל אחת משלוש הקבוצות - זו התמונה ה"ארצית לפי מנהלי אזור" עצמה. */
+function promoNationalSummaryTableHtml(report){
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const rows = areaLabels.map(a=>{
+    const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===a).map(b=>b.name);
+    const {byCode} = buildPromoAnalysisBase();
+    let total = 0;
+    Object.values(byCode).forEach(entry=>{ areaBranches.forEach(n=>{ total += (entry.salesByBranch[n]||0); }); });
+    const anomalyCount = report.anomaly.filter(r=>r.cls.areaLabel===a).length;
+    const gapCount = report.gap.filter(r=>r.cls.areaLabel===a).length;
+    const strengthCount = report.strength.filter(r=>r.cls.areaLabel===a).length;
+    return {area:a, branchCount:areaBranches.length, total, anomalyCount, gapCount, strengthCount};
+  }).sort((x,y)=>y.total-x.total);
+  return `
+    <div class="card" style="margin-bottom:18px;overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;">
+        <thead><tr style="text-align:right;color:var(--text-secondary);">
+          <th style="padding:6px 8px;">מנהל אזור</th><th style="padding:6px 8px;">סניפים</th>
+          <th style="padding:6px 8px;">סה"כ מימושים (כל הקודים)</th>
+          <th style="padding:6px 8px;color:var(--critical,#d03b3b);">בדיקת חריגה</th>
+          <th style="padding:6px 8px;color:var(--warning,#c9962f);">בירור פער</th>
+          <th style="padding:6px 8px;color:var(--good,#0ca30c);">לשמר חוזקה</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>`
+            <tr style="border-top:1px solid var(--gridline);">
+              <td style="padding:6px 8px;font-weight:500;">${r.area}</td>
+              <td style="padding:6px 8px;">${r.branchCount}</td>
+              <td style="padding:6px 8px;">${r.total}</td>
+              <td style="padding:6px 8px;">${r.anomalyCount||'—'}</td>
+              <td style="padding:6px 8px;">${r.gapCount||'—'}</td>
+              <td style="padding:6px 8px;">${r.strengthCount||'—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 /* המסך הראשי לניתוח מכר מבצעים (סניף/אזור) - מוצג מעל עיון-לפי-מוצר. */
 function viewPromoAnalysis(){
   const bookletCount = Object.keys(appData.promoBooklet||{}).length;
   if(!bookletCount){
     return `<div class="card"><div class="empty-state">עדיין לא הועלתה חוברת המבצעים החודשית — הניתוח יופיע כאן ברגע שרכש יעלה אותה ב"ניהול תוכן".</div></div>`;
+  }
+  if(isNationalViewer()){
+    const report = buildPromoNationalReport();
+    return `
+      <div class="card" style="margin-bottom:16px;">
+        <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — תצוגה ארצית לפי מנהלי אזור</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);">כל אזור מושווה מול שאר האזורים (ממוצע לסניף, מנורמל למספר הסניפים באזור). אין כאן פירוט ברמת סניף בודד.</div>
+      </div>
+      ${promoNationalSummaryTableHtml(report)}
+      ${promoAnalysisSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, true, 'אין ממצאי חריגת אפס כרגע.')}
+      ${promoAnalysisSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, true, 'אין ממצאי פער כרגע.')}
+      ${promoAnalysisSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, true, 'אין ממצאי חוזקה כרגע.')}
+    `;
   }
   const areaMode = isAreaViewer();
   let report, scopeLabel;
@@ -5812,6 +5912,10 @@ function openPromoCompareAreaPicker(){
   document.getElementById('modal-overlay').classList.add('open');
 }
 function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
+/* עופר וארבל: role='area' עם areaName=null (תצוגה ארצית, לא אזור ספציפי).
+   מבחינת "מכר מבצעים" הם לא אמורים לרדת לרמת סניף בודד, אלא לראות תמונה
+   ארצית לפי אזורים - זה מה ש-buildPromoNationalReport נותן. */
+function isNationalViewer(){ return session.role==='area' && !!session.areaLabel && !session.areaName; }
 /* בונה את שורות הנתונים למכר מבצעים לפי שאילתת חיפוש נתונה - ברירת מחדל
    (שאילתה ריקה) ממוינת לפי אלף-בית של כותרת המוצר. */
 function buildPromoRows(query){
@@ -5822,12 +5926,12 @@ function buildPromoRows(query){
     .filter(p => !q || (p.title||'').toLowerCase().includes(q))
     .map(p=>{
       const branches = p.branches || [];
-      const avg = branches.length ? branches.reduce((s,b)=>s+(b.sales||0),0) / branches.length : 0;
+      const med = median(branches.map(b=>b.sales||0)) || 0;
       const mine = computeMyPromoValue(p);
       let rank = null, total = null;
       if(mine){
         if(areaMode){
-          const grouped = groupPromoProductByArea(p).sort((a,b)=>b.avg-a.avg);
+          const grouped = groupPromoProductByArea(p).sort((a,b)=>b.med-a.med);
           rank = grouped.findIndex(a=>a.area===session.areaLabel) + 1;
           total = grouped.length;
         } else {
@@ -5837,7 +5941,7 @@ function buildPromoRows(query){
           total = branches.length;
         }
       }
-      return {product: p, avg, mine, rank, total};
+      return {product: p, med, mine, rank, total};
     })
     .sort((a,b)=> (a.product.title||'').localeCompare(b.product.title||'', 'he'));
 }
@@ -5931,24 +6035,24 @@ function viewPromoBrowse(products, areaMode, compareList, initialRows){
   `;
 }
 function promoProductCard(r, areaMode){
-  const p = r.product, mine = r.mine, avg = r.avg;
+  const p = r.product, mine = r.mine, med = r.med;
   const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
   const groupedByArea = areaMode ? groupPromoProductByArea(p) : null;
   const valueForEntity = (name) => {
     if(areaMode){
       const g = groupedByArea.find(a=>a.area===name);
-      return g ? Math.round(g.avg*10)/10 : 0;
+      return g ? Math.round(g.med*10)/10 : 0;
     }
     const b = (p.branches||[]).find(x=>x.name===name);
     return b ? b.sales : 0;
   };
-  const maxVal = Math.max(avg, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
+  const maxVal = Math.max(med, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
   const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
-  const avgTickPct = Math.min(100, (avg/maxVal)*100);
-  const vsAvgText = mine && avg>0
-    ? (mine.sales>=avg ? `${Math.round((mine.sales/avg-1)*100)}% מעל הממוצע` : `${Math.round((1-mine.sales/avg)*100)}% מתחת לממוצע`)
+  const medTickPct = Math.min(100, (med/maxVal)*100);
+  const vsMedText = mine && med>0
+    ? (mine.sales>=med ? `${Math.round((mine.sales/med-1)*100)}% מעל החציון` : `${Math.round((1-mine.sales/med)*100)}% מתחת לחציון`)
     : '';
-  const barColor = !mine ? 'var(--muted)' : (mine.sales>=avg*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=avg*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
+  const barColor = !mine ? 'var(--muted)' : (mine.sales>=med*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=med*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
   const unitLabel = mine ? mine.unitLabel : 'יחידות שנמכרו';
   const mineRowLabel = areaMode ? session.areaLabel : 'הסניף שלכם';
   return `
@@ -5965,9 +6069,9 @@ function promoProductCard(r, areaMode){
         <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${mine.label}</div>
         <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:6px;">
           <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
-          <div style="position:absolute;right:${avgTickPct}%;top:-3px;width:2px;height:14px;background:var(--text-secondary);"></div>
+          <div style="position:absolute;right:${medTickPct}%;top:-3px;width:2px;height:14px;background:var(--text-secondary);"></div>
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">ממוצע רשת: ${avg.toFixed(1)} יחידות${vsAvgText?' · '+vsAvgText:''}</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">חציון הרשת: ${med.toFixed(1)} יחידות${vsMedText?' · '+vsMedText:''}</div>
         ${areaMode ? (function(){
           const branchRows = myAreaBranchBreakdown(p);
           if(!branchRows.length) return '';
