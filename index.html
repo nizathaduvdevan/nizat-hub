@@ -1215,14 +1215,10 @@ function isAreaPrivateBackendUser(){
 function isRealAreaManager(){
   return session.role==='area' && !!session.areaName;
 }
-/* תגיות מובנות ליומן האישי של מנהל הסניף - כל אחת עם צבע קבוע, כדי
-   שהריבוע בלוח השנה יצבע בעקביות. "אחר" מאפשר טקסט חופשי בלי תגית. */
-const CALENDAR_NOTE_TAGS = {
-  birthday:  {label:'יום הולדת',     color:'#F6C9D6'},
-  training:  {label:'יום עיון',      color:'#C6DCF0'},
-  vacation:  {label:'חופשת עובד',    color:'#F5DDB0'},
-  other:     {label:'אחר',           color:'#DADADA'}
-};
+/* יומן אישי של מנהל הסניף - סגנון חופשי לגמרי (בלי קטגוריות קבועות):
+   טקסט חופשי + בחירת צבע נעים מתוך פלטה קטנה, כדי שהריבוע בלוח השנה
+   עדיין יצבע יפה בלי לכפות משמעות/קטגוריה על התוכן. */
+const CALENDAR_NOTE_COLORS = ['#F6C9D6', '#C6DCF0', '#F5DDB0', '#CFE8CB', '#E2D3F0', '#DADADA'];
 const EMAILJS_PUBLIC_KEY = 'eq7sWskivLRMUK7xF';
 const EMAILJS_SERVICE_ID = 'service_7n4616e';
 const EMAILJS_TEMPLATE_ID = 'template_hog7ghr';
@@ -5104,6 +5100,28 @@ function calendarNoteDateKey(year, month, day){
 function notesForDateKey(dateKey){
   return (appData.branchCalendarNotes||[]).filter(n=>n.date===dateKey);
 }
+/* בונה קישור "הוספה ליומן Google" לתזכורת אישית - אירוע יום שלם, בלי שום
+   API/הרשאה, רק URL עם פרמטרים. dateKey בפורמט DD.MM.YYYY (כמו בכל
+   האפליקציה). Google מצפה ל-YYYYMMDD/YYYYMMDD (יום התחלה/יום אחרי הסיום,
+   בלעדי - לכן מוסיפים יום אחד לתאריך הסיום). */
+function googleCalendarAddUrl(dateKey, text){
+  const [dd, mm, yyyy] = dateKey.split('.');
+  const start = new Date(Number(yyyy), Number(mm)-1, Number(dd));
+  const end = new Date(start.getTime() + 86400000);
+  function fmt(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${day}`;
+  }
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: text,
+    dates: `${fmt(start)}/${fmt(end)}`,
+    details: 'נוסף מ-NIZAT HUB'
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
 function renderEventsCalendarGrid(list){
   if(ui.calYear==null || ui.calMonth==null){
     const now = new Date();
@@ -5145,7 +5163,7 @@ function renderEventsCalendarGrid(list){
       const notes = notesForDateKey(dateKey);
       if(notes.length){
         const first = notes[0];
-        const color = (CALENDAR_NOTE_TAGS[first.tag]||{}).color || '#DADADA';
+        const color = first.color || '#DADADA';
         cellStyle = `style="background:${color}55;border-color:${color};"`;
         const extra = notes.length>1 ? ` (+${notes.length-1})` : '';
         noteHtml = `<div style="font-size:9px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,#222);padding:0 2px;">${first.text}${extra}</div>`;
@@ -5189,13 +5207,11 @@ function renderEventsCalendarGrid(list){
           ${isBranch ? `
             <div style="margin-top:${selectedEvents.length?'10px':'0'};">
               ${selectedNotes.length ? selectedNotes.map(n=>{
-                const tagInfo = CALENDAR_NOTE_TAGS[n.tag];
+                const color = n.color || '#DADADA';
                 return `
-                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;margin-bottom:6px;background:${(tagInfo?tagInfo.color:'#DADADA')}55;">
-                  <div style="flex:1;font-size:13px;">
-                    ${tagInfo ? `<span style="font-size:11px;font-weight:600;color:var(--text-secondary);">${tagInfo.label}</span><br>` : ''}
-                    ${n.text}
-                  </div>
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;margin-bottom:6px;background:${color}55;">
+                  <div style="flex:1;font-size:13px;">${n.text}</div>
+                  <button class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;" title="הוספה ליומן Google" onclick="openGoogleCalendarForNote('${n.id}')">📅</button>
                   <button class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;" onclick="deleteBranchCalendarNote('${n.id}')">🗑</button>
                 </div>`;
               }).join('') : `<div class="empty-state" style="padding:6px 0;">אין תזכורות אישיות ביום זה.</div>`}
@@ -5222,14 +5238,16 @@ function selectCalendarDay(day){
 function openBranchCalendarNoteForm(dateKey){
   document.getElementById('modal-body').innerHTML = `
     <h3>תזכורת ל-${dateKey}</h3>
+    <div class="field"><label>טקסט</label><input id="f-note-text" placeholder="כתבו כל מה שתרצו לסמן ביום הזה..."></div>
     <div class="field">
-      <label>סוג</label>
-      <select id="f-note-tag">
-        <option value="">בלי תגית</option>
-        ${Object.keys(CALENDAR_NOTE_TAGS).map(k=>`<option value="${k}">${CALENDAR_NOTE_TAGS[k].label}</option>`).join('')}
-      </select>
+      <label>צבע</label>
+      <div id="f-note-color-picker" style="display:flex;gap:8px;">
+        ${CALENDAR_NOTE_COLORS.map(function(c, i){
+          return `<div data-color="${c}" onclick="selectBranchNoteColor('${c}')" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${i===0?'var(--text-primary,#222)':'transparent'};"></div>`;
+        }).join('')}
+      </div>
+      <input type="hidden" id="f-note-color" value="${CALENDAR_NOTE_COLORS[0]}">
     </div>
-    <div class="field"><label>טקסט</label><input id="f-note-text" placeholder="למשל: יום הולדת לרותי מהקופה"></div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">ביטול</button>
       <button class="btn-confirm" onclick="submitBranchCalendarNote('${dateKey}')">שמירה</button>
@@ -5238,15 +5256,23 @@ function openBranchCalendarNoteForm(dateKey){
   document.getElementById('modal-overlay').classList.add('open');
   setTimeout(()=>{ const el=document.getElementById('f-note-text'); if(el) el.focus(); }, 50);
 }
+function selectBranchNoteColor(color){
+  document.getElementById('f-note-color').value = color;
+  const picker = document.getElementById('f-note-color-picker');
+  if(!picker) return;
+  Array.from(picker.children).forEach(function(el){
+    el.style.border = (el.getAttribute('data-color')===color) ? '2px solid var(--text-primary,#222)' : '2px solid transparent';
+  });
+}
 function submitBranchCalendarNote(dateKey){
-  const tag = document.getElementById('f-note-tag').value || null;
   const text = document.getElementById('f-note-text').value.trim();
+  const color = document.getElementById('f-note-color').value || CALENDAR_NOTE_COLORS[0];
   if(!text){ toast('נא למלא טקסט'); return; }
   if(session.role!=='branch' || !session.branchInfo){ return; }
   db.collection('branchCalendarNotes').add({
     branchEmail: session.branchInfo.email,
     date: dateKey,
-    tag,
+    color,
     text,
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(function(){
@@ -5258,6 +5284,11 @@ function deleteBranchCalendarNote(id){
   db.collection('branchCalendarNotes').doc(id).delete()
     .then(function(){ toast('התזכורת נמחקה'); })
     .catch(function(err){ toast('שגיאה: ' + err.message); });
+}
+function openGoogleCalendarForNote(id){
+  const note = (appData.branchCalendarNotes||[]).find(n=>n.id===id);
+  if(!note) return;
+  window.open(googleCalendarAddUrl(note.date, note.text), '_blank', 'noopener');
 }
 
 /* ---------- Performance ---------- */
