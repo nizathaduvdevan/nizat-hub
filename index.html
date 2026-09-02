@@ -1152,19 +1152,19 @@ const DEFAULT_DEPARTMENT = 'marketing';
 
 const STAFF = {
   /* שיווק */
-  'inbar@nizat.co.il':  { name: 'ענבר',            departments: ['marketing'] },
-  'yulia@nizat.co.il':  { name: 'יוליה',           departments: ['marketing'] },
+  'inbar@nizat.co.il':  { name: 'ענבר',            title: 'מנהלת שיווק',              departments: ['marketing'] },
+  'yulia@nizat.co.il':  { name: 'יוליה',           title: 'סמנכ"ל שיווק וחדשנות',      departments: ['marketing'] },
   /* משאבי אנוש */
   'ori@nizat.co.il':    { name: 'אורי מנקדי',      departments: ['hr'] },
   'orit@nizat.co.il':   { name: 'אורית אביב',      departments: ['hr'] },
   /* רכש */
-  'edith@nizat.co.il':  { name: 'אדית לייבוביץ\'', departments: ['purchasing'] },
-  'nofar@nizat.co.il':  { name: 'נופר שרר',        departments: ['purchasing'] },
-  'tradeo@nizat.co.il': { name: 'שירן סוסקין',     departments: ['purchasing'] },
+  'edith@nizat.co.il':  { name: 'אדית לייבוביץ\'', title: 'סמנכ"לית רכש',             departments: ['purchasing'] },
+  'nofar@nizat.co.il':  { name: 'נופר שרר',        title: 'ע. סמנכ"לית רכש',          departments: ['purchasing'] },
+  'tradeo@nizat.co.il': { name: 'שירן סוסקין',     title: 'רכש',                      departments: ['purchasing'] },
   /* תפעול */
   'tzach@nizat.co.il':  { name: 'צח שווקי',        departments: ['operations'] },
   /* גישה מלאה */
-  'eliran@nizat.co.il': { name: 'אלירן',           departments: ['*'] },
+  'eliran@nizat.co.il': { name: 'אלירן',           title: 'IT',                        departments: ['*'] },
   'ai@nizat.co.il':     { name: 'ניהול מערכת',     departments: ['*'] }
 };
 
@@ -1189,16 +1189,18 @@ function itemDepartment(item){
 
 /* מנהלי אזור: כל אחד רואה ברירת מחדל את הסניפים באזור שלו (מותאם לפי השם
    הפרטי המופיע כבר בשדה "areaManager"/"מנהל אזור" בתחרויות), פלוס השוואה
-   לשאר האזורים. areaName=null = תצוגה ארצית (רואה הכל, לא רק אזור אחד). */
+   לשאר האזורים. areaName=null = תצוגה ארצית (רואה הכל, לא רק אזור אחד).
+   title: התפקיד/האזור הגאוגרפי המדויק, לתצוגה בכל מקום שמציג את שם
+   האדם (ברכות, כותרות מסך וכו') - לא רק "מנהל אזור" גנרי. */
 const AREA_MANAGER_INFO = {
-  'amir@nizat.co.il': {areaName:'אמיר', label:'אמיר'},
-  'lior@nizat.co.il': {areaName:'ליאור', label:'ליאור'},
-  'shiran@nizat.co.il': {areaName:'שירן', label:'שירן'},
-  'naor@nizat.co.il': {areaName:'נאור', label:'נאור'},
-  'shahar@nizat.co.il': {areaName:'שחר', label:'שחר'},
-  'nati@nizat.co.il': {areaName:'נתי', label:'נתי'},
-  'ofer@nizat.co.il': {areaName:null, label:'עופר'},
-  'arbel@nizat.co.il': {areaName:null, label:'ארבל'}
+  'amir@nizat.co.il': {areaName:'אמיר', label:'אמיר', title:'מנהל איזור דרום'},
+  'lior@nizat.co.il': {areaName:'ליאור', label:'ליאור', title:'מנהלת איזור השרון'},
+  'shiran@nizat.co.il': {areaName:'שירן', label:'שירן', title:'מנהלת איזור צפון'},
+  'naor@nizat.co.il': {areaName:'נאור', label:'נאור', title:'מנהל איזור ירושלים והסביבה'},
+  'shahar@nizat.co.il': {areaName:'שחר', label:'שחר', title:'מנהל איזור ת"א'},
+  'nati@nizat.co.il': {areaName:'נתי', label:'נתי', title:'מנהל איזור מישור החוף הצפוני'},
+  'ofer@nizat.co.il': {areaName:null, label:'עופר', title:'מנהל חנויות ארצי'},
+  'arbel@nizat.co.il': {areaName:null, label:'ארבל', title:'מנכ"ל'}
 };
 
 /* ---------- EmailJS — שליחת מייל אמיתי אוטומטי לענבר כשמגיעה הודעה פרטית ---------- */
@@ -1902,7 +1904,8 @@ function marketingDisplayFor(email){
   const deptShort = depts.length===1 ? (DEPARTMENTS[depts[0]]||{}).short
     : (depts.length===Object.keys(DEPARTMENTS).length ? 'גישה מלאה' : null);
   const name = rec ? rec.name : 'מחלקת שיווק';
-  return { name, label: deptShort ? `${name} · ${deptShort}` : name };
+  const subtitle = (rec && rec.title) ? rec.title : deptShort;
+  return { name, label: subtitle ? `${name} · ${subtitle}` : name };
 }
 function enterApp(role, payload){
   session.role = role;
@@ -1927,7 +1930,7 @@ function enterApp(role, payload){
     toastMsg = `שלום, ${disp.name} 👋`;
   }
   else if(role==='area'){
-    label = session.areaName ? `מנהל אזור · ${session.areaLabel}` : `${session.areaLabel} · תצוגה ארצית`;
+    label = payload.title || (session.areaName ? `מנהל אזור · ${session.areaLabel}` : `${session.areaLabel} · תצוגה ארצית`);
     avatarText = session.areaLabel.slice(0,2);
     toastMsg = `שלום, ${session.areaLabel} 👋`;
   } else {
@@ -2065,7 +2068,7 @@ function startPreviewAsArea(email){
   session.branchName = null;
   session.branchInfo = null;
   previewMode = {label: info.label};
-  document.getElementById('user-label').textContent = info.areaName ? `מנהל אזור · ${info.label}` : `${info.label} · תצוגה ארצית`;
+  document.getElementById('user-label').textContent = info.title || (info.areaName ? `מנהל אזור · ${info.label}` : `${info.label} · תצוגה ארצית`);
   document.getElementById('user-avatar').textContent = info.label.slice(0,2);
   closeModal();
   goTo('dashboard');
