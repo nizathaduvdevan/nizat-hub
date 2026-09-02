@@ -3037,43 +3037,50 @@ function promoGroupColor(group){
 }
 function promoAnalysisRowHtml(row, group, isArea){
   row.__group = group;
-  const c = row.cls;
   const priceTxt = row.meta.price ? '₪'+Number(row.meta.price).toFixed(2) : '';
   const codeTxt = row.code;
-  const gapPctTxt = c.gapPct==null ? '—' : ((c.gapPct>0?'+':'')+c.gapPct.toFixed(0)+'%');
-  const areaPrefix = c.areaLabel ? `<span style="color:var(--blue,#185FA5);font-weight:600;">אזור ${c.areaLabel}</span> · ` : '';
+  const areaPrefix = row.cls.areaLabel ? `<span style="color:var(--blue,#185FA5);font-weight:600;">אזור ${row.cls.areaLabel}</span> · ` : '';
   return `
     <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:6px;">
-      <div style="display:flex;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap;">
-        <div class="admin-row-main">
-          <div class="t">${areaPrefix}${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
-          <div class="m">${row.meta.template||''} ${priceTxt}</div>
-        </div>
-        <span style="font-size:12px;padding:3px 10px;border-radius:8px;white-space:nowrap;flex:none;background:${promoGroupColor(group)}1a;color:${promoGroupColor(group)};">
-          ${isArea ? c.selfVal : c.selfVal} ${isArea?'/ צפי '+ (c.med!=null?c.med.toFixed(1):'—') : '/ חציון '+c.med} · ${gapPctTxt}
-        </span>
+      <div class="admin-row-main">
+        <div class="t">${areaPrefix}${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
+        <div class="m">${row.meta.template||''} ${priceTxt}</div>
       </div>
       <div style="font-size:12.5px;color:var(--text-secondary);">${promoInsightText(row, isArea)}</div>
     </div>
   `;
 }
 function promoAnalysisSectionHtml(title, group, rows, isArea, emptyMsg){
-  const sorted = [...rows].sort((a,b)=>{
+  const sortFn = (a,b)=>{
     if(group==='anomaly') return (b.cls.positiveOthers||0)-(a.cls.positiveOthers||0);
     if(group==='strength') return (b.cls.gapPct||0)-(a.cls.gapPct||0);
     return Math.abs(b.cls.gapNum||(b.cls.selfVal-b.cls.med)||0) - Math.abs(a.cls.gapNum||(a.cls.selfVal-a.cls.med)||0);
-  }).slice(0,5);
+  };
+  const sorted = [...rows].sort(sortFn);
+  const visible = sorted.slice(0,5);
+  const rest = sorted.slice(5);
+  const extraId = 'promo-extra-' + group;
   return `
     <div style="margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
         <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
-        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים, מוצגים עד 5)</span></h3>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים)</span></h3>
       </div>
       <div class="card">
-        ${sorted.length ? sorted.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+        ${visible.length ? visible.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+        ${rest.length ? `
+          <div id="${extraId}" style="display:none;">${rest.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('')}</div>
+          <button id="${extraId}-btn" class="icon-btn" style="width:100%;margin-top:8px;font-size:12.5px;" onclick="togglePromoMore('${extraId}')">הראה לי עוד (${rest.length} נוספים)</button>
+        ` : ''}
       </div>
     </div>
   `;
+}
+function togglePromoMore(id){
+  const el = document.getElementById(id);
+  if(el) el.style.display = 'block';
+  const btn = document.getElementById(id+'-btn');
+  if(btn) btn.style.display = 'none';
 }
 /* גרסה לתצוגה הארצית: הממצאים מגיעים מכל 6 האזורים מעורבבים יחד, אז מיון
    שטוח + slice(0,5) גלובלי עלול "לבלוע" אזור שקט לגמרי אם אזור אחר רועש.
@@ -3088,22 +3095,28 @@ function promoNationalSectionHtml(title, group, rows, emptyMsg, capPerArea){
   };
   const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
   const byArea = areaLabels.map(area=>{
-    const areaRows = rows.filter(r=>r.cls.areaLabel===area).sort(sortFn).slice(0,cap);
-    return {area, areaRows};
-  }).filter(x=>x.areaRows.length);
+    const sortedArea = rows.filter(r=>r.cls.areaLabel===area).sort(sortFn);
+    return {area, visible: sortedArea.slice(0,cap), rest: sortedArea.slice(cap)};
+  }).filter(x=>x.visible.length);
   return `
     <div style="margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
         <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
-        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים בס"ה, עד ${cap} לכל אזור)</span></h3>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים בס"ה)</span></h3>
       </div>
       <div class="card">
-        ${byArea.length ? byArea.map(({area,areaRows})=>`
+        ${byArea.length ? byArea.map(({area,visible,rest})=>{
+          const extraId = 'promo-extra-national-' + group + '-' + area;
+          return `
           <div style="margin-bottom:10px;">
             <div style="font-size:12.5px;font-weight:600;color:var(--blue,#185FA5);padding:6px 4px 2px;">אזור ${area}</div>
-            ${areaRows.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}
+            ${visible.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}
+            ${rest.length ? `
+              <div id="${extraId}" style="display:none;">${rest.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}</div>
+              <button id="${extraId}-btn" class="icon-btn" style="width:100%;margin-top:4px;font-size:12px;" onclick="togglePromoMore('${extraId}')">הראה לי עוד (${rest.length} נוספים באזור ${area})</button>
+            ` : ''}
           </div>
-        `).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+        `;}).join('') : `<div class="empty-state">${emptyMsg}</div>`}
       </div>
     </div>
   `;
@@ -5909,30 +5922,54 @@ function promoCompareAreasKey(){
   const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
   return 'nizatHubPromoCompareAreas_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
 }
+function promoNationalExcludedAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoNationalExcluded_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function allRealAreaLabels(){
+  return Object.keys(AREA_MANAGER_INFO)
+    .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
+    .map(email=>AREA_MANAGER_INFO[email].label)
+    .sort((a,b)=>a.localeCompare(b,'he'));
+}
+/* ארבל/עופר (תצוגה ארצית): במקום לשמור "אילו אזורים נבחרו" (רשימת הכללה,
+   שמתחילה ריקה וגורמת להם להוסיף כל אזור ידנית), שומרים "אילו אזורים
+   הוסרו" (רשימת החרגה). כך ברירת המחדל היא תמיד "כל 6 האזורים", בלי תלות
+   עדינה בהאם נשמר משהו בעבר תחת מפתח כלשהו - הרבה יותר עמיד מהגרסה
+   הקודמת שניסתה להסתמך על "localStorage ריק = ביקור ראשון". */
 function getPromoCompareAreas(){
-  let stored;
-  try{ stored = JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ stored = []; }
-  /* ארבל/עופר (תצוגה ארצית) לא בוחרים ידנית מנהלי אזור להשוואה - הם
-     אמורים לראות אוטומטית את כל 6 מנהלי האזור בכל מוצר, מהכניסה
-     הראשונה. אם המשתמש הסיר ידנית אזור מסוים (המערך נשמר, גם אם ריק
-     בכוונה), מכבדים את זה ולא דורסים; ברירת המחדל האוטומטית חלה רק
-     כשלא נשמר אף מערך בעבר (localStorage ריק/לא קיים). */
-  if(isNationalViewer() && localStorage.getItem(promoCompareAreasKey())===null){
-    return Object.keys(AREA_MANAGER_INFO)
-      .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
-      .map(email=>AREA_MANAGER_INFO[email].label)
-      .sort((a,b)=>a.localeCompare(b,'he'));
+  if(isNationalViewer()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    return allRealAreaLabels().filter(a=>excluded.indexOf(a)===-1);
   }
-  return stored;
+  try{ return JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ return []; }
 }
 function savePromoCompareAreas(arr){
   try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
 }
 function removePromoCompareArea(area){
+  if(isNationalViewer()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    if(excluded.indexOf(area)===-1) excluded.push(area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    renderContent();
+    return;
+  }
   savePromoCompareAreas(getPromoCompareAreas().filter(a=>a!==area));
   renderContent();
 }
 function addPromoCompareArea(area){
+  if(isNationalViewer()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    excluded = excluded.filter(a=>a!==area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    closeModal();
+    renderContent();
+    return;
+  }
   const current = getPromoCompareAreas();
   if(current.indexOf(area)===-1) savePromoCompareAreas([...current, area]);
   closeModal();
@@ -5940,13 +5977,7 @@ function addPromoCompareArea(area){
 }
 function openPromoCompareAreaPicker(){
   const current = getPromoCompareAreas();
-  /* עופר וארבל הם תצוגה ארצית (areaName:null) ולא מנהלי אזור עם סניפים
-     ספציפיים - לא רלוונטיים כישות להשוואה כאן. */
-  const allAreas = [...new Set(
-    Object.keys(AREA_MANAGER_INFO)
-      .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
-      .map(email=>AREA_MANAGER_INFO[email].label)
-  )].sort((a,b)=>a.localeCompare(b,'he'));
+  const allAreas = allRealAreaLabels();
   const rows = allAreas.filter(a=>a!==session.areaLabel && current.indexOf(a)===-1)
     .map(a=>`<div class="preview-pick-row" onclick="addPromoCompareArea('${a.replace(/'/g,"\\'")}')"><span>${a}</span></div>`).join('');
   document.getElementById('modal-body').innerHTML = `
@@ -6113,11 +6144,9 @@ function promoProductCard(r, areaMode){
           <span style="font-size:13px;color:var(--text-secondary);">${unitLabel}</span>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${mine.label}</div>
-        <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:6px;">
+        <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:12px;">
           <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
-          <div style="position:absolute;right:${medTickPct}%;top:-3px;width:2px;height:14px;background:var(--text-secondary);"></div>
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">חציון הרשת: ${med.toFixed(1)} יחידות${vsMedText?' · '+vsMedText:''}</div>
         ${areaMode ? (function(){
           const branchRows = myAreaBranchBreakdown(p);
           if(!branchRows.length) return '';
