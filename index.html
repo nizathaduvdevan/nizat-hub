@@ -6245,9 +6245,10 @@ function adminPromoUpload(){
     <div class="card" style="margin-bottom:14px;">
       <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
         ייבוא נתוני מכר מבצעים לפי סניף, ישירות מקובץ האקסל המקורי. בכל פעם
-        שמעלים קובץ חדש, הנתונים הישנים נמחקים ומוחלפים בחדשים. עמודות שכבר
-        מוכרות מזוהות אוטומטית — רק קיצור חדש/לא מוכר (למשל סניף שנפתח עכשיו)
-        יוצג לבחירה ידנית, ונשמר לפעם הבאה.
+        שמעלים קובץ חדש, הנתונים הישנים נמחקים ומוחלפים בחדשים. עמודות מזוהות
+        אוטומטית — גם קיצורים ידועים וגם כותרות שהן כבר שם הסניף המלא (למשל
+        "01-ניצת תל-אביב") מותאמות ישירות מול רשימת הסניפים. רק כותרת שבאמת
+        לא ניתן לזהות (למשל קיצור חדש שלא נתקלנו בו) תוצג לבחירה ידנית חד-פעמית.
       </p>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
         כרגע במערכת: <b>${count}</b> מוצרים.
@@ -6349,16 +6350,58 @@ function handlePromoExcelUpload(evt){
     }
     pendingPromoImportRows = rows;
     const headers = rows[0] || [];
-    const branchCols = headers.slice(3).filter(h=>h!=null && String(h).trim()!=='');
-    const mapping = fullPromoColumnMapping();
-    const unresolved = [...new Set(branchCols.map(String))].filter(col=>!mapping[col]);
-    if(unresolved.length===0){
-      if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
-      finalizePromoImport(mapping);
-    } else {
-      if(statusEl) statusEl.textContent = `${branchCols.length-unresolved.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. נותרו ${unresolved.length} לפתרון ידני למטה.`;
-      renderPromoUnresolvedForm(unresolved);
+    const branchCols = [...new Set(headers.slice(3).filter(h=>h!=null && String(h).trim()!=='').map(String))];
+    const savedMapping = fullPromoColumnMapping();
+    /* שלב 1: קיצורים שכבר מוכרים מהטבלה השמורה - מהיר, בלי לחכות לרשת. */
+    const stillUnresolved = branchCols.filter(col=>!savedMapping[col]);
+    if(!stillUnresolved.length){
+      if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית (מיפוי שמור).`;
+      finalizePromoImport(savedMapping);
+      return;
     }
+    /* שלב 2: מה שלא נמצא בטבלה השמורה - ננסה התאמה ישירה מול רשימת הסניפים
+       החיה (BRANCH_DIRECTORY), באותו מנגנון סלחני (normalizeBranchName +
+       branchMatchScore) שכבר משמש בתחרויות ובהתאמת סניף במכר מבצעים. זה בדיוק
+       פותר את המקרה שבו כותרת העמודה היא כבר שם הסניף המלא (למשל
+       "01-ניצת תל-אביב") ולא קיצור - אין שום סיבה לשאול על זה ידנית. */
+    if(statusEl) statusEl.textContent = 'מנסה להתאים עמודות אוטומטית מול רשימת הסניפים...';
+    loadBranchDirectory().then(function(){
+      const autoMatched = {};
+      const trulyUnresolved = [];
+      stillUnresolved.forEach(col=>{
+        const entry = findBranchDirectoryEntry(col);
+        if(entry) autoMatched[col] = entry.name;
+        else trulyUnresolved.push(col);
+      });
+      const mapping = Object.assign({}, savedMapping, autoMatched);
+      const matchedNowCount = Object.keys(autoMatched).length;
+      const finishAuto = function(){
+        if(!trulyUnresolved.length){
+          const msg = matchedNowCount
+            ? `${branchCols.length-stillUnresolved.length} עמודות זוהו ממיפוי שמור, ועוד ${matchedNowCount} זוהו אוטומטית מול רשימת הסניפים.`
+            : `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
+          if(statusEl) statusEl.textContent = msg;
+          finalizePromoImport(mapping);
+        } else {
+          if(statusEl) statusEl.textContent = `${branchCols.length-trulyUnresolved.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. נותרו ${trulyUnresolved.length} לפתרון ידני למטה.`;
+          renderPromoUnresolvedForm(trulyUnresolved);
+        }
+      };
+      /* התאמות אוטומטיות חדשות (autoMatched) נשמרות ל-Firestore מיד, כדי
+         שגם הן "ייחסכו" בחודש הבא בלי לעבור שוב דרך findBranchDirectoryEntry. */
+      if(matchedNowCount){
+        const merged = Object.assign({}, appData.promoColumnMappingExtra||{}, autoMatched);
+        db.collection('config').doc('promoColumnMapping').set({ mapping: merged }, {merge:true}).then(function(){
+          appData.promoColumnMappingExtra = merged;
+          finishAuto();
+        }).catch(function(err){
+          console.error('שמירת מיפוי אוטומטי נכשלה (לא קריטי, ממשיכים בכל זאת):', err);
+          finishAuto();
+        });
+      } else {
+        finishAuto();
+      }
+    });
   };
   reader.readAsArrayBuffer(file);
   evt.target.value = '';
