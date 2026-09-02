@@ -5573,14 +5573,14 @@ function openPromoCompareAreaPicker(){
   document.getElementById('modal-overlay').classList.add('open');
 }
 function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
-function viewPromoSales(){
+/* בונה את שורות הנתונים למכר מבצעים לפי שאילתת חיפוש נתונה - ברירת מחדל
+   (שאילתה ריקה) ממוינת לפי אלף-בית של כותרת המוצר. */
+function buildPromoRows(query){
   const products = [...(appData.promoProducts||[])];
   const areaMode = isAreaViewer();
-  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
-  const query = (ui.promoSearchQuery||'').trim().toLowerCase();
-
-  const rows = products
-    .filter(p => !query || (p.title||'').toLowerCase().includes(query))
+  const q = (query||'').trim().toLowerCase();
+  return products
+    .filter(p => !q || (p.title||'').toLowerCase().includes(q))
     .map(p=>{
       const branches = p.branches || [];
       const avg = branches.length ? branches.reduce((s,b)=>s+(b.sales||0),0) / branches.length : 0;
@@ -5600,7 +5600,59 @@ function viewPromoSales(){
       }
       return {product: p, avg, mine, rank, total};
     })
-    .sort((a,b)=> (b.mine?b.mine.sales:0) - (a.mine?a.mine.sales:0));
+    .sort((a,b)=> (a.product.title||'').localeCompare(b.product.title||'', 'he'));
+}
+function renderPromoRowsHtml(rows, hadProducts){
+  const areaMode = isAreaViewer();
+  if(!rows.length) return `<div class="card"><div class="empty-state">${hadProducts ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`;
+  return rows.map(r=>promoProductCard(r, areaMode)).join('');
+}
+/* עדכון קליל של תיבת החיפוש - מעדכן רק את תיבת ההצעות ואת רשימת השורות
+   בפועל (DOM ממוקד), בלי לקרוא ל-renderContent המלא. זה מה שמונע מהשדה
+   "להיהרס" ולאבד פוקוס באמצע הקלדה/מחיקה, וגם חוסך חישוב מיותר של כל
+   118 המוצרים מחדש על כל הקשה. */
+function updatePromoSearch(value){
+  ui.promoSearchQuery = value;
+  const q = value.trim().toLowerCase();
+  const suggEl = document.getElementById('promo-suggestions');
+  const rowsEl = document.getElementById('promo-rows');
+  if(suggEl){
+    if(!q){
+      suggEl.style.display = 'none';
+      suggEl.innerHTML = '';
+    } else {
+      const matches = [...(appData.promoProducts||[])]
+        .filter(p=>(p.title||'').toLowerCase().includes(q))
+        .sort((a,b)=>(a.title||'').localeCompare(b.title||'','he'))
+        .slice(0,10);
+      suggEl.style.display = matches.length ? 'block' : 'none';
+      suggEl.innerHTML = matches.map(p=>`
+        <div style="padding:9px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid var(--gridline);" onclick="selectPromoSuggestion('${(p.title||'').replace(/'/g,"\\'")}')">${p.title}</div>
+      `).join('');
+    }
+  }
+  if(rowsEl){
+    const rows = buildPromoRows(value);
+    rowsEl.innerHTML = renderPromoRowsHtml(rows, (appData.promoProducts||[]).length>0);
+  }
+}
+function selectPromoSuggestion(title){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = title;
+  updatePromoSearch(title);
+  const suggEl = document.getElementById('promo-suggestions');
+  if(suggEl){ suggEl.style.display='none'; suggEl.innerHTML=''; }
+}
+function clearPromoSearch(){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = '';
+  updatePromoSearch('');
+}
+function viewPromoSales(){
+  const products = [...(appData.promoProducts||[])];
+  const areaMode = isAreaViewer();
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const initialRows = buildPromoRows(ui.promoSearchQuery||'');
 
   return `
     <div class="page-head">
@@ -5610,17 +5662,10 @@ function viewPromoSales(){
     <div class="field" style="margin-bottom:14px;position:relative;">
       <div style="display:flex;gap:0;">
         <input type="text" id="promo-search-input" placeholder="חיפוש מוצר..." value="${ui.promoSearchQuery||''}"
-          oninput="ui.promoSearchQuery=this.value;ui.promoSearchOpen=true;renderContent();"
-          onfocus="ui.promoSearchOpen=true;renderContent();">
-        <button class="icon-btn" style="border-radius:0 8px 8px 0;" onclick="ui.promoSearchOpen=!ui.promoSearchOpen;renderContent();" title="רשימת כל המוצרים">▾</button>
+          oninput="updatePromoSearch(this.value)">
+        <button class="icon-btn" style="border-radius:0 8px 8px 0;" onclick="clearPromoSearch()" title="ניקוי חיפוש">✕</button>
       </div>
-      ${ui.promoSearchOpen ? `
-        <div style="position:absolute;top:100%;right:0;left:0;z-index:20;background:var(--surface-1);border:1px solid var(--gridline);border-radius:10px;margin-top:4px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
-          ${products.filter(p=>!query || (p.title||'').toLowerCase().includes(query)).map(p=>`
-            <div style="padding:9px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid var(--gridline);" onclick="ui.promoSearchQuery='${(p.title||'').replace(/'/g,"\\'")}';ui.promoSearchOpen=false;renderContent();">${p.title}</div>
-          `).join('') || '<div style="padding:12px;font-size:13px;color:var(--muted);">לא נמצאו מוצרים תואמים.</div>'}
-        </div>
-      ` : ''}
+      <div id="promo-suggestions" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:20;background:var(--surface-1);border:1px solid var(--gridline);border-radius:10px;margin-top:4px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);"></div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
       <span style="font-size:12.5px;color:var(--text-secondary);">השוואה ל${areaMode?'מנהלי איזור אחרים':'סניפים'}:</span>
@@ -5632,7 +5677,7 @@ function viewPromoSales(){
       `).join('')}
       <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="${areaMode?'openPromoCompareAreaPicker':'openPromoComparePicker'}()">+ הוספת ${areaMode?'מנהל איזור':'סניף'}</button>
     </div>
-    ${rows.length ? rows.map(r=>promoProductCard(r, areaMode)).join('') : `<div class="card"><div class="empty-state">${products.length ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`}
+    <div id="promo-rows">${renderPromoRowsHtml(initialRows, products.length>0)}</div>
   `;
 }
 function promoProductCard(r, areaMode){
