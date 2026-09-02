@@ -3075,6 +3075,39 @@ function promoAnalysisSectionHtml(title, group, rows, isArea, emptyMsg){
     </div>
   `;
 }
+/* גרסה לתצוגה הארצית: הממצאים מגיעים מכל 6 האזורים מעורבבים יחד, אז מיון
+   שטוח + slice(0,5) גלובלי עלול "לבלוע" אזור שקט לגמרי אם אזור אחר רועש.
+   כאן ממיינים בתוך כל אזור בנפרד, לוקחים עד 5 לכל אזור, ואז מציגים אזור
+   אחר אזור (בסדר האזורים שבטבלת ה-KPI) עם כותרת-משנה לכל אזור. */
+function promoNationalSectionHtml(title, group, rows, emptyMsg, capPerArea){
+  const cap = capPerArea || 5;
+  const sortFn = (a,b)=>{
+    if(group==='anomaly') return (b.cls.positiveOthers||0)-(a.cls.positiveOthers||0);
+    if(group==='strength') return (b.cls.gapPct||0)-(a.cls.gapPct||0);
+    return Math.abs(b.cls.gapNum||(b.cls.selfVal-b.cls.med)||0) - Math.abs(a.cls.gapNum||(a.cls.selfVal-a.cls.med)||0);
+  };
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const byArea = areaLabels.map(area=>{
+    const areaRows = rows.filter(r=>r.cls.areaLabel===area).sort(sortFn).slice(0,cap);
+    return {area, areaRows};
+  }).filter(x=>x.areaRows.length);
+  return `
+    <div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים בס"ה, עד ${cap} לכל אזור)</span></h3>
+      </div>
+      <div class="card">
+        ${byArea.length ? byArea.map(({area,areaRows})=>`
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12.5px;font-weight:600;color:var(--blue,#185FA5);padding:6px 4px 2px;">אזור ${area}</div>
+            ${areaRows.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}
+          </div>
+        `).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+      </div>
+    </div>
+  `;
+}
 /* דוח מאקרו לתצוגה ארצית (ארבל/עופר) - לא ברמת סניף, אלא ברמת אזור מול
    אזור. לכל קוד מבצע, כל אזור מושווה מול חציון "הממוצע לסניף" של שאר
    האזורים (מנורמל למספר הסניפים באזור, כדי שאזור גדול לא ייראה חזק
@@ -3167,9 +3200,9 @@ function viewPromoAnalysis(){
         <div style="font-size:12.5px;color:var(--text-secondary);">כל אזור מושווה מול שאר האזורים (ממוצע לסניף, מנורמל למספר הסניפים באזור). אין כאן פירוט ברמת סניף בודד.</div>
       </div>
       ${promoNationalSummaryTableHtml(report)}
-      ${promoAnalysisSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, true, 'אין ממצאי חריגת אפס כרגע.')}
-      ${promoAnalysisSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, true, 'אין ממצאי פער כרגע.')}
-      ${promoAnalysisSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, true, 'אין ממצאי חוזקה כרגע.')}
+      ${promoNationalSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, 'אין ממצאי חריגת אפס כרגע.', 5)}
+      ${promoNationalSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, 'אין ממצאי פער כרגע.', 5)}
+      ${promoNationalSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, 'אין ממצאי חוזקה כרגע.', 5)}
     `;
   }
   const areaMode = isAreaViewer();
@@ -5877,7 +5910,20 @@ function promoCompareAreasKey(){
   return 'nizatHubPromoCompareAreas_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
 }
 function getPromoCompareAreas(){
-  try{ return JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ return []; }
+  let stored;
+  try{ stored = JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ stored = []; }
+  /* ארבל/עופר (תצוגה ארצית) לא בוחרים ידנית מנהלי אזור להשוואה - הם
+     אמורים לראות אוטומטית את כל 6 מנהלי האזור בכל מוצר, מהכניסה
+     הראשונה. אם המשתמש הסיר ידנית אזור מסוים (המערך נשמר, גם אם ריק
+     בכוונה), מכבדים את זה ולא דורסים; ברירת המחדל האוטומטית חלה רק
+     כשלא נשמר אף מערך בעבר (localStorage ריק/לא קיים). */
+  if(isNationalViewer() && localStorage.getItem(promoCompareAreasKey())===null){
+    return Object.keys(AREA_MANAGER_INFO)
+      .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
+      .map(email=>AREA_MANAGER_INFO[email].label)
+      .sort((a,b)=>a.localeCompare(b,'he'));
+  }
+  return stored;
 }
 function savePromoCompareAreas(arr){
   try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
@@ -6090,7 +6136,7 @@ function promoProductCard(r, areaMode){
             `).join('')}
           </div>`;
         })() : ''}
-      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">אין נתונים זמינים.</div>`}
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">${isNationalViewer() && compareList.length ? 'השוואה בין מנהלי האזור:' : 'אין נתונים זמינים.'}</div>`}
       ${compareList.length ? `
         <div style="border-top:1px solid var(--gridline);padding-top:10px;">
           ${mine ? `
