@@ -3205,7 +3205,7 @@ function viewPromoAnalysis(){
   if(!bookletCount){
     return `<div class="card"><div class="empty-state">עדיין לא הועלתה חוברת המבצעים החודשית — הניתוח יופיע כאן ברגע שרכש יעלה אותה ב"ניהול תוכן".</div></div>`;
   }
-  if(isNationalViewer()){
+  if(hasPromoNationalAccess()){
     const report = buildPromoNationalReport();
     return `
       <div class="card" style="margin-bottom:16px;">
@@ -5938,7 +5938,7 @@ function allRealAreaLabels(){
    עדינה בהאם נשמר משהו בעבר תחת מפתח כלשהו - הרבה יותר עמיד מהגרסה
    הקודמת שניסתה להסתמך על "localStorage ריק = ביקור ראשון". */
 function getPromoCompareAreas(){
-  if(isNationalViewer()){
+  if(hasPromoNationalAccess()){
     let excluded;
     try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
     return allRealAreaLabels().filter(a=>excluded.indexOf(a)===-1);
@@ -5949,7 +5949,7 @@ function savePromoCompareAreas(arr){
   try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
 }
 function removePromoCompareArea(area){
-  if(isNationalViewer()){
+  if(hasPromoNationalAccess()){
     let excluded;
     try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
     if(excluded.indexOf(area)===-1) excluded.push(area);
@@ -5961,7 +5961,7 @@ function removePromoCompareArea(area){
   renderContent();
 }
 function addPromoCompareArea(area){
-  if(isNationalViewer()){
+  if(hasPromoNationalAccess()){
     let excluded;
     try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
     excluded = excluded.filter(a=>a!==area);
@@ -5993,11 +5993,22 @@ function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
    מבחינת "מכר מבצעים" הם לא אמורים לרדת לרמת סניף בודד, אלא לראות תמונה
    ארצית לפי אזורים - זה מה ש-buildPromoNationalReport נותן. */
 function isNationalViewer(){ return session.role==='area' && !!session.areaLabel && !session.areaName; }
+/* אנשי צוות ספציפיים (רכש/שיווק) שצריכים לראות בדיוק את אותה תצוגה ארצית
+   של ארבל/עופר במודול "מכר מבצעים" - גם אם ה-role שלהם הוא 'marketing'
+   ואין להם session.areaLabel כלל. רשימה סגורה של מיילים, לא כל מי
+   שבמחלקת שיווק/רכש - כדי לא להעניק את זה בטעות למישהו שלא ביקשו עבורו. */
+const PROMO_NATIONAL_ACCESS_EMAILS = [
+  'yulia@nizat.co.il', 'tradeo@nizat.co.il', 'nofar@nizat.co.il',
+  'edith@nizat.co.il', 'eliran@nizat.co.il'
+];
+function hasPromoNationalAccess(){
+  return isNationalViewer() || (session.role==='marketing' && PROMO_NATIONAL_ACCESS_EMAILS.indexOf(currentUserEmail)!==-1);
+}
 /* בונה את שורות הנתונים למכר מבצעים לפי שאילתת חיפוש נתונה - ברירת מחדל
    (שאילתה ריקה) ממוינת לפי אלף-בית של כותרת המוצר. */
 function buildPromoRows(query){
   const products = [...(appData.promoProducts||[])];
-  const areaMode = isAreaViewer();
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
   const q = (query||'').trim().toLowerCase();
   return products
     .filter(p => !q || (p.title||'').toLowerCase().includes(q))
@@ -6023,7 +6034,7 @@ function buildPromoRows(query){
     .sort((a,b)=> (a.product.title||'').localeCompare(b.product.title||'', 'he'));
 }
 function renderPromoRowsHtml(rows, hadProducts){
-  const areaMode = isAreaViewer();
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
   if(!rows.length) return `<div class="card"><div class="empty-state">${hadProducts ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`;
   return rows.map(r=>promoProductCard(r, areaMode)).join('');
 }
@@ -6071,7 +6082,7 @@ function clearPromoSearch(){
 function setPromoTab(tab){ ui.promoTab = tab; renderContent(); }
 function viewPromoSales(){
   const products = [...(appData.promoProducts||[])];
-  const areaMode = isAreaViewer();
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
   const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
   const initialRows = buildPromoRows(ui.promoSearchQuery||'');
   const tab = ui.promoTab || 'analysis';
@@ -6125,10 +6136,6 @@ function promoProductCard(r, areaMode){
   };
   const maxVal = Math.max(med, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
   const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
-  const medTickPct = Math.min(100, (med/maxVal)*100);
-  const vsMedText = mine && med>0
-    ? (mine.sales>=med ? `${Math.round((mine.sales/med-1)*100)}% מעל החציון` : `${Math.round((1-mine.sales/med)*100)}% מתחת לחציון`)
-    : '';
   const barColor = !mine ? 'var(--muted)' : (mine.sales>=med*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=med*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
   const unitLabel = mine ? mine.unitLabel : 'יחידות שנמכרו';
   const mineRowLabel = areaMode ? session.areaLabel : 'הסניף שלכם';
@@ -6138,6 +6145,7 @@ function promoProductCard(r, areaMode){
         <div style="font-weight:500;font-size:15px;">${p.title}</div>
         ${r.rank ? `<span style="font-size:12px;padding:3px 10px;border-radius:8px;background:${barColor==='var(--good,#3B6D11)'?'var(--bg-success,#EAF3DE)':barColor==='var(--critical,#A32D2D)'?'var(--bg-danger,#FCEBEB)':'var(--gridline,#f0f0f0)'};color:${barColor};white-space:nowrap;flex:none;">מקום ${r.rank} מתוך ${r.total}</span>` : ''}
       </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">חציון הרשת: ${med.toFixed(1)} יחידות</div>
       ${mine ? `
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
           <span style="font-size:22px;font-weight:500;">${mine.sales}</span>
@@ -6165,7 +6173,7 @@ function promoProductCard(r, areaMode){
             `).join('')}
           </div>`;
         })() : ''}
-      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">${isNationalViewer() && compareList.length ? 'השוואה בין מנהלי האזור:' : 'אין נתונים זמינים.'}</div>`}
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">${hasPromoNationalAccess() && compareList.length ? 'השוואה בין מנהלי האזור:' : 'אין נתונים זמינים.'}</div>`}
       ${compareList.length ? `
         <div style="border-top:1px solid var(--gridline);padding-top:10px;">
           ${mine ? `
