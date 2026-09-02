@@ -6350,7 +6350,17 @@ function handlePromoExcelUpload(evt){
     }
     pendingPromoImportRows = rows;
     const headers = rows[0] || [];
-    const branchCols = [...new Set(headers.slice(3).filter(h=>h!=null && String(h).trim()!=='').map(String))];
+    /* עמודות סיכום (למשל "סך הכל"/"סה\"כ") הן לא סניף בשום צורה - יש להוציא
+       אותן החוצה כאן, לפני כל ניסיון זיהוי, כדי שלא יגיעו בכלל לרשימת
+       "קיצורים לא מוכרים". השוואה סלחנית לגרשיים/מרכאות כדי לתפוס גם
+       'סך הכל' וגם 'סה"כ' וגם "סך-הכל". */
+    function isTotalsColumnHeader(h){
+      const norm = String(h).replace(/["'׳״`]/g,'').replace(/[-–]/g,' ').replace(/\s+/g,' ').trim();
+      return norm==='סך הכל' || norm==='סהכ' || norm.toLowerCase()==='total';
+    }
+    const branchCols = [...new Set(headers.slice(3)
+      .filter(h=>h!=null && String(h).trim()!=='' && !isTotalsColumnHeader(h))
+      .map(String))];
     const savedMapping = fullPromoColumnMapping();
     /* שלב 1: קיצורים שכבר מוכרים מהטבלה השמורה - מהיר, בלי לחכות לרשת. */
     const stillUnresolved = branchCols.filter(col=>!savedMapping[col]);
