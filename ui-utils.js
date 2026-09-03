@@ -63,3 +63,13 @@ function toggleTheme(){
   html.setAttribute('data-theme', next);
   document.getElementById('theme-toggle').innerHTML = next==='dark' ? icon('sun') : icon('moon');
 }
+
+function fmtMoney(n){
+  return (n||0).toLocaleString(undefined, {maximumFractionDigits:2});
+}
+function parseHebDate(d){
+  if(!d || typeof d !== 'string') return NaN;
+  const [dd,mm,yy] = d.split('.').map(Number);
+  if(!dd || !mm || !yy) return NaN;
+  return new Date(yy,mm-1,dd).getTime();
+}
