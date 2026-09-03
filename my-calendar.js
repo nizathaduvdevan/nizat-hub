@@ -328,7 +328,7 @@ function openMyCalendarEventDetail(uid){
     <div style="margin-bottom:10px;"><span class="mycal-source-tag ${item.source}">${MYCAL_SOURCE_LABEL[item.source]}</span>${item.meta?` · ${item.meta}`:''}</div>
     ${item.desc ? `<div style="font-size:13.5px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:12px;">${item.desc}</div>` : ''}
     <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap;">
-      <a href="${gcalUrl}" target="_blank" rel="noopener" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;">📅 הוספה ל-Google Calendar</a>
+      <a href="${gcalUrl}" rel="noopener" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;">📅 הוספה ל-Google Calendar</a>
       ${item.canEdit ? `<button class="btn-secondary" onclick="closeModal();openNewMyCalendarEventForm(null,'${item.uid}')">עריכה</button>` : ''}
       ${item.canDelete ? `<button class="btn-secondary" style="color:var(--critical,#A32D2D);" onclick="deleteMyCalendarEvent('${item.source}','${item.id}')">מחיקה</button>` : ''}
       <button class="btn-secondary" onclick="closeModal()">סגירה</button>
