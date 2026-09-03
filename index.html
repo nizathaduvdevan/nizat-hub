@@ -4799,12 +4799,13 @@ function buildConversationMessages(instr, conv){
   const msgs = [{
     senderRole:'area', senderLabel: areaLabel,
     body: instr.title + (instr.body ? '\n'+instr.body : ''),
-    createdAtLabel: fmtTsShort(instr.createdAt)
+    createdAtLabel: fmtTsShort(instr.createdAt),
+    idx: -1
   }];
   if(conv && conv.messages && conv.messages.length){
-    conv.messages.forEach(function(m){ msgs.push(m); });
+    conv.messages.forEach(function(m, i){ msgs.push(Object.assign({}, m, {idx: i})); });
   } else if(conv && conv.note){
-    msgs.push({ senderRole:'branch', senderLabel: conv.branchName||'', body: conv.note, createdAtLabel: fmtTsShort(conv.confirmedAt) });
+    msgs.push({ senderRole:'branch', senderLabel: conv.branchName||'', body: conv.note, createdAtLabel: fmtTsShort(conv.confirmedAt), idx: -1 });
   }
   return msgs;
 }
@@ -4876,6 +4877,21 @@ function doCloseAreaConversation(instructionId, branchEmail){
     renderContent();
   }).catch(function(err){ toast('שגיאה: ' + err.message); });
 }
+/* פתיחת שיחה סגורה מחדש - רק מנהל האזור, בלי אישור נוסף (פעולה הפיכה,
+   לא הרסנית כמו סגירה). עובד גם על שיחות ישנות (סטטוס משוער מ-note) כי
+   הכתיבה קובעת שדה conversationStatus מפורש שגובר על ההשערה. */
+function reopenAreaConversation(instructionId, branchEmail){
+  if(!isRealAreaManager()) return;
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  const id = safeConvId(instructionId, branchEmail);
+  db.collection('areaInstructionConfirmations').doc(id).set({
+    instructionId, branchEmail,
+    conversationStatus: 'open'
+  }, {merge:true}).then(function(){
+    toast('השיחה נפתחה מחדש');
+    renderContent();
+  }).catch(function(err){ toast('שגיאה: ' + err.message); });
+}
 function markConversationRead(instructionId, branchEmail, viewerRole){
   const conv = getAreaConversation(instructionId, branchEmail);
   const count = (conv && conv.messages) ? conv.messages.length : 0;
@@ -4918,10 +4934,16 @@ function renderConversationThreadHtml(instr, conv, viewerRole){
       ` : ''}
       <div class="aconv-thread">
         ${messages.map(function(m){
+          const mine = m.senderRole===viewerRole;
+          let seenHtml = '';
+          if(mine && m.idx>=0 && conv){
+            const otherReadCount = viewerRole==='branch' ? (conv.areaReadCount||0) : (conv.branchReadCount||0);
+            if(otherReadCount > m.idx) seenHtml = ' · 👁 נצפה';
+          }
           return `
             <div class="aconv-msg ${m.senderRole==='area'?'from-area':'from-branch'}">
               <div>${m.body}</div>
-              <div class="aconv-msg-meta">${m.senderRole==='area' ? areaLabel : (m.senderLabel||branchName||'')} · ${m.createdAtLabel||''}</div>
+              <div class="aconv-msg-meta">${m.senderRole==='area' ? areaLabel : (m.senderLabel||branchName||'')} · ${m.createdAtLabel||''}${seenHtml}</div>
             </div>
           `;
         }).join('')}
@@ -4936,6 +4958,7 @@ function renderConversationThreadHtml(instr, conv, viewerRole){
         <div class="aconv-closed-banner">
           🔒 השיחה נסגרה על ידי מנהל האזור<br>ניתן לצפות בהתכתבות, אך לא ניתן לשלוח תגובות נוספות.
         </div>
+        ${viewerRole==='area' ? `<button class="btn-secondary" style="margin-top:10px;width:100%;" onclick="reopenAreaConversation('${instr.id}','${branchEmail}')">🔓 פתיחת השיחה מחדש</button>` : ''}
       `}
     </div>
   `;
