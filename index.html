@@ -5885,7 +5885,7 @@ function openNewMyCalendarEventForm(prefillDateKey, editUid){
   document.getElementById('modal-body').innerHTML = `
     <h3>${editItem ? 'עריכת אירוע' : 'אירוע חדש'}</h3>
     <div class="field"><label>כותרת</label><input id="f-mycal-title" value="${editItem?editItem.title:''}" placeholder="למשל: ספירת מלאי"></div>
-    <div class="field"><label>תאריך</label><input id="f-mycal-date" value="${editItem?editItem.date:(prefillDateKey||'')}" placeholder="DD.MM.YYYY"></div>
+    <div class="field"><label>תאריך</label><input id="f-mycal-date" value="${editItem?editItem.date:(prefillDateKey||todayHeb())}" placeholder="DD.MM.YYYY"></div>
     <div class="field">
       <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
         <input type="checkbox" id="f-mycal-allday" ${(!editItem || editItem.allDay)?'checked':''} onchange="document.getElementById('f-mycal-time-wrap').style.display=this.checked?'none':'flex';"> כל היום
@@ -5938,12 +5938,21 @@ function openNewMyCalendarEventForm(prefillDateKey, editUid){
   `;
   document.getElementById('modal-overlay').classList.add('open');
 }
+function jumpMyCalendarToDate(dateKey){
+  const ts = parseHebDate(dateKey);
+  if(isNaN(ts)) return;
+  const d = new Date(ts);
+  ui.calYear = d.getFullYear();
+  ui.calMonth = d.getMonth();
+  ui.calSelectedDay = d.getDate();
+}
 function submitMyCalendarEventForm(editSource, editId){
   if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const title = val('f-mycal-title');
   const date = val('f-mycal-date');
   if(!title){ toast('נא למלא כותרת'); return; }
   if(!date){ toast('נא למלא תאריך'); return; }
+  if(isNaN(parseHebDate(date))){ toast('תאריך לא תקין — יש להשתמש בפורמט DD.MM.YYYY'); return; }
   const allDay = document.getElementById('f-mycal-allday').checked;
   const startTime = allDay ? '' : (document.getElementById('f-mycal-start').value||'');
   const endTime = allDay ? '' : (document.getElementById('f-mycal-end').value||'');
@@ -5956,12 +5965,12 @@ function submitMyCalendarEventForm(editSource, editId){
     const payload = { ownerEmail: currentUserEmail, title, date, desc, color, allDay, startTime, endTime };
     if(editSource==='personal' && editId){
       db.collection('branchCalendarNotes').doc(editId).set(payload, {merge:true})
-        .then(function(){ closeModal(); toast('האירוע עודכן'); })
+        .then(function(){ closeModal(); jumpMyCalendarToDate(date); toast('האירוע עודכן'); renderContent(); })
         .catch(function(err){ toast('שגיאה: '+err.message); });
     } else {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       db.collection('branchCalendarNotes').add(payload)
-        .then(function(){ closeModal(); toast('האירוע נוצר'); })
+        .then(function(){ closeModal(); jumpMyCalendarToDate(date); toast('האירוע נוצר'); renderContent(); })
         .catch(function(err){ toast('שגיאה: '+err.message); });
     }
     return;
@@ -5982,12 +5991,12 @@ function submitMyCalendarEventForm(editSource, editId){
   };
   if(editSource==='area' && editId){
     db.collection('areaCalendarEvents').doc(editId).set(payload, {merge:true})
-      .then(function(){ closeModal(); toast('האירוע עודכן'); })
+      .then(function(){ closeModal(); jumpMyCalendarToDate(date); toast('האירוע עודכן'); renderContent(); })
       .catch(function(err){ toast('שגיאה: '+err.message); });
   } else {
     payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
     db.collection('areaCalendarEvents').add(payload)
-      .then(function(){ closeModal(); toast('האירוע נשלח'); })
+      .then(function(){ closeModal(); jumpMyCalendarToDate(date); toast('האירוע נשלח'); renderContent(); })
       .catch(function(err){ toast('שגיאה: '+err.message); });
   }
 }
