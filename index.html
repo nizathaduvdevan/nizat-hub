@@ -5809,10 +5809,13 @@ function renderMyCalendarGrid(){
     const hasEvents = evs.length>0;
     const isSelected = ui.calSelectedDay===day;
     const hasHoliday = evs.some(function(e){return e.source==='holiday';});
+    const dotsHtml = evs.slice(0,4).map(function(e){
+      return `<span style="width:5px;height:5px;border-radius:50%;background:${e.color||'#DADADA'};display:inline-block;"></span>`;
+    }).join('');
     cells.push(`
       <div class="cal-grid-cell ${hasEvents?'has-event':''} ${isSelected?'selected':''}" onclick="selectMyCalendarDay(${day})">
         <div class="cal-grid-day" style="${hasHoliday?'color:var(--critical,#A32D2D);font-weight:600;':''}">${day}</div>
-        ${hasEvents ? `<div class="cal-grid-dot"></div>` : ''}
+        ${hasEvents ? `<div style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:flex;gap:2px;">${dotsHtml}</div>` : ''}
       </div>
     `);
   }
@@ -5834,7 +5837,10 @@ function renderMyCalendarGrid(){
             return `
               <div class="mycal-event-row" onclick="openMyCalendarEventDetail('${e.uid}')">
                 <div class="mycal-event-top">
-                  <span class="mycal-event-title">${e.title}</span>
+                  <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+                    <span style="width:10px;height:10px;border-radius:50%;background:${e.color||'#DADADA'};flex:none;"></span>
+                    <span class="mycal-event-title">${e.title}</span>
+                  </span>
                   <span style="display:flex;align-items:center;gap:5px;flex:none;">
                     <span class="mycal-source-tag ${e.source}">${MYCAL_SOURCE_LABEL[e.source]}</span>
                     ${e.canEdit ? `<button class="icon-btn" style="width:auto;padding:3px 7px;font-size:12px;" title="עריכה" onclick="event.stopPropagation();openNewMyCalendarEventForm(null,'${e.uid}')">✎</button>` : ''}
@@ -6017,7 +6023,10 @@ function openMyCalendarEventDetail(uid){
   const dateLabel = item.endDate && item.endDate!==item.date ? `${item.date} – ${item.endDate}` : item.date;
   const timeLabel = (!item.allDay && item.startTime) ? `${item.startTime}${item.endTime?'–'+item.endTime:''}` : '';
   document.getElementById('modal-body').innerHTML = `
-    <h3>${item.title}</h3>
+    <h3 style="display:flex;align-items:center;gap:8px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:${item.color||'#DADADA'};flex:none;"></span>
+      ${item.title}
+    </h3>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;" dir="ltr">${dateLabel}${timeLabel?' · '+timeLabel:''}</div>
     <div style="margin-bottom:10px;"><span class="mycal-source-tag ${item.source}">${MYCAL_SOURCE_LABEL[item.source]}</span>${item.meta?` · ${item.meta}`:''}</div>
     ${item.desc ? `<div style="font-size:13.5px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:12px;">${item.desc}</div>` : ''}
