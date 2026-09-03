@@ -318,6 +318,7 @@ function openMyCalendarEventDetail(uid){
   if(!item) return;
   const dateLabel = item.endDate && item.endDate!==item.date ? `${item.date} – ${item.endDate}` : item.date;
   const timeLabel = (!item.allDay && item.startTime) ? `${item.startTime}${item.endTime?'–'+item.endTime:''}` : '';
+  const gcalUrl = googleCalendarAddUrl(item.date, item.title, item.startTime||'', item.endTime||'');
   document.getElementById('modal-body').innerHTML = `
     <h3 style="display:flex;align-items:center;gap:8px;">
       <span style="width:12px;height:12px;border-radius:50%;background:${item.color||'#DADADA'};flex:none;"></span>
@@ -327,7 +328,7 @@ function openMyCalendarEventDetail(uid){
     <div style="margin-bottom:10px;"><span class="mycal-source-tag ${item.source}">${MYCAL_SOURCE_LABEL[item.source]}</span>${item.meta?` · ${item.meta}`:''}</div>
     ${item.desc ? `<div style="font-size:13.5px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:12px;">${item.desc}</div>` : ''}
     <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap;">
-      <button class="btn-secondary" onclick="window.open(googleCalendarAddUrl('${item.date}', ${JSON.stringify(item.title)}, '${item.startTime||''}', '${item.endTime||''}'), '_blank', 'noopener')">📅 הוספה ל-Google Calendar</button>
+      <button class="btn-secondary" onclick="window.open('${gcalUrl}', '_blank', 'noopener')">📅 הוספה ל-Google Calendar</button>
       ${item.canEdit ? `<button class="btn-secondary" onclick="closeModal();openNewMyCalendarEventForm(null,'${item.uid}')">עריכה</button>` : ''}
       ${item.canDelete ? `<button class="btn-secondary" style="color:var(--critical,#A32D2D);" onclick="deleteMyCalendarEvent('${item.source}','${item.id}')">מחיקה</button>` : ''}
       <button class="btn-secondary" onclick="closeModal()">סגירה</button>
