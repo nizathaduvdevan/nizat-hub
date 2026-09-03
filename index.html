@@ -5866,10 +5866,15 @@ function renderMyCalendarGrid(){
 }
 function viewMyCalendar(){
   syncMyCalendarData();
+  const dbgCount = (appData.branchCalendarNotes||[]).length;
+  const dbgList = (appData.branchCalendarNotes||[]).map(function(n){ return `${n.title||n.text||'?'}(${n.date||'?'}/${n.ownerEmail||n.branchEmail||'?'})`; }).join(', ');
   return `
     <div class="page-head">
       <h1>היומן שלי</h1>
       <p>אירועים, תזכורות ודברים חשובים — במקום אחד.</p>
+    </div>
+    <div style="font-size:11px;color:var(--critical,#A32D2D);background:#fdf0f0;padding:8px 10px;border-radius:8px;margin-bottom:10px;word-break:break-all;">
+      DEBUG: currentUserEmail=${currentUserEmail||'null'} · role=${session.role||'null'} · notes loaded=${dbgCount} · [${dbgList}]
     </div>
     <button class="mycal-create-btn" onclick="openNewMyCalendarEventForm()">+ צור אירוע</button>
     ${renderMyCalendarGrid()}
