@@ -4727,6 +4727,9 @@ function createAreaInstruction(title, body, targetScope, specificBranchEmail){
   if(targetScope==='specific'){
     if(!specificBranchEmail){ toast('נא לבחור סניף'); return; }
     targetBranchEmails = [specificBranchEmail];
+  } else if(targetScope==='multi'){
+    targetBranchEmails = Array.from(document.querySelectorAll('.f-area-instr-multi-cb:checked')).map(function(el){return el.value;});
+    if(!targetBranchEmails.length){ toast('נא לבחור לפחות סניף אחד'); return; }
   } else {
     targetBranchEmails = areaBranches.map(b=>b.email).filter(Boolean);
   }
@@ -4744,6 +4747,11 @@ function createAreaInstruction(title, body, targetScope, specificBranchEmail){
     toast('העדכון נשלח');
   }).catch(function(err){ toast('שגיאה: ' + err.message); });
 }
+function toggleAreaInstrScopeFields(){
+  const v = document.getElementById('f-area-instr-scope').value;
+  document.getElementById('f-area-instr-branch-wrap').style.display = v==='specific' ? 'block' : 'none';
+  document.getElementById('f-area-instr-multi-wrap').style.display = v==='multi' ? 'block' : 'none';
+}
 function openNewAreaInstructionForm(){
   const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel);
   document.getElementById('modal-body').innerHTML = `
@@ -4752,9 +4760,10 @@ function openNewAreaInstructionForm(){
     <div class="field"><label>תוכן (אופציונלי)</label><textarea id="f-area-instr-body" rows="4" placeholder="פרטים נוספים..."></textarea></div>
     <div class="field">
       <label>יעד</label>
-      <select id="f-area-instr-scope" onchange="document.getElementById('f-area-instr-branch-wrap').style.display=this.value==='specific'?'block':'none';">
+      <select id="f-area-instr-scope" onchange="toggleAreaInstrScopeFields()">
         <option value="all">כל הסניפים שלי (${areaBranches.length})</option>
         <option value="specific">סניף ספציפי</option>
+        <option value="multi">מספר סניפים</option>
       </select>
     </div>
     <div class="field" id="f-area-instr-branch-wrap" style="display:none;">
@@ -4762,6 +4771,14 @@ function openNewAreaInstructionForm(){
       <select id="f-area-instr-branch">
         ${areaBranches.map(function(b){ return `<option value="${b.email}">${b.name}</option>`; }).join('')}
       </select>
+    </div>
+    <div class="field" id="f-area-instr-multi-wrap" style="display:none;max-height:160px;overflow:auto;">
+      <label>בחירת סניפים</label>
+      ${areaBranches.map(function(b){
+        return `<label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13.5px;padding:3px 0;">
+          <input type="checkbox" class="f-area-instr-multi-cb" value="${b.email}"> ${b.name}
+        </label>`;
+      }).join('')}
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">ביטול</button>
@@ -4869,6 +4886,7 @@ function doCloseAreaConversation(instructionId, branchEmail){
   const id = safeConvId(instructionId, branchEmail);
   db.collection('areaInstructionConfirmations').doc(id).set({
     instructionId, branchEmail,
+    areaManagerEmail: currentUserEmail,
     conversationStatus: 'closed',
     closedAt: firebase.firestore.FieldValue.serverTimestamp()
   }, {merge:true}).then(function(){
@@ -4886,6 +4904,7 @@ function reopenAreaConversation(instructionId, branchEmail){
   const id = safeConvId(instructionId, branchEmail);
   db.collection('areaInstructionConfirmations').doc(id).set({
     instructionId, branchEmail,
+    areaManagerEmail: currentUserEmail,
     conversationStatus: 'open'
   }, {merge:true}).then(function(){
     toast('השיחה נפתחה מחדש');
@@ -4897,8 +4916,10 @@ function markConversationRead(instructionId, branchEmail, viewerRole){
   const count = (conv && conv.messages) ? conv.messages.length : 0;
   const field = viewerRole==='branch' ? 'branchReadCount' : 'areaReadCount';
   if(conv && (conv[field]||0) >= count) return;
+  if(!conv && count===0) return; // אין עדיין מסמך ואין מה לסמן כנקרא - לא ליצור מסמך ריק לשווא
   const id = safeConvId(instructionId, branchEmail);
   const update = { instructionId, branchEmail };
+  if(viewerRole==='area') update.areaManagerEmail = currentUserEmail;
   update[field] = count;
   db.collection('areaInstructionConfirmations').doc(id).set(update, {merge:true}).catch(function(){});
 }
@@ -5041,6 +5062,8 @@ function viewAreaManagerConversations(){
       const pct = targets.length ? Math.round(ackedCount/targets.length*100) : 0;
       const scopeLabel = instr.targetScope==='specific'
         ? (areaBranches.find(function(b){return b.email===targets[0];})||{}).name || 'סניף ספציפי'
+        : instr.targetScope==='multi'
+        ? `${targets.length} סניפים נבחרים`
         : `כל הסניפים שלי (${targets.length})`;
       return `
         <div class="card" style="margin-bottom:12px;">
