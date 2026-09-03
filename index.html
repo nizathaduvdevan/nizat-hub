@@ -4829,7 +4829,6 @@ function sendConversationMessage(instructionId, branchEmail, areaManagerEmail, s
   const update = {
     instructionId, areaManagerEmail, branchEmail,
     branchName: session.branchInfo ? session.branchInfo.name : (existing ? existing.branchName : ((BRANCH_DIRECTORY.find(b=>b.email===branchEmail)||{}).name||'')),
-    conversationStatus: 'open',
     messages: firebase.firestore.FieldValue.arrayUnion(msg)
   };
   update[senderRole==='branch' ? 'branchReadCount' : 'areaReadCount'] = newCount;
