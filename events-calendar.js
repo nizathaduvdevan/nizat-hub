@@ -203,7 +203,7 @@ function renderEventsCalendarGrid(list){
                 return `
                 <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;margin-bottom:6px;background:${color}55;">
                   <div style="flex:1;font-size:13px;">${n.text}</div>
-                  <button class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;" title="הוספה ליומן Google" onclick="openGoogleCalendarForNote('${n.id}')">📅</button>
+                  <a href="${googleCalendarAddUrl(n.date, n.text)}" target="_blank" rel="noopener" class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;" title="הוספה ליומן Google">📅</a>
                   <button class="icon-btn" style="width:auto;padding:3px 8px;font-size:11px;" onclick="deleteBranchCalendarNote('${n.id}')">🗑</button>
                 </div>`;
               }).join('') : `<div class="empty-state" style="padding:6px 0;">אין תזכורות אישיות ביום זה.</div>`}
