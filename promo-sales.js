@@ -1095,3 +1095,417 @@ function tickCountdowns(){
     timerEl.innerHTML = countdownSegsHtml(p);
   });
 }
+
+/* ---------- מכר מבצעים (רכש) ---------- */
+/* בחירת סניפים להשוואה — גלובלית לכל המוצרים (לא נבחרת מחדש בכל מוצר),
+   נשמרת ב-localStorage לפי זהות הצופה, כפי שהוחלט בשיחה. */
+function promoCompareKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompare_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function getPromoCompareBranches(){
+  try{ return JSON.parse(localStorage.getItem(promoCompareKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareBranches(arr){
+  try{ localStorage.setItem(promoCompareKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareBranch(name){
+  savePromoCompareBranches(getPromoCompareBranches().filter(n=>n!==name));
+  renderContent();
+}
+function openPromoComparePicker(){
+  const current = getPromoCompareBranches();
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת סניף להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div id="promo-pick-list" style="max-height:360px;overflow-y:auto;">טוען סניפים…</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+  loadBranchDirectory().then(function(){
+    const listEl = document.getElementById('promo-pick-list');
+    if(!listEl) return;
+    const rows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'))
+      .filter(b=>current.indexOf(b.name)===-1)
+      .map(b=>`<div class="preview-pick-row" onclick="addPromoCompareBranch('${b.name.replace(/'/g,"\\'")}')"><span>${b.name}</span></div>`)
+      .join('');
+    listEl.innerHTML = rows || '<div class="empty-state">כל הסניפים כבר נבחרו.</div>';
+  });
+}
+function addPromoCompareBranch(name){
+  const current = getPromoCompareBranches();
+  if(current.indexOf(name)===-1) savePromoCompareBranches([...current, name]);
+  closeModal();
+  renderContent();
+}
+/* בחירת אזורים להשוואה (למנהלי אזור) - אותו רעיון בדיוק כמו בחירת סניפים,
+   רק שהיחידה היא אזור שלם ולא סניף בודד. */
+function promoCompareAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompareAreas_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function promoNationalExcludedAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoNationalExcluded_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function allRealAreaLabels(){
+  return Object.keys(AREA_MANAGER_INFO)
+    .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
+    .map(email=>AREA_MANAGER_INFO[email].label)
+    .sort((a,b)=>a.localeCompare(b,'he'));
+}
+/* ארבל/עופר (תצוגה ארצית): במקום לשמור "אילו אזורים נבחרו" (רשימת הכללה,
+   שמתחילה ריקה וגורמת להם להוסיף כל אזור ידנית), שומרים "אילו אזורים
+   הוסרו" (רשימת החרגה). כך ברירת המחדל היא תמיד "כל 6 האזורים", בלי תלות
+   עדינה בהאם נשמר משהו בעבר תחת מפתח כלשהו - הרבה יותר עמיד מהגרסה
+   הקודמת שניסתה להסתמך על "localStorage ריק = ביקור ראשון". */
+function getPromoCompareAreas(){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    return allRealAreaLabels().filter(a=>excluded.indexOf(a)===-1);
+  }
+  try{ return JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareAreas(arr){
+  try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareArea(area){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    if(excluded.indexOf(area)===-1) excluded.push(area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    renderContent();
+    return;
+  }
+  savePromoCompareAreas(getPromoCompareAreas().filter(a=>a!==area));
+  renderContent();
+}
+function addPromoCompareArea(area){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    excluded = excluded.filter(a=>a!==area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    closeModal();
+    renderContent();
+    return;
+  }
+  const current = getPromoCompareAreas();
+  if(current.indexOf(area)===-1) savePromoCompareAreas([...current, area]);
+  closeModal();
+  renderContent();
+}
+function openPromoCompareAreaPicker(){
+  const current = getPromoCompareAreas();
+  const allAreas = allRealAreaLabels();
+  const rows = allAreas.filter(a=>a!==session.areaLabel && current.indexOf(a)===-1)
+    .map(a=>`<div class="preview-pick-row" onclick="addPromoCompareArea('${a.replace(/'/g,"\\'")}')"><span>${a}</span></div>`).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת מנהל איזור להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div style="max-height:360px;overflow-y:auto;">${rows || '<div class="empty-state">כל מנהלי האיזור כבר נבחרו.</div>'}</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
+/* עופר וארבל: role='area' עם areaName=null (תצוגה ארצית, לא אזור ספציפי).
+   מבחינת "מכר מבצעים" הם לא אמורים לרדת לרמת סניף בודד, אלא לראות תמונה
+   ארצית לפי אזורים - זה מה ש-buildPromoNationalReport נותן. */
+function isNationalViewer(){ return session.role==='area' && !!session.areaLabel && !session.areaName; }
+/* אנשי צוות ספציפיים (רכש/שיווק) שצריכים לראות בדיוק את אותה תצוגה ארצית
+   של ארבל/עופר במודול "מכר מבצעים" - גם אם ה-role שלהם הוא 'marketing'
+   ואין להם session.areaLabel כלל. רשימה סגורה של מיילים, לא כל מי
+   שבמחלקת שיווק/רכש - כדי לא להעניק את זה בטעות למישהו שלא ביקשו עבורו. */
+const PROMO_NATIONAL_ACCESS_EMAILS = [
+  'yulia@nizat.co.il', 'tradeo@nizat.co.il', 'nofar@nizat.co.il',
+  'edith@nizat.co.il', 'eliran@nizat.co.il'
+];
+function hasPromoNationalAccess(){
+  return isNationalViewer() || (session.role==='marketing' && PROMO_NATIONAL_ACCESS_EMAILS.indexOf(currentUserEmail)!==-1);
+}
+/* בונה את שורות הנתונים למכר מבצעים לפי שאילתת חיפוש נתונה - ברירת מחדל
+   (שאילתה ריקה) ממוינת לפי אלף-בית של כותרת המוצר. */
+function buildPromoRows(query){
+  const products = [...(appData.promoProducts||[])];
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  const q = (query||'').trim().toLowerCase();
+  return products
+    .filter(p => !q || (p.title||'').toLowerCase().includes(q))
+    .map(p=>{
+      const branches = p.branches || [];
+      const med = median(branches.map(b=>b.sales||0)) || 0;
+      const mine = computeMyPromoValue(p);
+      let rank = null, total = null;
+      if(mine){
+        if(areaMode){
+          const grouped = groupPromoProductByArea(p).sort((a,b)=>b.med-a.med);
+          rank = grouped.findIndex(a=>a.area===session.areaLabel) + 1;
+          total = grouped.length;
+        } else {
+          const matched = matchMyBranchInPromoProduct(p, session.branchInfo);
+          const sorted = [...branches].sort((a,b)=>b.sales-a.sales);
+          rank = matched ? sorted.indexOf(matched)+1 : null;
+          total = branches.length;
+        }
+      }
+      return {product: p, med, mine, rank, total};
+    })
+    .sort((a,b)=> (a.product.title||'').localeCompare(b.product.title||'', 'he'));
+}
+function renderPromoRowsHtml(rows, hadProducts){
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  if(!rows.length) return `<div class="card"><div class="empty-state">${hadProducts ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`;
+  return rows.map(r=>promoProductCard(r, areaMode)).join('');
+}
+/* עדכון קליל של תיבת החיפוש - מעדכן רק את תיבת ההצעות ואת רשימת השורות
+   בפועל (DOM ממוקד), בלי לקרוא ל-renderContent המלא. זה מה שמונע מהשדה
+   "להיהרס" ולאבד פוקוס באמצע הקלדה/מחיקה, וגם חוסך חישוב מיותר של כל
+   118 המוצרים מחדש על כל הקשה. */
+function updatePromoSearch(value){
+  ui.promoSearchQuery = value;
+  const q = value.trim().toLowerCase();
+  const suggEl = document.getElementById('promo-suggestions');
+  const rowsEl = document.getElementById('promo-rows');
+  if(suggEl){
+    if(!q){
+      suggEl.style.display = 'none';
+      suggEl.innerHTML = '';
+    } else {
+      const matches = [...(appData.promoProducts||[])]
+        .filter(p=>(p.title||'').toLowerCase().includes(q))
+        .sort((a,b)=>(a.title||'').localeCompare(b.title||'','he'))
+        .slice(0,10);
+      suggEl.style.display = matches.length ? 'block' : 'none';
+      suggEl.innerHTML = matches.map(p=>`
+        <div style="padding:9px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid var(--gridline);" onclick="selectPromoSuggestion('${(p.title||'').replace(/'/g,"\\'")}')">${p.title}</div>
+      `).join('');
+    }
+  }
+  if(rowsEl){
+    const rows = buildPromoRows(value);
+    rowsEl.innerHTML = renderPromoRowsHtml(rows, (appData.promoProducts||[]).length>0);
+  }
+}
+function selectPromoSuggestion(title){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = title;
+  updatePromoSearch(title);
+  const suggEl = document.getElementById('promo-suggestions');
+  if(suggEl){ suggEl.style.display='none'; suggEl.innerHTML=''; }
+}
+function clearPromoSearch(){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = '';
+  updatePromoSearch('');
+}
+function setPromoTab(tab){ ui.promoTab = tab; renderContent(); }
+function viewPromoSales(){
+  const products = [...(appData.promoProducts||[])];
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const initialRows = buildPromoRows(ui.promoSearchQuery||'');
+  const tab = ui.promoTab || 'analysis';
+
+  return `
+    <div class="page-head">
+      <h1>מכר מבצעים</h1>
+      <p>ניתוח מימושי מבצעים מול חוברת המבצעים, ועיון חופשי לפי מוצר.</p>
+    </div>
+    <div class="admin-tabs" style="margin-bottom:16px;">
+      <button class="admin-tab ${tab==='analysis'?'active':''}" onclick="setPromoTab('analysis')">דוח פעולה</button>
+      <button class="admin-tab ${tab==='browse'?'active':''}" onclick="setPromoTab('browse')">עיון לפי מוצר</button>
+    </div>
+    ${tab==='analysis' ? viewPromoAnalysis() : viewPromoBrowse(products, areaMode, compareList, initialRows)}
+  `;
+}
+function viewPromoBrowse(products, areaMode, compareList, initialRows){
+  return `
+    <div class="field" style="margin-bottom:14px;position:relative;">
+      <div style="display:flex;gap:0;">
+        <input type="text" id="promo-search-input" placeholder="חיפוש מוצר..." value="${ui.promoSearchQuery||''}"
+          oninput="updatePromoSearch(this.value)">
+        <button class="icon-btn" style="border-radius:0 8px 8px 0;" onclick="clearPromoSearch()" title="ניקוי חיפוש">✕</button>
+      </div>
+      <div id="promo-suggestions" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:20;background:var(--surface-1);border:1px solid var(--gridline);border-radius:10px;margin-top:4px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);"></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
+      <span style="font-size:12.5px;color:var(--text-secondary);">השוואה ל${areaMode?'מנהלי איזור אחרים':'סניפים'}:</span>
+      ${compareList.map(name=>`
+        <span style="font-size:12px;padding:4px 8px 4px 6px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);display:inline-flex;align-items:center;gap:4px;">
+          ${areaMode ? name : name.replace('ניצת ','')}
+          <button style="border:none;background:none;padding:0;cursor:pointer;color:inherit;font-size:13px;line-height:1;" onclick="${areaMode?'removePromoCompareArea':'removePromoCompareBranch'}('${name.replace(/'/g,"\\'")}')">✕</button>
+        </span>
+      `).join('')}
+      <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="${areaMode?'openPromoCompareAreaPicker':'openPromoComparePicker'}()">+ הוספת ${areaMode?'מנהל איזור':'סניף'}</button>
+    </div>
+    <div id="promo-rows">${renderPromoRowsHtml(initialRows, products.length>0)}</div>
+  `;
+}
+function promoProductCard(r, areaMode){
+  const p = r.product, mine = r.mine, med = r.med;
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const groupedByArea = areaMode ? groupPromoProductByArea(p) : null;
+  const valueForEntity = (name) => {
+    if(areaMode){
+      const g = groupedByArea.find(a=>a.area===name);
+      return g ? Math.round(g.med*10)/10 : 0;
+    }
+    const b = (p.branches||[]).find(x=>x.name===name);
+    return b ? b.sales : 0;
+  };
+  const maxVal = Math.max(med, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
+  const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
+  const barColor = !mine ? 'var(--muted)' : (mine.sales>=med*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=med*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
+  const unitLabel = mine ? mine.unitLabel : 'יחידות שנמכרו';
+  const mineRowLabel = areaMode ? session.areaLabel : 'הסניף שלכם';
+  return `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+        <div style="font-weight:500;font-size:15px;">${p.title}</div>
+        ${r.rank ? `<span style="font-size:12px;padding:3px 10px;border-radius:8px;background:${barColor==='var(--good,#3B6D11)'?'var(--bg-success,#EAF3DE)':barColor==='var(--critical,#A32D2D)'?'var(--bg-danger,#FCEBEB)':'var(--gridline,#f0f0f0)'};color:${barColor};white-space:nowrap;flex:none;">מקום ${r.rank} מתוך ${r.total}</span>` : ''}
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">חציון הרשת: ${med.toFixed(1)} יחידות</div>
+      ${mine ? `
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+          <span style="font-size:22px;font-weight:500;">${mine.sales}</span>
+          <span style="font-size:13px;color:var(--text-secondary);">${unitLabel}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${mine.label}</div>
+        <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:12px;">
+          <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
+        </div>
+        ${areaMode ? (function(){
+          const branchRows = myAreaBranchBreakdown(p);
+          if(!branchRows.length) return '';
+          const maxBranchVal = Math.max(...branchRows.map(x=>x.sales), 1);
+          return `
+          <div style="border-top:1px solid var(--gridline);padding-top:10px;margin-bottom:${compareList.length?'12px':'0'};">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">פירוט לפי סניף באזור שלכם:</div>
+            ${branchRows.map(b=>`
+              <div style="display:flex;align-items:center;gap:10px;padding:3px 0;">
+                <span style="font-size:12px;width:130px;flex:none;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.name.replace('ניצת ','')}</span>
+                <div style="flex:1;height:14px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                  <div style="height:100%;width:${Math.min(100,(b.sales/maxBranchVal)*100)}%;background:var(--muted);border-radius:4px;"></div>
+                </div>
+                <span style="font-size:12px;width:28px;text-align:left;color:var(--text-secondary);">${b.sales}</span>
+              </div>
+            `).join('')}
+          </div>`;
+        })() : ''}
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">${hasPromoNationalAccess() && compareList.length ? 'השוואה בין מנהלי האזור:' : 'אין נתונים זמינים.'}</div>`}
+      ${compareList.length ? `
+        <div style="border-top:1px solid var(--gridline);padding-top:10px;">
+          ${mine ? `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mineRowLabel}</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${myPct}%;background:var(--blue,#185FA5);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:32px;text-align:left;font-weight:500;">${mine.sales}</span>
+            </div>
+          ` : ''}
+          ${compareList.map(name=>{
+            const val = valueForEntity(name);
+            const pct = Math.min(100, (val/maxVal)*100);
+            return `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${areaMode ? name : name.replace('ניצת ','')}</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${pct}%;background:var(--muted);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:32px;text-align:left;color:var(--text-secondary);">${val}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+function viewStandsBranch(){
+  const myName = session.branchInfo ? session.branchInfo.name : null;
+  const myEmail = session.branchInfo ? session.branchInfo.email : null;
+  const items = [];
+  appData.standCampaigns.forEach(camp=>{
+    camp.branches.forEach((b,idx)=>{ if(b.matchedBranchName===myName) items.push({camp, b, idx, status:getStandBranchStatus(camp,b)}); });
+  });
+  const pending = items.filter(x=>!x.status.confirmed);
+  const confirmed = items.filter(x=>x.status.confirmed);
+  /* באנר חובה-לאישור: כל קמפיין שנותרו לו 3 ימים או פחות להורדה, ושהסניף הזה
+     עדיין לא אישר קבלת התזכורת עבורו — ממשיך להופיע כל עוד לא נלחץ "אישרתי". */
+  const now = Date.now();
+  const urgentUnacked = items.filter(x=>{
+    const t = parseHebDate(x.camp.takedownDate);
+    if(isNaN(t)) return false;
+    const daysLeft = (t-now)/86400000;
+    return daysLeft<=3 && !hasAckedTakedown(x.camp.id, myEmail);
+  });
+  return `
+    <div class="page-head">
+      <h1>סטנדים לאישור</h1>
+      <p>סטנדים שהוצבו בסניף שלכם וממתינים לאישור שהם תקינים ובמקום.</p>
+    </div>
+    ${urgentUnacked.map(x=>`
+      <div class="card" style="background:rgba(208,59,59,0.06);border:1px solid rgba(208,59,59,0.3);margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="font-size:22px;">⏰</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;color:var(--critical);margin-bottom:4px;">תזכורת דחופה: יש להוריד את הסטנד "${x.camp.label}"</div>
+            <div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;">יש להוריד עד <span dir="ltr">${x.camp.takedownDate}</span>. אנא אשרו שראיתם את התזכורת.</div>
+            <button class="btn-confirm" onclick="ackStandTakedown('${x.camp.id}')">אישרתי, ראיתי את התזכורת</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+    <div class="card">
+      ${pending.length ? pending.map(x=>standCardHtml(x.camp, x.b, x.idx, true)).join('') : '<div class="empty-state">אין סטנדים הממתינים לאישור כרגע. 🎉</div>'}
+    </div>
+    ${confirmed.length ? `
+    <h3 style="font-size:14px;margin:22px 0 10px;color:var(--text-secondary);">אושרו</h3>
+    <div class="card">${confirmed.map(x=>standCardHtml(x.camp, x.b, x.idx, false, x.status.confirmedAt)).join('')}</div>` : ''}
+  `;
+}
+function viewStandsMarketing(){
+  const list = [...appData.standCampaigns].sort((a,b)=>parseHebDate(a.takedownDate)-parseHebDate(b.takedownDate));
+  return `
+    <div class="page-head">
+      <h1>סטנדים לאישור</h1>
+      <p>${getText('stands_desc')}</p>
+    </div>
+    <div class="admin-toolbar">
+      <div style="font-size:13px;color:var(--text-secondary);">${list.length} קמפיינים</div>
+      <button class="btn-import" onclick="triggerStandsImport()">📥 העלאת קובץ סטנדים</button>
+    </div>
+    <input type="file" id="stands-file-input" accept=".xlsx,.xls" style="display:none;" onchange="handleStandsFile(event)">
+    <div class="card">
+      ${list.map(camp=>{
+        const statuses = camp.branches.map(b=>getStandBranchStatus(camp,b));
+        const confirmedCount = statuses.filter(s=>s.confirmed).length;
+        const daysLeft = Math.ceil((parseHebDate(camp.takedownDate)-Date.now())/86400000);
+        return `
+        <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;width:100%;flex-wrap:wrap;gap:6px;">
+            <div class="admin-row-main">
+              <div class="t"><span class="stand-color-dot" style="background:${camp.colorHex};"></span> ${camp.label}${camp.demo ? ' <span class="badge ended">🧪 נתוני הדגמה</span>' : ''}</div>
+              <div class="m">${camp.branches.length} סניפים · אושרו ${confirmedCount}/${camp.branches.length}${camp.installDate ? ` · עלייה ${camp.installDate}` : ''} · יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` (עוד ${daysLeft} ימים)` : ' (התאריך עבר)'}</div>
+            </div>
+            <button class="icon-btn" onclick="openEditStandModal('${camp.id}')" title="עריכה">✎</button>
+          </div>
+          <button class="comp-group-toggle" onclick="toggleStandTable('${camp.id}')">פירוט סניפים <span id="stand-arrow-${camp.id}">▾</span></button>
+          <div class="comp-group-table" id="stand-table-${camp.id}">
+            ${camp.branches.map(b=>({ b, status:getStandBranchStatus(camp,b) })).sort((a,b)=>Number(a.status.confirmed)-Number(b.status.confirmed)).map(x=>`
+              <div class="comp-group-table-row">
+                <span class="n">${x.b.matchedBranchName}</span>
+                <span class="m">${x.status.confirmed ? '✅ '+x.status.confirmedAt : '⏳ ממתין'}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        `;
+      }).join('') || '<div class="empty-state">עדיין לא הועלה קובץ סטנדים. לחצו על "העלאת קובץ סטנדים".</div>'}
+    </div>
+  `;
+}
+
