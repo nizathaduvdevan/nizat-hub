@@ -1456,6 +1456,83 @@ let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
 let unsubSiteTexts = null;
 const FIRESTORE_BACKED_TYPES = ['instructions', 'competitions', 'materials', 'events'];
+/* היומן שלי — סינכרון עצמאי, נפרד מהזרימה הרגילה של initFirestoreSync().
+   הסיבה: session.role / session.branchInfo / currentUserEmail יכולים
+   להשתנות גם בלי כניסה מחדש (למשל "צפייה כמשתמש" למנהל תוכן) - ובלי
+   הפונקציה הזו, ה-listener היה ממשיך לשאול על הזהות הישנה לנצח, בשקט,
+   בלי שום שגיאה גלויה. myCalSyncedFor שומר "טביעת אצבע" של הזהות
+   הפעילה בזמן שהסינכרון האחרון רץ; viewMyCalendar() קורא לפונקציה הזו
+   בכל רינדור, וכשהטביעת אצבע משתנה - היא בונה את שני ה-listeners מחדש. */
+let myCalSyncedFor = null;
+function currentMyCalendarIdentityKey(){
+  return [currentUserEmail||'', session.role||'', (session.branchInfo?session.branchInfo.email:''), session.areaLabel||''].join('|');
+}
+function syncMyCalendarData(){
+  const key = currentMyCalendarIdentityKey();
+  if(key === myCalSyncedFor) return;
+  myCalSyncedFor = key;
+
+  /* תזכורות אישיות. במקור זה היה מיועד לסניפים בלבד (branchEmail בלבד).
+     כעת זמין לכל תפקיד, לפי שדה ownerEmail גנרי. לתאימות אחורה, סניפים
+     ממשיכים גם לקרוא לפי branchEmail (מסמכים ישנים שנוצרו לפני ההרחבה),
+     וממזגים את שתי התוצאות לאותו appData.branchCalendarNotes (השם נשאר,
+     רק האוכלוסיה מתרחבת). כל משתמש רואה רק את שלו - בלי קשר לתפקיד. */
+  if (unsubBranchCalendarNotes) unsubBranchCalendarNotes();
+  if (unsubBranchCalendarNotesLegacy) unsubBranchCalendarNotesLegacy();
+  let myCalOwnerDocs = [], myCalLegacyDocs = [];
+  function mergeMyCalendarNotes(){
+    const merged = [...myCalOwnerDocs];
+    myCalLegacyDocs.forEach(function(d){ if(!merged.find(function(x){return x.id===d.id;})) merged.push(d); });
+    appData.branchCalendarNotes = merged;
+    renderContent();
+  }
+  if (currentUserEmail) {
+    unsubBranchCalendarNotes = db.collection('branchCalendarNotes')
+      .where('ownerEmail', '==', currentUserEmail)
+      .onSnapshot(function(snap){
+        myCalOwnerDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
+        mergeMyCalendarNotes();
+      }, function(err){ console.error('Firestore sync error (calendar notes - owner):', err); });
+    if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+      unsubBranchCalendarNotesLegacy = db.collection('branchCalendarNotes')
+        .where('branchEmail', '==', session.branchInfo.email)
+        .onSnapshot(function(snap){
+          myCalLegacyDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
+          mergeMyCalendarNotes();
+        }, function(err){ console.error('Firestore sync error (calendar notes - legacy):', err); });
+    } else {
+      myCalLegacyDocs = [];
+      mergeMyCalendarNotes();
+    }
+  } else {
+    appData.branchCalendarNotes = [];
+  }
+
+  /* אירועים משותפים שמנהל אזור יוצר לסניף אחד/מספר סניפים. קולקציה נפרדת
+     לגמרי מ-events (יומן השיווק) ומ-areaInstructions - כדי שלא לגעת בכלל
+     בהרשאות/יציבות של יומן השיווק הקיים. סניף רואה רק אירועים שהוא ביעד
+     שלהם, מנהל אזור רואה רק מה שהוא עצמו יצר. */
+  if (unsubAreaCalendarEvents) unsubAreaCalendarEvents();
+  let areaCalQuery = null;
+  if (isAreaPrivateBackendUser()) {
+    areaCalQuery = db.collection('areaCalendarEvents');
+  } else if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+    areaCalQuery = db.collection('areaCalendarEvents').where('targetBranchEmails', 'array-contains', session.branchInfo.email);
+  } else if (isRealAreaManager()) {
+    areaCalQuery = db.collection('areaCalendarEvents').where('areaManagerEmail', '==', currentUserEmail);
+  }
+  if (areaCalQuery) {
+    unsubAreaCalendarEvents = areaCalQuery.onSnapshot(function(snap){
+      appData.areaCalendarEvents = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){ console.error('Firestore sync error (area calendar events):', err); });
+  } else {
+    appData.areaCalendarEvents = [];
+  }
+}
+
 function initFirestoreSync(){
   if (!firebaseReady || !db) return;
   instructionsFirstSnapshot = true;
@@ -1603,65 +1680,7 @@ function initFirestoreSync(){
       console.error('Firestore sync error (stand takedown acks):', err);
     });
 
-  /* היומן שלי — תזכורות אישיות. במקור זה היה מיועד לסניפים בלבד (branchEmail
-     בלבד). כעת זמין לכל תפקיד, לפי שדה ownerEmail גנרי. לתאימות אחורה, סניפים
-     ממשיכים גם לקרוא לפי branchEmail (מסמכים ישנים שנוצרו לפני ההרחבה),
-     וממזגים את שתי התוצאות לאותו appData.branchCalendarNotes (השם נשאר, רק
-     האוכלוסיה מתרחבת). כל משתמש רואה רק את שלו — בלי קשר לתפקיד. */
-  if (unsubBranchCalendarNotes) unsubBranchCalendarNotes();
-  if (unsubBranchCalendarNotesLegacy) unsubBranchCalendarNotesLegacy();
-  let myCalOwnerDocs = [], myCalLegacyDocs = [];
-  function mergeMyCalendarNotes(){
-    const merged = [...myCalOwnerDocs];
-    myCalLegacyDocs.forEach(function(d){ if(!merged.find(function(x){return x.id===d.id;})) merged.push(d); });
-    appData.branchCalendarNotes = merged;
-    renderContent();
-  }
-  if (currentUserEmail) {
-    unsubBranchCalendarNotes = db.collection('branchCalendarNotes')
-      .where('ownerEmail', '==', currentUserEmail)
-      .onSnapshot(function(snap){
-        myCalOwnerDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
-        mergeMyCalendarNotes();
-      }, function(err){ console.error('Firestore sync error (calendar notes - owner):', err); });
-    if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
-      unsubBranchCalendarNotesLegacy = db.collection('branchCalendarNotes')
-        .where('branchEmail', '==', session.branchInfo.email)
-        .onSnapshot(function(snap){
-          myCalLegacyDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
-          mergeMyCalendarNotes();
-        }, function(err){ console.error('Firestore sync error (calendar notes - legacy):', err); });
-    } else {
-      myCalLegacyDocs = [];
-      mergeMyCalendarNotes();
-    }
-  } else {
-    appData.branchCalendarNotes = [];
-  }
-
-  /* היומן שלי — אירועים משותפים שמנהל אזור יוצר לסניף אחד/מספר סניפים.
-     קולקציה נפרדת לגמרי מ-events (יומן השיווק) ומ-areaInstructions — כדי
-     שלא לגעת בכלל בהרשאות/יציבות של יומן השיווק הקיים. סניף רואה רק אירועים
-     שהוא ביעד שלהם, מנהל אזור רואה רק מה שהוא עצמו יצר. */
-  if (unsubAreaCalendarEvents) unsubAreaCalendarEvents();
-  let areaCalQuery = null;
-  if (isAreaPrivateBackendUser()) {
-    areaCalQuery = db.collection('areaCalendarEvents');
-  } else if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
-    areaCalQuery = db.collection('areaCalendarEvents').where('targetBranchEmails', 'array-contains', session.branchInfo.email);
-  } else if (isRealAreaManager()) {
-    areaCalQuery = db.collection('areaCalendarEvents').where('areaManagerEmail', '==', currentUserEmail);
-  }
-  if (areaCalQuery) {
-    unsubAreaCalendarEvents = areaCalQuery.onSnapshot(function(snap){
-      appData.areaCalendarEvents = snap.docs.map(function(doc){
-        return Object.assign({}, doc.data(), { id: doc.id });
-      });
-      renderContent();
-    }, function(err){ console.error('Firestore sync error (area calendar events):', err); });
-  } else {
-    appData.areaCalendarEvents = [];
-  }
+  syncMyCalendarData();
 
 
   if (unsubAreaInstructions) unsubAreaInstructions();
@@ -2969,7 +2988,9 @@ function fmtMoney(n){
   return (n||0).toLocaleString(undefined, {maximumFractionDigits:2});
 }
 function parseHebDate(d){
+  if(!d || typeof d !== 'string') return NaN;
   const [dd,mm,yy] = d.split('.').map(Number);
+  if(!dd || !mm || !yy) return NaN;
   return new Date(yy,mm-1,dd).getTime();
 }
 
@@ -5844,6 +5865,7 @@ function renderMyCalendarGrid(){
   `;
 }
 function viewMyCalendar(){
+  syncMyCalendarData();
   return `
     <div class="page-head">
       <h1>היומן שלי</h1>
