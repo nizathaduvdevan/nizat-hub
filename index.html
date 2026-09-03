@@ -1491,8 +1491,9 @@ function syncMyCalendarData(){
       .where('ownerEmail', '==', currentUserEmail)
       .onSnapshot(function(snap){
         myCalOwnerDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
+        window.myCalDebugError = null;
         mergeMyCalendarNotes();
-      }, function(err){ console.error('Firestore sync error (calendar notes - owner):', err); });
+      }, function(err){ console.error('Firestore sync error (calendar notes - owner):', err); window.myCalDebugError = err.message; renderContent(); });
     if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
       unsubBranchCalendarNotesLegacy = db.collection('branchCalendarNotes')
         .where('branchEmail', '==', session.branchInfo.email)
@@ -5874,7 +5875,7 @@ function viewMyCalendar(){
       <p>אירועים, תזכורות ודברים חשובים — במקום אחד.</p>
     </div>
     <div style="font-size:11px;color:var(--critical,#A32D2D);background:#fdf0f0;padding:8px 10px;border-radius:8px;margin-bottom:10px;word-break:break-all;">
-      DEBUG: currentUserEmail=${currentUserEmail||'null'} · role=${session.role||'null'} · notes loaded=${dbgCount} · [${dbgList}]
+      DEBUG: currentUserEmail=${currentUserEmail||'null'} · role=${session.role||'null'} · notes loaded=${dbgCount} · error=${window.myCalDebugError||'none'} · [${dbgList}]
     </div>
     <button class="mycal-create-btn" onclick="openNewMyCalendarEventForm()">+ צור אירוע</button>
     ${renderMyCalendarGrid()}
