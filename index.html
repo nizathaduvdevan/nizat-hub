@@ -975,6 +975,27 @@
   html[data-theme="dark"] .aconv-closed-banner{background:#1f1f1d;}
 
   /* ============================================================
+     היומן שלי — כלי רוחבי עצמאי (אירועים אישיים + משותפים + חגים)
+  ============================================================ */
+  .mycal-create-btn{
+    display:flex; align-items:center; justify-content:center; gap:8px; width:100%;
+    padding:13px; margin-bottom:14px; border-radius:12px; border:none;
+    background:var(--blue); color:#fff; font-size:15px; font-weight:600; cursor:pointer;
+  }
+  .mycal-create-btn:hover{opacity:0.92;}
+  .mycal-source-tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px;flex:none;white-space:nowrap;}
+  .mycal-source-tag.personal{background:rgba(24,95,165,0.12);color:var(--blue-dark);}
+  .mycal-source-tag.area{background:rgba(69,122,31,0.12);color:var(--brand-primary-dark);}
+  .mycal-source-tag.holiday{background:rgba(208,59,59,0.10);color:var(--critical,#A32D2D);}
+  .mycal-source-tag.marketing{background:#eceae4;color:var(--muted);}
+  html[data-theme="dark"] .mycal-source-tag.marketing{background:#242422;}
+  .mycal-event-row{padding:9px 0;border-bottom:1px solid var(--gridline);}
+  .mycal-event-row:last-child{border-bottom:none;}
+  .mycal-event-row:hover{cursor:pointer;}
+  .mycal-event-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .mycal-event-title{font-size:13.5px;font-weight:500;}
+
+  /* ============================================================
      Performance bars
   ============================================================ */
   .perf-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--gridline);}
@@ -1265,6 +1286,26 @@ function isRealAreaManager(){
    טקסט חופשי + בחירת צבע נעים מתוך פלטה קטנה, כדי שהריבוע בלוח השנה
    עדיין יצבע יפה בלי לכפות משמעות/קטגוריה על התוכן. */
 const CALENDAR_NOTE_COLORS = ['#F6C9D6', '#C6DCF0', '#F5DDB0', '#CFE8CB', '#E2D3F0', '#DADADA'];
+/* חגי ישראל — טבלה סטטית קשיחה, בלי שום תלות חיצונית (לא ספרייה, לא API).
+   נבדקו מול כמה מקורות ומדויקים לטווח ספטמבר 2026 - יוני 2027. הרחבה לשנים
+   הבאות (2028 ואילך) דורשת בדיקה נפרדת של תאריכים מדויקים לפני הוספה -
+   מקורות אונליין לשנים רחוקות יותר לעיתים סותרים זה את זה, אז עדיף להוסיף
+   בהדרגה ולוודא מול מקור אמין (למשל hebcal.com) בקרבת הזמן, ולא לנחש קדימה.
+   מבנה: date/endDate בפורמט DD.MM.YYYY (כמו בכל האפליקציה), title בעברית.
+   חג ללא endDate הוא חג של יום אחד. */
+const ISRAELI_HOLIDAYS = [
+  { date:'11.09.2026', endDate:'13.09.2026', title:'ראש השנה' },
+  { date:'20.09.2026', endDate:'21.09.2026', title:'יום כיפור' },
+  { date:'25.09.2026', endDate:'03.10.2026', title:'סוכות ושמחת תורה' },
+  { date:'04.12.2026', endDate:'12.12.2026', title:'חנוכה' },
+  { date:'23.01.2027', title:'ט"ו בשבט' },
+  { date:'23.03.2027', title:'פורים' },
+  { date:'21.04.2027', endDate:'28.04.2027', title:'פסח' },
+  { date:'11.05.2027', title:'יום הזיכרון' },
+  { date:'12.05.2027', title:'יום העצמאות' },
+  { date:'25.05.2027', title:'ל"ג בעומר' },
+  { date:'11.06.2027', title:'שבועות' }
+];
 const EMAILJS_PUBLIC_KEY = 'eq7sWskivLRMUK7xF';
 const EMAILJS_SERVICE_ID = 'service_7n4616e';
 const EMAILJS_TEMPLATE_ID = 'template_hog7ghr';
@@ -1408,6 +1449,8 @@ let unsubPromoBooklet = null;
 let unsubAreaInstructions = null;
 let unsubAreaInstructionConfirmations = null;
 let unsubBranchCalendarNotes = null;
+let unsubBranchCalendarNotesLegacy = null;
+let unsubAreaCalendarEvents = null;
 let unsubViewerActivity = null;
 let unsubPwaInstalls = null;
 let unsubMaterialTags = null;
@@ -1560,12 +1603,67 @@ function initFirestoreSync(){
       console.error('Firestore sync error (stand takedown acks):', err);
     });
 
-  /* הוראות פרטיות ממנהל אזור לסניפים שבניהולו - קולקציה נפרדת לחלוטין
-     מ-instructions (הרשתית), כדי שאין שום סיכוי שהתוכן "יזלוג" למי שלא
-     צריך. השאילתה עצמה מוגבלת לפי תפקיד - סניף רואה רק הוראות שהוא
-     ביעד שלהן, מנהל אזור רואה רק מה שהוא עצמו שלח, ושני מיילי הצוות
-     האחורי (AREA_PRIVATE_BACKEND_EMAILS) רואים הכל ללא סינון. מי שלא
-     נכנס לאף אחת מהקטגוריות האלה - לא נרשם לקולקציה בכלל. */
+  /* היומן שלי — תזכורות אישיות. במקור זה היה מיועד לסניפים בלבד (branchEmail
+     בלבד). כעת זמין לכל תפקיד, לפי שדה ownerEmail גנרי. לתאימות אחורה, סניפים
+     ממשיכים גם לקרוא לפי branchEmail (מסמכים ישנים שנוצרו לפני ההרחבה),
+     וממזגים את שתי התוצאות לאותו appData.branchCalendarNotes (השם נשאר, רק
+     האוכלוסיה מתרחבת). כל משתמש רואה רק את שלו — בלי קשר לתפקיד. */
+  if (unsubBranchCalendarNotes) unsubBranchCalendarNotes();
+  if (unsubBranchCalendarNotesLegacy) unsubBranchCalendarNotesLegacy();
+  let myCalOwnerDocs = [], myCalLegacyDocs = [];
+  function mergeMyCalendarNotes(){
+    const merged = [...myCalOwnerDocs];
+    myCalLegacyDocs.forEach(function(d){ if(!merged.find(function(x){return x.id===d.id;})) merged.push(d); });
+    appData.branchCalendarNotes = merged;
+    renderContent();
+  }
+  if (currentUserEmail) {
+    unsubBranchCalendarNotes = db.collection('branchCalendarNotes')
+      .where('ownerEmail', '==', currentUserEmail)
+      .onSnapshot(function(snap){
+        myCalOwnerDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
+        mergeMyCalendarNotes();
+      }, function(err){ console.error('Firestore sync error (calendar notes - owner):', err); });
+    if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+      unsubBranchCalendarNotesLegacy = db.collection('branchCalendarNotes')
+        .where('branchEmail', '==', session.branchInfo.email)
+        .onSnapshot(function(snap){
+          myCalLegacyDocs = snap.docs.map(function(doc){ return Object.assign({}, doc.data(), { id: doc.id }); });
+          mergeMyCalendarNotes();
+        }, function(err){ console.error('Firestore sync error (calendar notes - legacy):', err); });
+    } else {
+      myCalLegacyDocs = [];
+      mergeMyCalendarNotes();
+    }
+  } else {
+    appData.branchCalendarNotes = [];
+  }
+
+  /* היומן שלי — אירועים משותפים שמנהל אזור יוצר לסניף אחד/מספר סניפים.
+     קולקציה נפרדת לגמרי מ-events (יומן השיווק) ומ-areaInstructions — כדי
+     שלא לגעת בכלל בהרשאות/יציבות של יומן השיווק הקיים. סניף רואה רק אירועים
+     שהוא ביעד שלהם, מנהל אזור רואה רק מה שהוא עצמו יצר. */
+  if (unsubAreaCalendarEvents) unsubAreaCalendarEvents();
+  let areaCalQuery = null;
+  if (isAreaPrivateBackendUser()) {
+    areaCalQuery = db.collection('areaCalendarEvents');
+  } else if (session.role==='branch' && session.branchInfo && session.branchInfo.email) {
+    areaCalQuery = db.collection('areaCalendarEvents').where('targetBranchEmails', 'array-contains', session.branchInfo.email);
+  } else if (isRealAreaManager()) {
+    areaCalQuery = db.collection('areaCalendarEvents').where('areaManagerEmail', '==', currentUserEmail);
+  }
+  if (areaCalQuery) {
+    unsubAreaCalendarEvents = areaCalQuery.onSnapshot(function(snap){
+      appData.areaCalendarEvents = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), { id: doc.id });
+      });
+      renderContent();
+    }, function(err){ console.error('Firestore sync error (area calendar events):', err); });
+  } else {
+    appData.areaCalendarEvents = [];
+  }
+
+
   if (unsubAreaInstructions) unsubAreaInstructions();
   if (unsubAreaInstructionConfirmations) unsubAreaInstructionConfirmations();
   let areaInstrQuery = null, areaInstrConfQuery = null;
@@ -1957,6 +2055,7 @@ let appData = {
   areaInstructions: [],
   areaInstructionConfirmations: [],
   branchCalendarNotes: [],
+  areaCalendarEvents: [],
   promoColumnMappingExtra: {}
 };
 
@@ -2617,6 +2716,7 @@ function renderContent(){
   else if(ui.view==='promoSales') el.innerHTML = viewPromoSales();
   else if(ui.view==='sendAreaConversations') el.innerHTML = viewAreaManagerConversations();
   else if(ui.view==='areaConversations') el.innerHTML = viewBranchConversations();
+  else if(ui.view==='myCalendar') el.innerHTML = viewMyCalendar();
   else if(ui.view==='messages') el.innerHTML = viewMessages();
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
 }
@@ -2656,6 +2756,8 @@ function viewGlobalHome(){
     </div>
     ${isRealAreaManager() ? renderAreaManagerConversationsCard() : ''}
     ${session.role==='branch' ? renderBranchConversationsCard() : ''}
+    <h3 style="font-size:15px;margin:8px 0 12px;">הכלים שלי</h3>
+    ${renderMyCalendarCard()}
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
     <div class="card" style="overflow:visible;">
       ${feed.length ? feed.map(f=>{
@@ -5392,20 +5494,39 @@ function notesForDateKey(dateKey){
    API/הרשאה, רק URL עם פרמטרים. dateKey בפורמט DD.MM.YYYY (כמו בכל
    האפליקציה). Google מצפה ל-YYYYMMDD/YYYYMMDD (יום התחלה/יום אחרי הסיום,
    בלעדי - לכן מוסיפים יום אחד לתאריך הסיום). */
-function googleCalendarAddUrl(dateKey, text){
+function googleCalendarAddUrl(dateKey, text, startTime, endTime){
   const [dd, mm, yyyy] = dateKey.split('.');
-  const start = new Date(Number(yyyy), Number(mm)-1, Number(dd));
-  const end = new Date(start.getTime() + 86400000);
-  function fmt(d){
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
+  function fmtDate(d){
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
     return `${y}${m}${day}`;
+  }
+  function fmtDateTime(d){
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    const hh=String(d.getHours()).padStart(2,'0'), mi=String(d.getMinutes()).padStart(2,'0');
+    return `${y}${m}${day}T${hh}${mi}00`;
+  }
+  let datesParam;
+  if(startTime){
+    const [sh,sm] = startTime.split(':').map(Number);
+    const start = new Date(Number(yyyy), Number(mm)-1, Number(dd), sh, sm||0);
+    let end;
+    if(endTime){
+      const [eh,em] = endTime.split(':').map(Number);
+      end = new Date(Number(yyyy), Number(mm)-1, Number(dd), eh, em||0);
+      if(end.getTime()<=start.getTime()) end = new Date(start.getTime()+3600000);
+    } else {
+      end = new Date(start.getTime()+3600000);
+    }
+    datesParam = `${fmtDateTime(start)}/${fmtDateTime(end)}`;
+  } else {
+    const start = new Date(Number(yyyy), Number(mm)-1, Number(dd));
+    const end = new Date(start.getTime() + 86400000);
+    datesParam = `${fmtDate(start)}/${fmtDate(end)}`;
   }
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: text,
-    dates: `${fmt(start)}/${fmt(end)}`,
+    dates: datesParam,
     details: 'נוסף מ-NIZAT HUB'
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -5577,6 +5698,338 @@ function openGoogleCalendarForNote(id){
   const note = (appData.branchCalendarNotes||[]).find(n=>n.id===id);
   if(!note) return;
   window.open(googleCalendarAddUrl(note.date, note.text), '_blank', 'noopener');
+}
+
+/* ============================================================
+   היומן שלי — כלי רוחבי עצמאי (לא חלק ממחלקת שיווק)
+   ------------------------------------------------------------
+   מאחד שלושה מקורות נתונים + חגים, בלי לגעת באף אחד מהם:
+   - branchCalendarNotes (הורחב לכל תפקיד לפי ownerEmail) — אירועים אישיים.
+   - areaCalendarEvents (קולקציה חדשה, נפרדת) — אירועים ששלח מנהל אזור
+     לסניף אחד/מספר סניפים שבניהולו.
+   - events (יומן השיווק הקיים, ללא שינוי) — מסונן כבר לפי isEventVisibleToViewer.
+   - ISRAELI_HOLIDAYS — טבלה סטטית, לצפייה בלבד.
+   כל אחד מהמקורות ממשיך להיכתב בדיוק כמו היום; כאן רק מאחדים לתצוגה אחת.
+   ============================================================ */
+const MYCAL_SOURCE_LABEL = {personal:'פרטי', area:'מנהל האזור', marketing:'שיווק', holiday:'חג'};
+function getAllMyCalendarItems(){
+  const items = [];
+  (appData.branchCalendarNotes||[]).forEach(function(n){
+    items.push({
+      uid:'personal:'+n.id, source:'personal', id:n.id,
+      title: n.title || n.text || '', desc: n.desc || '',
+      date:n.date, endDate:null,
+      allDay: n.allDay!==false, startTime:n.startTime||'', endTime:n.endTime||'',
+      color: n.color || CALENDAR_NOTE_COLORS[0],
+      canEdit:true, canDelete:true
+    });
+  });
+  (appData.areaCalendarEvents||[]).forEach(function(ev){
+    const mine = ev.areaManagerEmail===currentUserEmail;
+    items.push({
+      uid:'area:'+ev.id, source:'area', id:ev.id,
+      title:ev.title, desc:ev.desc||'',
+      date:ev.date, endDate:ev.endDate||null,
+      allDay: !(ev.startTime||ev.endTime), startTime:ev.startTime||'', endTime:ev.endTime||'',
+      color:'#CFE8CB',
+      canEdit: mine, canDelete: mine,
+      meta: (ev.targetBranchEmails||[]).length>1 ? `${(ev.targetBranchEmails||[]).length} סניפים` : ((BRANCH_DIRECTORY.find(function(b){return b.email===(ev.targetBranchEmails||[])[0];})||{}).name||'')
+    });
+  });
+  (appData.events||[]).filter(isEventVisibleToViewer).forEach(function(ev){
+    items.push({
+      uid:'marketing:'+ev.id, source:'marketing', id:ev.id,
+      title:ev.title, desc:ev.desc||'',
+      date:ev.date, endDate:ev.endDate||null,
+      allDay:true, startTime:'', endTime:'',
+      color:'#DADADA',
+      canEdit:false, canDelete:false,
+      meta: ev.category||''
+    });
+  });
+  ISRAELI_HOLIDAYS.forEach(function(h, idx){
+    items.push({
+      uid:'holiday:'+idx, source:'holiday', id:String(idx),
+      title:h.title, desc:'',
+      date:h.date, endDate:h.endDate||null,
+      allDay:true, startTime:'', endTime:'',
+      color:'#F6C9D6',
+      canEdit:false, canDelete:false
+    });
+  });
+  return items;
+}
+function myCalendarEventsByDay(items, year, month){
+  const byDay = {};
+  items.forEach(function(it){
+    const startTs = parseHebDate(it.date);
+    const endTs = it.endDate ? parseHebDate(it.endDate) : startTs;
+    if(isNaN(startTs)) return;
+    for(let t=startTs; t<=endTs; t+=86400000){
+      const d = new Date(t);
+      if(d.getFullYear()===year && d.getMonth()===month){
+        const key = d.getDate();
+        if(!byDay[key]) byDay[key]=[];
+        byDay[key].push(it);
+      }
+    }
+  });
+  return byDay;
+}
+function shiftMyCalendarMonth(delta){
+  ui.calMonth += delta;
+  if(ui.calMonth<0){ ui.calMonth=11; ui.calYear--; }
+  if(ui.calMonth>11){ ui.calMonth=0; ui.calYear++; }
+  ui.calSelectedDay = null;
+  renderContent();
+}
+function selectMyCalendarDay(day){
+  ui.calSelectedDay = (ui.calSelectedDay===day) ? null : day;
+  renderContent();
+}
+function renderMyCalendarGrid(){
+  if(ui.calYear==null || ui.calMonth==null){
+    const now = new Date();
+    ui.calYear = now.getFullYear();
+    ui.calMonth = now.getMonth();
+  }
+  const year = ui.calYear, month = ui.calMonth;
+  const items = getAllMyCalendarItems();
+  const eventsByDay = myCalendarEventsByDay(items, year, month);
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const monthLabel = `${HEB_MONTHS[month]} ${year}`;
+  const cells = [];
+  for(let i=0;i<startWeekday;i++) cells.push('<div class="cal-grid-cell empty"></div>');
+  for(let day=1; day<=daysInMonth; day++){
+    const evs = eventsByDay[day]||[];
+    const hasEvents = evs.length>0;
+    const isSelected = ui.calSelectedDay===day;
+    const hasHoliday = evs.some(function(e){return e.source==='holiday';});
+    cells.push(`
+      <div class="cal-grid-cell ${hasEvents?'has-event':''} ${isSelected?'selected':''}" onclick="selectMyCalendarDay(${day})">
+        <div class="cal-grid-day" style="${hasHoliday?'color:var(--critical,#A32D2D);font-weight:600;':''}">${day}</div>
+        ${hasEvents ? `<div class="cal-grid-dot"></div>` : ''}
+      </div>
+    `);
+  }
+  const selectedEvents = ui.calSelectedDay ? (eventsByDay[ui.calSelectedDay]||[]) : [];
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <button class="icon-btn" onclick="shiftMyCalendarMonth(-1)">→</button>
+        <div style="font-weight:600;font-size:15.5px;">${monthLabel}</div>
+        <button class="icon-btn" onclick="shiftMyCalendarMonth(1)">←</button>
+      </div>
+      <div class="cal-grid-weekdays">${['א','ב','ג','ד','ה','ו','ש'].map(d=>`<div>${d}</div>`).join('')}</div>
+      <div class="cal-grid">${cells.join('')}</div>
+      ${ui.calSelectedDay ? `
+        <div style="margin-top:16px;border-top:1px solid var(--gridline);padding-top:12px;">
+          <div style="font-weight:600;margin-bottom:8px;">${ui.calSelectedDay} ב${HEB_MONTHS[month]}</div>
+          ${selectedEvents.length ? selectedEvents.map(function(e){
+            return `
+              <div class="mycal-event-row" onclick="openMyCalendarEventDetail('${e.uid}')">
+                <div class="mycal-event-top">
+                  <span class="mycal-event-title">${e.title}</span>
+                  <span class="mycal-source-tag ${e.source}">${MYCAL_SOURCE_LABEL[e.source]}</span>
+                </div>
+                ${!e.allDay && e.startTime ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;" dir="ltr">${e.startTime}${e.endTime?'–'+e.endTime:''}</div>` : ''}
+              </div>
+            `;
+          }).join('') : `<div class="empty-state">אין אירועים ביום זה.</div>`}
+          <button class="mycal-create-btn" style="margin-top:12px;" onclick="openNewMyCalendarEventForm('${calendarNoteDateKey(year,month,ui.calSelectedDay)}')">+ צור אירוע ליום זה</button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+function viewMyCalendar(){
+  return `
+    <div class="page-head">
+      <h1>היומן שלי</h1>
+      <p>אירועים, תזכורות ודברים חשובים — במקום אחד.</p>
+    </div>
+    <button class="mycal-create-btn" onclick="openNewMyCalendarEventForm()">+ צור אירוע</button>
+    ${renderMyCalendarGrid()}
+  `;
+}
+function selectMyCalColor(color){
+  document.getElementById('f-mycal-color').value = color;
+  const picker = document.getElementById('f-mycal-color-picker');
+  if(!picker) return;
+  Array.from(picker.children).forEach(function(el){
+    el.style.border = (el.getAttribute('data-color')===color) ? '2px solid var(--text-primary,#222)' : '2px solid transparent';
+  });
+}
+function toggleMyCalAudienceFields(){
+  const v = document.getElementById('f-mycal-audience').value;
+  document.getElementById('f-mycal-one-wrap').style.display = v==='one' ? 'block' : 'none';
+  document.getElementById('f-mycal-multi-wrap').style.display = v==='multi' ? 'block' : 'none';
+}
+function openNewMyCalendarEventForm(prefillDateKey, editUid){
+  let editItem = null;
+  if(editUid){
+    editItem = getAllMyCalendarItems().find(function(it){return it.uid===editUid;});
+    if(!editItem || !editItem.canEdit){ toast('אין אפשרות לערוך אירוע זה'); return; }
+  }
+  const isAreaMgr = isRealAreaManager();
+  const areaBranches = isAreaMgr ? BRANCH_DIRECTORY.filter(function(b){return b.area===session.areaLabel;}) : [];
+  let editTargets = [];
+  let audience = 'me';
+  if(editItem && editItem.source==='area'){
+    const raw = (appData.areaCalendarEvents||[]).find(function(x){return x.id===editItem.id;});
+    editTargets = raw ? (raw.targetBranchEmails||[]) : [];
+    audience = editTargets.length>1 ? 'multi' : 'one';
+  }
+  document.getElementById('modal-body').innerHTML = `
+    <h3>${editItem ? 'עריכת אירוע' : 'אירוע חדש'}</h3>
+    <div class="field"><label>כותרת</label><input id="f-mycal-title" value="${editItem?editItem.title:''}" placeholder="למשל: ספירת מלאי"></div>
+    <div class="field"><label>תאריך</label><input id="f-mycal-date" value="${editItem?editItem.date:(prefillDateKey||'')}" placeholder="DD.MM.YYYY"></div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+        <input type="checkbox" id="f-mycal-allday" ${(!editItem || editItem.allDay)?'checked':''} onchange="document.getElementById('f-mycal-time-wrap').style.display=this.checked?'none':'flex';"> כל היום
+      </label>
+    </div>
+    <div class="field" id="f-mycal-time-wrap" style="display:${(editItem && !editItem.allDay)?'flex':'none'};gap:10px;">
+      <div style="flex:1;"><label>שעת התחלה</label><input type="time" id="f-mycal-start" value="${editItem?editItem.startTime||'':''}"></div>
+      <div style="flex:1;"><label>שעת סיום</label><input type="time" id="f-mycal-end" value="${editItem?editItem.endTime||'':''}"></div>
+    </div>
+    <div class="field"><label>תיאור (אופציונלי)</label><textarea id="f-mycal-desc" rows="3">${editItem?editItem.desc||'':''}</textarea></div>
+    <div class="field">
+      <label>צבע</label>
+      <div id="f-mycal-color-picker" style="display:flex;gap:8px;">
+        ${CALENDAR_NOTE_COLORS.map(function(c,i){
+          const isSel = editItem ? editItem.color===c : i===0;
+          return `<div data-color="${c}" onclick="selectMyCalColor('${c}')" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${isSel?'var(--text-primary,#222)':'transparent'};"></div>`;
+        }).join('')}
+      </div>
+      <input type="hidden" id="f-mycal-color" value="${editItem?editItem.color:CALENDAR_NOTE_COLORS[0]}">
+    </div>
+    ${(isAreaMgr && (!editItem || editItem.source==='area')) ? `
+      <div class="field">
+        <label>למי מיועד האירוע?</label>
+        <select id="f-mycal-audience" onchange="toggleMyCalAudienceFields()">
+          <option value="me" ${audience==='me'?'selected':''}>רק לי</option>
+          <option value="one" ${audience==='one'?'selected':''}>סניף אחד</option>
+          <option value="multi" ${audience==='multi'?'selected':''}>מספר סניפים</option>
+        </select>
+      </div>
+      <div class="field" id="f-mycal-one-wrap" style="display:${audience==='one'?'block':'none'};">
+        <label>בחירת סניף</label>
+        <select id="f-mycal-one-branch">
+          ${areaBranches.map(function(b){return `<option value="${b.email}" ${editTargets[0]===b.email?'selected':''}>${b.name}</option>`;}).join('')}
+        </select>
+      </div>
+      <div class="field" id="f-mycal-multi-wrap" style="display:${audience==='multi'?'block':'none'};max-height:160px;overflow:auto;">
+        <label>בחירת סניפים</label>
+        ${areaBranches.map(function(b){
+          const checked = editTargets.indexOf(b.email)!==-1;
+          return `<label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13.5px;padding:3px 0;">
+            <input type="checkbox" class="f-mycal-multi-cb" value="${b.email}" ${checked?'checked':''}> ${b.name}
+          </label>`;
+        }).join('')}
+      </div>
+    ` : ''}
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
+      <button class="btn-confirm" onclick="submitMyCalendarEventForm('${editItem?editItem.source:''}','${editItem?editItem.id:''}')">${editItem?'שמירה':'יצירה'}</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function submitMyCalendarEventForm(editSource, editId){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  const title = val('f-mycal-title');
+  const date = val('f-mycal-date');
+  if(!title){ toast('נא למלא כותרת'); return; }
+  if(!date){ toast('נא למלא תאריך'); return; }
+  const allDay = document.getElementById('f-mycal-allday').checked;
+  const startTime = allDay ? '' : (document.getElementById('f-mycal-start').value||'');
+  const endTime = allDay ? '' : (document.getElementById('f-mycal-end').value||'');
+  const desc = document.getElementById('f-mycal-desc').value.trim();
+  const color = document.getElementById('f-mycal-color').value || CALENDAR_NOTE_COLORS[0];
+  const audienceEl = document.getElementById('f-mycal-audience');
+  const audience = audienceEl ? audienceEl.value : 'me';
+
+  if(audience==='me' || !isRealAreaManager()){
+    const payload = { ownerEmail: currentUserEmail, title, date, desc, color, allDay, startTime, endTime };
+    if(editSource==='personal' && editId){
+      db.collection('branchCalendarNotes').doc(editId).set(payload, {merge:true})
+        .then(function(){ closeModal(); toast('האירוע עודכן'); })
+        .catch(function(err){ toast('שגיאה: '+err.message); });
+    } else {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      db.collection('branchCalendarNotes').add(payload)
+        .then(function(){ closeModal(); toast('האירוע נוצר'); })
+        .catch(function(err){ toast('שגיאה: '+err.message); });
+    }
+    return;
+  }
+
+  let targetBranchEmails = [];
+  if(audience==='one'){
+    const email = document.getElementById('f-mycal-one-branch').value;
+    if(!email){ toast('נא לבחור סניף'); return; }
+    targetBranchEmails = [email];
+  } else {
+    targetBranchEmails = Array.from(document.querySelectorAll('.f-mycal-multi-cb:checked')).map(function(el){return el.value;});
+    if(!targetBranchEmails.length){ toast('נא לבחור לפחות סניף אחד'); return; }
+  }
+  const payload = {
+    areaManagerEmail: currentUserEmail, areaLabel: session.areaLabel,
+    title, date, startTime, endTime, desc, targetBranchEmails
+  };
+  if(editSource==='area' && editId){
+    db.collection('areaCalendarEvents').doc(editId).set(payload, {merge:true})
+      .then(function(){ closeModal(); toast('האירוע עודכן'); })
+      .catch(function(err){ toast('שגיאה: '+err.message); });
+  } else {
+    payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    db.collection('areaCalendarEvents').add(payload)
+      .then(function(){ closeModal(); toast('האירוע נשלח'); })
+      .catch(function(err){ toast('שגיאה: '+err.message); });
+  }
+}
+function openMyCalendarEventDetail(uid){
+  const item = getAllMyCalendarItems().find(function(it){return it.uid===uid;});
+  if(!item) return;
+  const dateLabel = item.endDate && item.endDate!==item.date ? `${item.date} – ${item.endDate}` : item.date;
+  const timeLabel = (!item.allDay && item.startTime) ? `${item.startTime}${item.endTime?'–'+item.endTime:''}` : '';
+  document.getElementById('modal-body').innerHTML = `
+    <h3>${item.title}</h3>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;" dir="ltr">${dateLabel}${timeLabel?' · '+timeLabel:''}</div>
+    <div style="margin-bottom:10px;"><span class="mycal-source-tag ${item.source}">${MYCAL_SOURCE_LABEL[item.source]}</span>${item.meta?` · ${item.meta}`:''}</div>
+    ${item.desc ? `<div style="font-size:13.5px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:12px;">${item.desc}</div>` : ''}
+    <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap;">
+      <button class="btn-secondary" onclick="window.open(googleCalendarAddUrl('${item.date}', ${JSON.stringify(item.title)}, '${item.startTime||''}', '${item.endTime||''}'), '_blank', 'noopener')">📅 הוספה ל-Google Calendar</button>
+      ${item.canEdit ? `<button class="btn-secondary" onclick="closeModal();openNewMyCalendarEventForm(null,'${item.uid}')">עריכה</button>` : ''}
+      ${item.canDelete ? `<button class="btn-secondary" style="color:var(--critical,#A32D2D);" onclick="deleteMyCalendarEvent('${item.source}','${item.id}')">מחיקה</button>` : ''}
+      <button class="btn-secondary" onclick="closeModal()">סגירה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function deleteMyCalendarEvent(source, id){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  if(!confirm('למחוק את האירוע הזה?')) return;
+  const coll = source==='personal' ? 'branchCalendarNotes' : (source==='area' ? 'areaCalendarEvents' : null);
+  if(!coll) return;
+  db.collection(coll).doc(id).delete()
+    .then(function(){ closeModal(); toast('האירוע נמחק'); })
+    .catch(function(err){ toast('שגיאה: '+err.message); });
+}
+function renderMyCalendarCard(){
+  return `
+    <div class="aconv-home-card" onclick="ui.calSelectedDay=null;goTo('myCalendar');">
+      <div class="aconv-home-icon">📅</div>
+      <div class="aconv-home-main">
+        <div class="aconv-home-title">היומן שלי</div>
+        <div class="aconv-home-sub">אירועים, תזכורות ודברים חשובים</div>
+      </div>
+      <span class="aconv-home-arrow">›</span>
+    </div>
+  `;
 }
 
 /* ---------- Performance ---------- */
