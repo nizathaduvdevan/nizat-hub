@@ -5817,6 +5817,7 @@ function renderMyCalendarGrid(){
     `);
   }
   const selectedEvents = ui.calSelectedDay ? (eventsByDay[ui.calSelectedDay]||[]) : [];
+  const selectedDeletablePersonal = selectedEvents.filter(function(e){ return e.source==='personal'; });
   return `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
@@ -5834,12 +5835,19 @@ function renderMyCalendarGrid(){
               <div class="mycal-event-row" onclick="openMyCalendarEventDetail('${e.uid}')">
                 <div class="mycal-event-top">
                   <span class="mycal-event-title">${e.title}</span>
-                  <span class="mycal-source-tag ${e.source}">${MYCAL_SOURCE_LABEL[e.source]}</span>
+                  <span style="display:flex;align-items:center;gap:5px;flex:none;">
+                    <span class="mycal-source-tag ${e.source}">${MYCAL_SOURCE_LABEL[e.source]}</span>
+                    ${e.canEdit ? `<button class="icon-btn" style="width:auto;padding:3px 7px;font-size:12px;" title="עריכה" onclick="event.stopPropagation();openNewMyCalendarEventForm(null,'${e.uid}')">✎</button>` : ''}
+                    ${e.canDelete ? `<button class="icon-btn" style="width:auto;padding:3px 7px;font-size:12px;" title="מחיקה" onclick="event.stopPropagation();deleteMyCalendarEvent('${e.source}','${e.id}')">🗑</button>` : ''}
+                  </span>
                 </div>
                 ${!e.allDay && e.startTime ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;" dir="ltr">${e.startTime}${e.endTime?'–'+e.endTime:''}</div>` : ''}
               </div>
             `;
           }).join('') : `<div class="empty-state">אין אירועים ביום זה.</div>`}
+          ${selectedDeletablePersonal.length>1 ? `
+            <button class="btn-secondary" style="width:100%;margin-top:8px;color:var(--critical,#A32D2D);" onclick="deleteAllMyPersonalEventsForDay('${calendarNoteDateKey(year,month,ui.calSelectedDay)}')">🗑 מחיקת כל האירועים שלי ביום זה (${selectedDeletablePersonal.length})</button>
+          ` : ''}
           <button class="mycal-create-btn" style="margin-top:12px;" onclick="openNewMyCalendarEventForm('${calendarNoteDateKey(year,month,ui.calSelectedDay)}')">+ צור אירוע ליום זה</button>
         </div>
       ` : ''}
@@ -6030,6 +6038,17 @@ function deleteMyCalendarEvent(source, id){
   db.collection(coll).doc(id).delete()
     .then(function(){ closeModal(); toast('האירוע נמחק'); })
     .catch(function(err){ toast('שגיאה: '+err.message); });
+}
+/* מחיקת כל האירועים ה"אישיים" (source==='personal' בלבד — לעולם לא נוגעת
+   באירועי מנהל אזור/שיווק/חג, גם אם הם מוצגים באותו יום) ביום נתון. */
+function deleteAllMyPersonalEventsForDay(dateKey){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  const items = getAllMyCalendarItems().filter(function(it){ return it.source==='personal' && it.date===dateKey; });
+  if(!items.length) return;
+  if(!confirm(`למחוק את כל ${items.length} האירועים האישיים ביום זה?`)) return;
+  Promise.all(items.map(function(it){
+    return db.collection('branchCalendarNotes').doc(it.id).delete().catch(function(){});
+  })).then(function(){ toast('האירועים נמחקו'); });
 }
 function renderMyCalendarCard(){
   return `
