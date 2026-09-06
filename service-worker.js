@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'nizat-hub-static-v2';
+const CACHE_VERSION = 'nizat-hub-static-v3';
 const BASE = '/nizat-hub/';
 const OFFLINE_URL = BASE + 'offline.html';
 const STATIC_ASSETS = [
@@ -6,7 +6,8 @@ const STATIC_ASSETS = [
   BASE + 'icons/icon-192.png',
   BASE + 'icons/icon-512.png',
   BASE + 'icons/icon-maskable-192.png',
-  BASE + 'icons/icon-maskable-512.png'
+  BASE + 'icons/icon-maskable-512.png',
+  BASE + 'images/nizat-logo.png'
 ];
 
 /* Firebase Cloud Messaging — טיפול בהתראות Push שמגיעות כשהאפליקציה סגורה
