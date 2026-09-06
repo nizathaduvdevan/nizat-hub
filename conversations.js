@@ -259,7 +259,7 @@ function renderConversationThreadHtml(instr, conv, viewerRole){
           }
           return `
             <div class="aconv-msg ${m.senderRole==='area'?'from-area':'from-branch'}">
-              <div>${m.body}</div>
+              <div>${esc(m.body)}</div>
               <div class="aconv-msg-meta">${m.senderRole==='area' ? areaLabel : (m.senderLabel||branchName||'')} · ${m.createdAtLabel||''}${seenHtml}</div>
             </div>
           `;

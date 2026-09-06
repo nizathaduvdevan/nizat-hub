@@ -73,3 +73,15 @@ function parseHebDate(d){
   if(!dd || !mm || !yy) return NaN;
   return new Date(yy,mm-1,dd).getTime();
 }
+
+/* ---------- Escaping לטקסט חופשי ---------- */
+/* Escaping בסיסי לטקסט חופשי (תגובות/הודעות) לפני הזרקה ל-innerHTML —
+   מונע HTML/JS שרירותי מלרוץ אם מישהו כותב תגובה שמכילה תווי HTML. */
+function esc(str){
+  return (str==null ? '' : String(str))
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}

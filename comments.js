@@ -50,12 +50,12 @@ function commentsBox(itemType, itemId, forceOpen){
             <div class="comment-avatar">🔒</div>
             <div class="comment-body">
               <div class="comment-name">הודעה פרטית ל${MARKETING_CONTACT_NAME} <span class="comment-private-badge">פרטי</span></div>
-              <div class="comment-text">${m.text}</div>
+              <div class="comment-text">${esc(m.text)}</div>
               <div class="comment-date">${m.date}</div>
               ${m.replies.map(r=>`
                 <div class="comment-reply">
                   <div class="rn">${r.from==='marketing' ? MARKETING_CONTACT_NAME+' · מחלקת שיווק' : session.branchName}</div>
-                  <div>${r.text}</div>
+                  <div>${esc(r.text)}</div>
                   <div class="comment-date">${r.date}</div>
                 </div>
               `).join('')}
@@ -69,7 +69,7 @@ function commentsBox(itemType, itemId, forceOpen){
             <div class="comment-avatar">${(c.branchName||'').replace('סניף ','').slice(0,2)}</div>
             <div class="comment-body">
               <div class="comment-name">${c.branchName}${c.edited ? ' <span style="color:var(--muted);font-weight:400;font-size:11px;">(נערך)</span>' : ''}</div>
-              <div class="comment-text" id="comment-text-${c.id}">${c.text}</div>
+              <div class="comment-text" id="comment-text-${c.id}">${esc(c.text)}</div>
               <div class="comment-date">${c.date}</div>
             </div>
             ${canManage ? `
@@ -134,7 +134,7 @@ function openEditCommentModal(itemType, itemId, commentId){
     <h3>עריכת תגובה</h3>
     <div class="field">
       <label>תוכן התגובה</label>
-      <textarea id="edit-comment-text" rows="4">${c.text}</textarea>
+      <textarea id="edit-comment-text" rows="4">${esc(c.text)}</textarea>
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">ביטול</button>
@@ -335,11 +335,11 @@ function messageThreadHtml(m){
           <button class="icon-btn danger" title="מחיקת השיחה" onclick="event.stopPropagation();confirmDeleteMessageThread('${m.id}')">🗑</button>
         </div>
       </div>
-      <div class="comment-text" style="font-size:13px;">${m.text}</div>
+      <div class="comment-text" style="font-size:13px;">${esc(m.text)}</div>
       ${m.replies.map(r=>`
         <div class="comment-reply">
           <div class="rn">${r.from==='marketing' ? MARKETING_CONTACT_NAME+' · מחלקת שיווק' : m.branchName}</div>
-          <div>${r.text}</div>
+          <div>${esc(r.text)}</div>
           <div class="comment-date">${r.date}</div>
         </div>
       `).join('')}
