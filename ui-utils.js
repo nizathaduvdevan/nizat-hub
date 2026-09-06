@@ -85,3 +85,21 @@ function esc(str){
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
 }
+
+/* ---------- טעינה עצלה של ספריית האקסל ---------- */
+/* xlsx.full.min.js שוקל 881KB ורוב המשתמשים (סניפים) אף פעם לא צריכים
+   אותו. נטען פעם ראשונה רק כשבאמת פותחים ייבוא/ייצוא אקסל (רכש, טפסי
+   תחרות, דוח יומי, סטנדים), ונשמר בזיכרון כדי לא לטעון פעמיים. */
+let _xlsxLoadPromise = null;
+function loadXlsxLib(){
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (_xlsxLoadPromise) return _xlsxLoadPromise;
+  _xlsxLoadPromise = new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = 'vendor/xlsx.full.min.js';
+    s.onload = resolve;
+    s.onerror = function(){ _xlsxLoadPromise = null; reject(new Error('טעינת ספריית האקסל נכשלה')); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLoadPromise;
+}

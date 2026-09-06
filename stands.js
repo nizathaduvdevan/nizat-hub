@@ -84,6 +84,7 @@ function handleStandImageChange(evt, idx){
 function handleStandsFile(evt){
   const file = evt.target.files[0];
   if(!file) return;
+  loadXlsxLib().then(function(){
   const reader = new FileReader();
   reader.onload = function(e){
     try{
@@ -101,6 +102,9 @@ function handleStandsFile(evt){
     }
   };
   reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    toast(err.message);
+  });
   evt.target.value = '';
 }
 function openStandsReview(matched, unmatchedCount){

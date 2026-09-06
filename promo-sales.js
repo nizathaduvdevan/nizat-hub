@@ -613,6 +613,7 @@ function detectDateRangeFromRows(rows){
 function handleFormExcelFile(evt){
   const file = evt.target.files[0];
   if(!file) return;
+  loadXlsxLib().then(function(){
   const reader = new FileReader();
   reader.onload = function(e){
     try{
@@ -655,6 +656,9 @@ function handleFormExcelFile(evt){
     }
   };
   reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    toast(err.message);
+  });
   evt.target.value = '';
 }
 function logoPreviewBoxHtml(src){
@@ -957,6 +961,7 @@ function handleDailyReportFile(evt){
   const file = evt.target.files[0];
   if(!file) return;
   const compId = dailyReportTargetCompId;
+  loadXlsxLib().then(function(){
   const reader = new FileReader();
   reader.onload = function(e){
     try{
@@ -1014,6 +1019,9 @@ function handleDailyReportFile(evt){
     }
   };
   reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    toast(err.message);
+  });
   evt.target.value = '';
 }
 

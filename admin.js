@@ -275,6 +275,8 @@ function handlePromoExcelUpload(evt){
   const file = evt.target.files[0];
   if(!file) return;
   const statusEl = document.getElementById('promo-upload-status');
+  if(statusEl) statusEl.textContent = 'טוען ספריית אקסל...';
+  loadXlsxLib().then(function(){
   if(statusEl) statusEl.textContent = 'קורא את קובץ האקסל...';
   const reader = new FileReader();
   reader.onload = function(e){
@@ -355,6 +357,9 @@ function handlePromoExcelUpload(evt){
     });
   };
   reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    if(statusEl) statusEl.textContent = err.message;
+  });
   evt.target.value = '';
 }
 /* מציגה טופס קטן לפתרון קיצורי עמודות שאינם מוכרים - בחירת סניף מרשימה
