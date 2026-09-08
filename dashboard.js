@@ -54,6 +54,23 @@ function feedItemBadge(typeKey, itemId, ts){
   if(!isNaN(readAtMs) && ts > readAtMs + 60000) return `<span class="df-badge df-new">עודכן</span>`;
   return `<span class="df-badge df-read">נקרא</span>`;
 }
+/* לחיצה על הוראה בפיד "חדש עבורכם" צריכה לפתוח את ההודעה הספציפית עצמה,
+   לא רק לנווט למסך הכללי של "הוראות ועדכונים" — שם המשתמש היה צריך למצוא
+   אותה שוב ולהבין לבד שצריך ללחוץ. מוסיף את class 'open' ישירות (לא דרך
+   toggleInstr, כדי לא "לסגור" הודעה שכבר פתוחה כברירת מחדל כ-updateLength
+   קצר), ומסמן כנקרא + מגלגל אליה. תחרויות/אירועים ממשיכים לנווט כרגיל
+   דרך goToDeptScreen — אין להם מסך "פריט בודד" מקביל. */
+function openInstructionFromFeed(deptKey, instructionId){
+  ui.department = deptKey;
+  goTo('instructions', {keepDepartment:true});
+  markItemRead('instructions', instructionId);
+  const bodyEl = document.getElementById('instr-body-'+instructionId);
+  if(bodyEl) bodyEl.classList.add('open');
+  const hintEl = document.getElementById('instr-hint-'+instructionId);
+  if(hintEl) hintEl.style.display = 'none';
+  if(bodyEl) bodyEl.scrollIntoView({behavior:'smooth', block:'center'});
+  renderNav();
+}
 /* ---------- דף הבית הגלובלי (רב-מחלקתי) ---------- */
 /* מוצג לסניפים/מנהלי אזור ברמה העליונה, לפני שנכנסים למחלקה ספציפית. פיד
    מאוחד מכל המחלקות (כרגע רק שיווק מפרסמת, אז זה כמעט זהה למה שהיה קודם —
@@ -84,7 +101,7 @@ function viewGlobalHome(){
         ${feed.length ? feed.map(f=>{
           const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
           return `
-          <div class="dashboard-feed-item" onclick="goToDeptScreen('${f.department}','${screenId}')">
+          <div class="dashboard-feed-item" onclick="${f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`}">
             <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
             <div class="df-main">
               <div class="df-title">${f.title}</div>
@@ -174,7 +191,7 @@ function viewGlobalHome(){
       ${feed.length ? feed.map(f=>{
         const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
         return `
-        <div class="dashboard-feed-item" onclick="goToDeptScreen('${f.department}','${screenId}')">
+        <div class="dashboard-feed-item" onclick="${f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`}">
           <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
           <div class="df-main">
             <div class="df-title">${f.title}</div>

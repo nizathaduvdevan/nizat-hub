@@ -589,6 +589,7 @@
   .instr-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .instr-title{font-size:16px;font-weight:500;margin:0;}
   .instr-meta{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--muted);}
+  .instr-expand-hint{color:var(--blue-dark);font-weight:500;margin-inline-start:auto;flex:none;}
   .instr-body{display:none;font-size:14.5px;color:var(--text-secondary);line-height:1.7;margin-top:12px;border-top:1px solid var(--gridline);padding-top:12px;}
 
   /* משימות ביצוע — הרחבה של ההוראות */
