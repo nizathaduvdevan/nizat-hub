@@ -1027,6 +1027,10 @@ function saveForm(){
        ב-initFirestoreSync(). אין כאן עדכון ידני של appData — ה-snapshot כבר יטפל
        בכך ויקרא לרינדור מחדש. */
     closeModal();
+    /* updatedAt נשמר בכל שמירה (גם יצירה וגם עריכה) — משמש את פיד "חדש עבורכם"
+       במסך הבית כדי לדעת מתי הפריט התעדכן לאחרונה בפועל, בנפרד מ-createdAt
+       שנשאר קבוע מרגע היצירה ולא משתנה יותר. */
+    obj.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
     if(editId){
       db.collection(type).doc(editId).update(obj)
         .then(()=>toast('העדכון נשמר בהצלחה'))

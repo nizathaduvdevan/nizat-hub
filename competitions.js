@@ -186,11 +186,15 @@ function addCompetitionUpdate(compId){
   };
   const newUpdates = [...(comp.updates || []), entry];
   if(firebaseReady){
-    db.collection('competitions').doc(compId).update({updates: newUpdates})
+    db.collection('competitions').doc(compId).update({
+      updates: newUpdates,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    })
       .then(()=>{ toast('העדכון נוסף'); })
       .catch(err=>toast('שגיאה בהוספת העדכון: '+err.message));
   } else {
     comp.updates = newUpdates;
+    comp.updatedAt = new Date();
     renderContent();
   }
   if(input) input.value = '';

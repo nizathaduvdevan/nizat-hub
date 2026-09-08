@@ -1,13 +1,69 @@
+/* ---------- עזרים לפיד "חדש עבורכם" — מיון אמיתי לפי זמן פרסום/עדכון ----------
+   updatedAt/createdAt הם Firestore Timestamp (יש להם toMillis()) לפריטים
+   שעברו דרך admin.js/competitions.js אחרי העדכון הזה. פריטים ישנים בלי
+   שדות כאלה נופלים חזרה לשדה ה-date הקיים (DD.MM.YYYY), כדי לא לשבור כלום
+   בתוכן ישן. לא נוגע ב-viewDashboard()/מסך השיווק הפנימי בכלל. */
+function tsToMillis(v){
+  if(!v) return null;
+  if(typeof v.toMillis==='function') return v.toMillis();
+  if(v instanceof Date) return v.getTime();
+  return null;
+}
+function itemFeedTimestampMs(it){
+  const updated = tsToMillis(it.updatedAt);
+  if(updated!=null) return updated;
+  const created = tsToMillis(it.createdAt);
+  if(created!=null) return created;
+  const legacy = parseHebDate(it.date);
+  return isNaN(legacy) ? 0 : legacy;
+}
+/* true רק אם היה עדכון אמיתי אחרי הפרסום הראשוני (לא רק אותה שמירה) */
+function itemWasEditedAfterPublish(it){
+  const created = tsToMillis(it.createdAt);
+  const updated = tsToMillis(it.updatedAt);
+  if(created==null || updated==null) return false;
+  return (updated - created) > 60000;
+}
+function fmtFeedDateTime(ms){
+  if(!ms) return '';
+  const d = new Date(ms);
+  const dd=String(d.getDate()).padStart(2,'0'), mm=String(d.getMonth()+1).padStart(2,'0'), yyyy=d.getFullYear();
+  const hh=String(d.getHours()).padStart(2,'0'), mi=String(d.getMinutes()).padStart(2,'0');
+  return `${dd}.${mm}.${yyyy} · ${hh}:${mi}`;
+}
+/* readAt נשמר כמחרוזת "DD.MM.YYYY HH:MM" (todayHeb()+שעה, ר' navigation.js) —
+   ממיר למילישניות כדי להשוות מול itemFeedTimestampMs ולדעת אם מה שכבר
+   "נקרא" בעבר השתנה מאז. */
+function parseHebDateTimeStr(s){
+  if(!s) return NaN;
+  const sp = s.split(' ');
+  const dParts = (sp[0]||'').split('.').map(Number);
+  const tParts = (sp[1]||'0:0').split(':').map(Number);
+  if(!dParts[0]||!dParts[1]||!dParts[2]) return NaN;
+  return new Date(dParts[2], dParts[1]-1, dParts[0], tParts[0]||0, tParts[1]||0).getTime();
+}
+/* תגית אחת לכל פריט בפיד: "חדש" (מעולם לא נקרא) / "עודכן" (נקרא, אבל השתנה
+   מאז) / "נקרא" (נקרא ולא השתנה). למחלקת שיווק (אין viewerId) לא מציגים
+   תגית בכלל — מעקב "נקרא" לא רלוונטי אליהם. */
+function feedItemBadge(typeKey, itemId, ts){
+  const vid = currentViewerId();
+  if(!vid) return '';
+  const rec = (appData.itemReads||[]).find(r=>r.type===typeKey && r.itemId==itemId && r.viewerId===vid);
+  if(!rec) return `<span class="df-badge df-new">חדש</span>`;
+  const readAtMs = parseHebDateTimeStr(rec.readAt);
+  if(!isNaN(readAtMs) && ts > readAtMs + 60000) return `<span class="df-badge df-new">עודכן</span>`;
+  return `<span class="df-badge df-read">נקרא</span>`;
+}
 /* ---------- דף הבית הגלובלי (רב-מחלקתי) ---------- */
 /* מוצג לסניפים/מנהלי אזור ברמה העליונה, לפני שנכנסים למחלקה ספציפית. פיד
    מאוחד מכל המחלקות (כרגע רק שיווק מפרסמת, אז זה כמעט זהה למה שהיה קודם —
    ההבדל היחיד הוא תגית המחלקה על כל פריט וכפתורי הכניסה למחלקות בניווט). */
 function viewGlobalHome(){
   const feed = [
-    ...appData.instructions.map(i=>({type:'instruction', date:i.date, title:i.title, id:i.id, unread:!isItemRead('instructions', i.id), department:itemDepartment(i)})),
-    ...appData.competitions.map(c=>({type:'competition', date:c.start, title:c.title, id:c.id, department:itemDepartment(c)})),
-    ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', date:e.date, title:e.title, id:e.id, department:itemDepartment(e)}))
-  ].sort((a,b)=> parseHebDate(b.date)-parseHebDate(a.date)).slice(0,8);
+    ...appData.instructions.map(i=>({type:'instruction', typeKey:'instructions', ts:itemFeedTimestampMs(i), edited:itemWasEditedAfterPublish(i), title:i.title, id:i.id, department:itemDepartment(i)})),
+    ...appData.competitions.map(c=>({type:'competition', typeKey:'competitions', ts:itemFeedTimestampMs(c), edited:itemWasEditedAfterPublish(c), title:c.title, id:c.id, department:itemDepartment(c)})),
+    ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', typeKey:'events', ts:itemFeedTimestampMs(e), edited:itemWasEditedAfterPublish(e), title:e.title, id:e.id, department:itemDepartment(e)}))
+  ].sort((a,b)=> b.ts-a.ts).slice(0,8);
   const greetName = session.role==='area' ? session.areaLabel
     : session.role==='marketing' ? marketingDisplayFor(currentUserEmail).name
     : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);
@@ -32,10 +88,10 @@ function viewGlobalHome(){
             <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
             <div class="df-main">
               <div class="df-title">${f.title}</div>
-              <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
+              <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
             </div>
             <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
-            ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
+            ${feedItemBadge(f.typeKey, f.id, f.ts)}
           </div>
         `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
       </div>
@@ -122,10 +178,10 @@ function viewGlobalHome(){
           <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
           <div class="df-main">
             <div class="df-title">${f.title}</div>
-            <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
+            <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
           </div>
           <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
-          ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
+          ${feedItemBadge(f.typeKey, f.id, f.ts)}
         </div>
       `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
     </div>
