@@ -11,16 +11,108 @@ function viewGlobalHome(){
   const greetName = session.role==='area' ? session.areaLabel
     : session.role==='marketing' ? marketingDisplayFor(currentUserEmail).name
     : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);
+
+  /* מחלקת השיווק (role==='marketing') ממשיכה לראות בדיוק את מסך הבית הגלובלי
+     הקיים, בלי שום שינוי — העיצוב החדש ("הכלים שלי" / App Grid) מיועד רק
+     לסניפים ולמנהלי אזור, כמו שהתבקש. */
+  if(session.role!=='branch' && session.role!=='area'){
+    return `
+      <div class="page-head">
+        <h1>שלום, ${greetName} 👋</h1>
+        <p>כך נראה כרגע כל מה שמפורסם לסניפים, מכל המחלקות</p>
+      </div>
+      <h3 style="font-size:15px;margin:8px 0 12px;">הכלים שלי</h3>
+      ${renderMyCalendarCard()}
+      <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
+      <div class="card" style="overflow:visible;">
+        ${feed.length ? feed.map(f=>{
+          const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
+          return `
+          <div class="dashboard-feed-item" onclick="goToDeptScreen('${f.department}','${screenId}')">
+            <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
+            <div class="df-main">
+              <div class="df-title">${f.title}</div>
+              <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · ${f.date}</div>
+            </div>
+            <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
+            ${f.type==='instruction' ? `<span class="df-badge ${f.unread?'df-new':'df-read'}">${f.unread?'חדש':'נקרא'}</span>` : ''}
+          </div>
+        `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
+      </div>
+    `;
+  }
+
+  /* ---------- "המשימות שלי" ----------
+     אותו איתות משימות אמיתי שכבר קיים היום ב-viewDashboard() (הוראות שלא
+     נקראו + הוראות שדורשות פעולה + סטנדים ממתינים + הודעות פרטיות שלא
+     נקראו). מחושב כאן בנפרד ולא מיוצא/משותף עם viewDashboard, כדי לא לגעת
+     במסך השיווק הפנימי כלל. */
+  const unreadInstr = appData.instructions.filter(i=>!isItemRead('instructions', i.id));
+  const isBranch = session.role==='branch' && !!session.branchInfo;
+  let pendingActionInstrs = [];
+  let pendingStandsCount = 0;
+  let unreadMsgCount = 0;
+  if(isBranch){
+    pendingActionInstrs = appData.instructions.filter(i=>i.requiresAction && isInstructionTargetedAtBranch(i, session.branchInfo) && getInstructionStatusForBranch(i, session.branchInfo.email)!=='done');
+    appData.standCampaigns.forEach(camp=>{
+      const b = camp.branches.find(x=>x.matchedBranchName===session.branchInfo.name);
+      if(b && !getStandBranchStatus(camp,b).confirmed) pendingStandsCount++;
+    });
+    unreadMsgCount = appData.privateMessages.filter(m=>m.branchName===session.branchName && !m.deletedForBranch && m.unreadForBranch).length;
+  }
+  const totalTasks = unreadInstr.length + pendingActionInstrs.length + pendingStandsCount + unreadMsgCount;
+  const tasksSub = totalTasks===0 ? 'הכל מעודכן ✓' : (totalTasks===1 ? 'משימה אחת פתוחה' : `${totalTasks} משימות פתוחות`);
+
   return `
     <div class="page-head">
       <h1>שלום, ${greetName} 👋</h1>
       ${session.branchInfo ? `<p style="margin:-4px 0 8px;font-size:12.5px;color:var(--muted);">${session.branchName}</p>` : ''}
-      <p>${session.role==='marketing' ? 'כך נראה כרגע כל מה שמפורסם לסניפים, מכל המחלקות' : 'עדכונים שוטפים מכל המחלקות'}</p>
+      <p style="color:var(--muted);">${session.role==='area' ? 'הנה מה שקורה היום באזור שלך' : 'הנה מה שקורה היום בסניף'}</p>
     </div>
+
     ${isRealAreaManager() ? renderAreaManagerConversationsCard() : ''}
     ${session.role==='branch' ? renderBranchConversationsCard() : ''}
+
     <h3 style="font-size:15px;margin:8px 0 12px;">הכלים שלי</h3>
-    ${renderMyCalendarCard()}
+    <div class="home-tools-grid">
+      <button type="button" class="home-tool-card home-tool-card--featured" onclick="goTo('instructions')" aria-label="המשימות שלי, ${tasksSub}">
+        ${totalTasks>0 ? `<span class="home-tool-badge">${totalTasks}</span>` : ''}
+        <span class="home-tool-icon" aria-hidden="true">📋</span>
+        <span class="home-tool-title">המשימות שלי</span>
+        <span class="home-tool-sub">${tasksSub}</span>
+      </button>
+
+      ${renderMyCalendarCard()}
+
+      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="הסניף שלי, יעדים ביצועים והישגים, בקרוב">
+        <span class="home-tool-soon-tag">בקרוב</span>
+        <span class="home-tool-icon" aria-hidden="true">📊</span>
+        <span class="home-tool-title">הסניף שלי</span>
+        <span class="home-tool-sub">יעדים, ביצועים והישגים</span>
+      </div>
+
+      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="פתיחת פנייה, בקשה או דיווח למחלקה, בקרוב">
+        <span class="home-tool-soon-tag">בקרוב</span>
+        <span class="home-tool-icon" aria-hidden="true">📝</span>
+        <span class="home-tool-title">פתיחת פנייה</span>
+        <span class="home-tool-sub">בקשה או דיווח למחלקה</span>
+      </div>
+
+      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="ידע ונהלים, חיפוש במידע של HUB, בקרוב">
+        <span class="home-tool-soon-tag">בקרוב</span>
+        <span class="home-tool-icon" aria-hidden="true">📚</span>
+        <span class="home-tool-title">ידע ונהלים</span>
+        <span class="home-tool-sub">חיפוש במידע של HUB</span>
+      </div>
+
+      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="פעולות מהירות, דיווחים ובקשות נפוצות, בקרוב">
+        <span class="home-tool-soon-tag">בקרוב</span>
+        <span class="home-tool-icon" aria-hidden="true">⚡</span>
+        <span class="home-tool-title">פעולות מהירות</span>
+        <span class="home-tool-sub">דיווחים ובקשות נפוצות</span>
+      </div>
+    </div>
+
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
     <div class="card" style="overflow:visible;">
       ${feed.length ? feed.map(f=>{

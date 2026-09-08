@@ -356,16 +356,55 @@ function deleteAllMyPersonalEventsForDay(dateKey){
     return db.collection('branchCalendarNotes').doc(it.id).delete().catch(function(){});
   })).then(function(){ toast('האירועים נמחקו'); });
 }
+/* מחשב מה להציג בכרטיס היומן במסך הבית: אירוע/י היום אם יש, אחרת האירוע
+   הקרוב הבא, אחרת "אין אירועים". חגים (source==='holiday') לא נספרים כאן —
+   הם מידע רקע ביומן המלא, לא "אירוע" אישי שרוצים לראות כ-Preview בבית. */
+function homeCalendarPreviewData(){
+  const items = getAllMyCalendarItems().filter(function(it){ return it.source!=='holiday'; });
+  const now = new Date(); now.setHours(0,0,0,0);
+  const todayTs = now.getTime();
+  const todays = items.filter(function(it){
+    const ts = parseHebDate(it.date);
+    return !isNaN(ts) && ts===todayTs;
+  });
+  if(todays.length===1){
+    const e = todays[0];
+    return { mode:'today-one', time: (!e.allDay && e.startTime) ? e.startTime : null, title: e.title };
+  }
+  if(todays.length>1){
+    return { mode:'today-many', count: todays.length };
+  }
+  const future = items.filter(function(it){
+    const ts = parseHebDate(it.date);
+    return !isNaN(ts) && ts>todayTs;
+  }).sort(function(a,b){ return parseHebDate(a.date)-parseHebDate(b.date); });
+  if(future.length){
+    return { mode:'upcoming', date: future[0].date, title: future[0].title };
+  }
+  return { mode:'empty' };
+}
 function renderMyCalendarCard(){
+  const p = homeCalendarPreviewData();
+  let subHtml, subAria;
+  if(p.mode==='today-one'){
+    subHtml = p.time ? `<span dir="ltr" style="font-weight:700;color:var(--text-primary);">${p.time}</span> · ${p.title}` : p.title;
+    subAria = (p.time ? p.time+' ' : '') + p.title;
+  } else if(p.mode==='today-many'){
+    subHtml = `היום · ${p.count} אירועים`;
+    subAria = subHtml;
+  } else if(p.mode==='upcoming'){
+    subHtml = `<span dir="ltr">${p.date}</span> · ${p.title}`;
+    subAria = `${p.date} ${p.title}`;
+  } else {
+    subHtml = 'אין אירועים להיום';
+    subAria = subHtml;
+  }
   return `
-    <div class="aconv-home-card" onclick="ui.calSelectedDay=null;goTo('myCalendar');">
-      <div class="aconv-home-icon">📅</div>
-      <div class="aconv-home-main">
-        <div class="aconv-home-title">היומן שלי</div>
-        <div class="aconv-home-sub">אירועים, תזכורות ודברים חשובים</div>
-      </div>
-      <span class="aconv-home-arrow">›</span>
-    </div>
+    <button type="button" class="home-tool-card home-tool-card--calendar" onclick="ui.calSelectedDay=null;goTo('myCalendar');" aria-label="היומן שלי, ${subAria}">
+      <span class="home-tool-icon" aria-hidden="true">📅</span>
+      <span class="home-tool-title">היומן שלי</span>
+      <span class="home-tool-sub">${subHtml}</span>
+    </button>
   `;
 }
 
