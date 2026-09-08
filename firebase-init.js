@@ -557,8 +557,13 @@ function initFirestoreSync(){
       appData.itemReads = snap.docs.map(function(doc){
         return Object.assign({}, doc.data(), { id: doc.id });
       });
+      /* בכוונה בלי renderContent() כאן: סימון "נקרא" (למשל פתיחת הוראה) כותב
+         ל-itemReads, וההד החוזר מ-Firestore על הכתיבה הזאת מגיע לרוב תוך
+         שבריר שנייה ומפעיל את ה-listener הזה. רענון מלא של המסך באותו רגע
+         היה "שוכח" שההוראה נפתחה ידנית (toggleInstr) והופך את הכרטיס בחזרה
+         למצב סגור, כאילו שום דבר לא קרה בלחיצה. renderNav() מספיק לגמרי כדי
+         לעדכן את מספרי ה-badge בניווט. */
       renderNav();
-      renderContent();
     }, function(err){
       console.error('Firestore sync error (item reads):', err);
     });
