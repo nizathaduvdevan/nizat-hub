@@ -55,19 +55,17 @@ function feedItemBadge(typeKey, itemId, ts){
   return `<span class="df-badge df-read">נקרא</span>`;
 }
 /* לחיצה על הוראה בפיד "חדש עבורכם" צריכה לפתוח את ההודעה הספציפית עצמה,
-   לא רק לנווט למסך הכללי של "הוראות ועדכונים" — שם המשתמש היה צריך למצוא
-   אותה שוב ולהבין לבד שצריך ללחוץ. מוסיף את class 'open' ישירות (לא דרך
-   toggleInstr, כדי לא "לסגור" הודעה שכבר פתוחה כברירת מחדל כ-updateLength
-   קצר), ומסמן כנקרא + מגלגל אליה. תחרויות/אירועים ממשיכים לנווט כרגיל
-   דרך goToDeptScreen — אין להם מסך "פריט בודד" מקביל. */
+   לא רק לנווט למסך הכללי של "הוראות ועדכונים". מוסיפים למצב הפתוח הגלובלי
+   (openInstructionIds, מוגדר ב-instructions.js) לפני הרינדור, כך שה-HTML
+   שנוצר כבר "נולד" פתוח — בלי תלות בסדר טעינה או בפעולת DOM נפרדת אחרי
+   הרינדור. תחרויות/אירועים ממשיכים לנווט כרגיל דרך goToDeptScreen — אין
+   להם מסך "פריט בודד" מקביל. */
 function openInstructionFromFeed(deptKey, instructionId){
+  openInstructionIds.add(String(instructionId));
   ui.department = deptKey;
   goTo('instructions', {keepDepartment:true});
   markItemRead('instructions', instructionId);
   const bodyEl = document.getElementById('instr-body-'+instructionId);
-  if(bodyEl) bodyEl.classList.add('open');
-  const hintEl = document.getElementById('instr-hint-'+instructionId);
-  if(hintEl) hintEl.style.display = 'none';
   if(bodyEl) bodyEl.scrollIntoView({behavior:'smooth', block:'center'});
   renderNav();
 }

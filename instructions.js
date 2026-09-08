@@ -1,4 +1,10 @@
 /* ---------- Instructions ---------- */
+/* מזהי הוראות שפתוחות כרגע (accordion) — Set גלובלי, לא רק class זמני ב-DOM.
+   הסיבה: renderContent() יכול לרוץ מחדש מכל listener של Firestore (לא רק
+   כשאתה עצמו עושה משהו — גם כשמישהו אחר ברשת מוסיף תגובה/הודעה/וכו'), וכל
+   רינדור טרי היה "שוכח" בעבר שהוראה נפתחה ידנית ומחזיר אותה סגורה. עכשיו
+   ה-HTML עצמו נבנה מהמצב השמור כאן, אז הוא נשאר פתוח גם אחרי רינדור מחדש. */
+let openInstructionIds = new Set();
 function renderInstructionExecutionArea(instr, myStatus){
   const myCompletion = session.branchInfo ? getInstructionCompletion(instr.id, session.branchInfo.email) : null;
   return `
@@ -77,6 +83,7 @@ function viewInstructions(){
         const myStatus = (isTask && session.role==='branch') ? getInstructionStatusForBranch(i, myEmail) : null;
         const taskAccent = myStatus==='overdue' ? 'var(--critical)' : (isTask ? 'var(--warning)' : null);
         const iUnread = !isItemRead('instructions', i.id);
+        const iOpen = i.updateLength==='short' || openInstructionIds.has(String(i.id));
         return `
         <div class="instr-card" onclick="toggleInstr('${i.id}')" style="border-bottom:1px solid var(--gridline);${taskAccent?`border-right:3px solid ${taskAccent};`:''}">
           <div class="instr-top">
@@ -92,9 +99,9 @@ function viewInstructions(){
             </div>
           </div>
           <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span>${i.updateLength==='short'?'<span class="badge cat" style="padding:2px 8px;">⚡ עדכון קצר</span>':''}<span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span>
-            ${i.updateLength!=='short' ? `<span class="instr-expand-hint" id="instr-hint-${i.id}">לחצו לקריאה המלאה ⌄</span>` : ''}
+            ${i.updateLength!=='short' ? `<span class="instr-expand-hint" id="instr-hint-${i.id}" style="${iOpen?'display:none;':''}">לחצו לקריאה המלאה ⌄</span>` : ''}
           </div>
-          <div class="instr-body ${i.updateLength==='short'?'open':''}" id="instr-body-${i.id}">
+          <div class="instr-body ${iOpen?'open':''}" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
             ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}
             ${isTask && session.role==='branch' ? renderInstructionExecutionArea(i, myStatus) : ''}
@@ -110,10 +117,14 @@ function viewInstructions(){
 }
 function toggleInstr(id){
   markItemRead('instructions', id);
+  const key = String(id);
+  const wasOpen = openInstructionIds.has(key);
+  if(wasOpen) openInstructionIds.delete(key); else openInstructionIds.add(key);
+  const nowOpen = !wasOpen;
   const el = document.getElementById('instr-body-'+id);
-  const isOpen = el.classList.toggle('open');
+  if(el) el.classList.toggle('open', nowOpen);
   const hint = document.getElementById('instr-hint-'+id);
-  if(hint) hint.style.display = isOpen ? 'none' : '';
+  if(hint) hint.style.display = nowOpen ? 'none' : '';
   renderNav();
 }
 
