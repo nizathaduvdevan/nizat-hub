@@ -85,6 +85,12 @@
             }
           });
         });
+        /* בדיקה יזומה אם יש גרסה חדשה של service-worker.js עצמו, בלי לחכות
+           לבדיקה האוטומטית (המוגבלת בתדירות) של הדפדפן — מיד עם הטעינה,
+           ואז כל 15 דקות כל עוד הטאב/ה-PWA פתוחים, כדי שבאנר "קיימת גרסה
+           חדשה" יופיע הכי מהר שאפשר בכל מכשיר מותקן. */
+        reg.update().catch(function(){});
+        setInterval(function(){ reg.update().catch(function(){}); }, 15*60*1000);
       }).catch(function(err){
         console.error('NIZAT HUB service worker registration failed:', err);
       });

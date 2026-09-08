@@ -1,4 +1,9 @@
-const CACHE_VERSION = 'nizat-hub-static-v3';
+/* CACHE_VERSION משפיע רק על שם ה-Cache Storage ועל ניקוי גרסאות ישנות ממנו
+   (ב-'activate' למטה) — מומלץ להעלות אותו (v4, v5...) בכל פעם שאתה עורך את
+   הקובץ הזה עצמו, כדי שגם באנר "קיימת גרסה חדשה" יופיע. לא חובה יותר לבמת
+   כל עדכון קוד רגיל (dashboard.js/main.css וכו') — אלה עכשיו Network-first
+   ומתעדכנים אוטומטית בלי קשר לגרסה כאן (ראו ה-'fetch' listener למטה). */
+const CACHE_VERSION = 'nizat-hub-static-v4';
 const BASE = '/nizat-hub/';
 const OFFLINE_URL = BASE + 'offline.html';
 const STATIC_ASSETS = [
@@ -92,7 +97,28 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Only explicitly-listed, versioned static PWA assets are cached.
+  /* קבצי הקוד/העיצוב של האפליקציה עצמה (כל .js/.css — dashboard.js, main.css,
+     וכל מודול אחר, כולל כאלה שייווספו בעתיד) הם תמיד Network-first: כל עוד
+     יש רשת, המכשיר תמיד מביא את הגרסה העדכנית ביותר ישירות מהשרת, בלי תלות
+     בקאש-HTTP הרגיל של הדפדפן ובלי לחכות לבאנר "עדכון גרסה". רק אם אין
+     בכלל רשת (מצב אופליין אמיתי) חוזרים לעותק האחרון שנשמר בקאש כגיבוי.
+     זה הפתרון לכך שעדכון קוד (בלי לגעת ב-service-worker.js עצמו) לא הגיע
+     אוטומטית למכשירים שה-PWA כבר מותקן אצלם. */
+  if (request.destination === 'script' || request.destination === 'style') {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' })
+        .then(response => {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then(cache => cache.put(request, copy)).catch(() => {});
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Only explicitly-listed, versioned static PWA assets (icons/logo/offline
+  // page — נדירי-שינוי) are cache-first.
   if (STATIC_ASSETS.includes(url.pathname)) {
     event.respondWith(
       caches.match(request).then(cached => cached || fetch(request))
