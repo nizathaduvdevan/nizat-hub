@@ -23,6 +23,17 @@ const DEPARTMENT_ADMIN_TILES = {
     {tab:'events', icon:'🗓', title:'יומן אירועים', sub:'אירועים רשתיים'}
   ]
 };
+/* "איזו מחלקה מנוהלת כרגע" בפועל — משותף בין viewAdmin() (איזה גריד להציג)
+   ל-saveForm() (איך לתייג פריט חדש). לרוב אנשי הצוות זו המחלקה היחידה שלהם.
+   למי שיש גישה למספר מחלקות מוגדרות (כרגע: גישה מלאה) — ui.adminDept (הפילס
+   מעל הגריד) קובע, עם נפילה חזרה למחלקה המוגדרת הראשונה אם עדיין לא נבחר. */
+function currentAdminDeptContext(){
+  const myDepts = staffDepartments(currentUserEmail);
+  const configured = Object.keys(DEPARTMENT_ADMIN_TILES).filter(d => myDepts.indexOf(d) !== -1);
+  if(configured.length===1) return configured[0];
+  if(configured.length>1) return configured.indexOf(ui.adminDept)!==-1 ? ui.adminDept : configured[0];
+  return myDepts[0] || DEFAULT_DEPARTMENT;
+}
 function viewAdmin(){
   const myDepts = staffDepartments(currentUserEmail);
   const isMarketingDept = myDepts.indexOf('marketing') !== -1;
@@ -50,8 +61,7 @@ function viewAdmin(){
      סינון התוכן עצמו (adminList/canManageDepartment ממשיכים בדיוק כמו תמיד,
      ולכן גישה מלאה עדיין רואה את כל התוכן מכל המחלקות בתוך כל טאב). */
   const myConfiguredDepts = Object.keys(DEPARTMENT_ADMIN_TILES).filter(d => myDepts.indexOf(d) !== -1);
-  const activeGridDept = myConfiguredDepts.length===1 ? myConfiguredDepts[0]
-    : (myConfiguredDepts.indexOf(ui.adminDept)!==-1 ? ui.adminDept : myConfiguredDepts[0]);
+  const activeGridDept = currentAdminDeptContext();
   const gridTiles = activeGridDept ? DEPARTMENT_ADMIN_TILES[activeGridDept] : null;
 
   /* מסך נחיתה (גריד) — רק למחלקות עם קונפיגורציה למעלה, ורק כשאין טאב פעיל
@@ -1092,13 +1102,15 @@ function saveForm(){
     pendingMaterialThumbUrl = undefined;
   }
 
-  /* תיוג מחלקה: פריט חדש מתויג במחלקה של מי שיצר אותו (למי שמשויך ליותר
-     ממחלקה אחת — במחלקה הראשונה שלו). בעריכה שומרים על המחלקה המקורית ולא
-     משנים בעלות. תוכן ישן בלי השדה נחשב ל'marketing' דרך itemDepartment(). */
+  /* תיוג מחלקה: פריט חדש מתויג לפי הקשר הניהול הנוכחי בפועל (איזה גריד/פילס
+     נבחר - ר' currentAdminDeptContext() למעלה ב-viewAdmin) ולא סתם לפי
+     המחלקה ה"ראשונה" של היוצר — אחרת גישה מלאה (שמשויכת לכל המחלקות) הייתה
+     מתייגת הכל כ-'marketing' תמיד, בלי קשר לרובריקה שבה בפועל נוצר הפריט.
+     בעריכה שומרים על המחלקה המקורית ולא משנים בעלות. תוכן ישן בלי השדה
+     נחשב ל'marketing' דרך itemDepartment(). */
   if(!obj.department){
     const existingItem = editId ? (appData[type]||[]).find(x=>x.id==editId) : null;
-    obj.department = existingItem ? itemDepartment(existingItem)
-      : (staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT);
+    obj.department = existingItem ? itemDepartment(existingItem) : currentAdminDeptContext();
   }
 
   if(FIRESTORE_BACKED_TYPES.indexOf(type) !== -1 && firebaseReady){
