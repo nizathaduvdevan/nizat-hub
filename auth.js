@@ -241,7 +241,7 @@ function logout(){
   document.getElementById('login-screen').style.display='flex';
   clearIdentity();
   session = {role:null, branchName:null, branchInfo:null, areaName:null, areaLabel:null};
-  ui = {view:"dashboard", adminTab:null, materialFilter:"הכל", department:null, conversationOpenKey:null};
+  ui = {view:"dashboard", adminTab:null, adminDept:null, materialFilter:"הכל", department:null, conversationOpenKey:null};
 }
 
 /* ---------- Remembered identity (best-effort; falls back to session-only) ---------- */

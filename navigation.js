@@ -267,6 +267,10 @@ let suppressHistoryPush = false;
 function goTo(view, opts){
   opts = opts || {};
   if(view==='dashboard' && !opts.keepDepartment) ui.department = null;
+  /* כניסה טרייה ל"ניהול תוכן" (למשל מהניווט התחתון) תמיד מתחילה מהגריד,
+     לא ממשיכה טאב שנשאר פתוח מביקור קודם — keepAdminTab משמש רק לשחזור
+     היסטוריה (popstate) שלא אמור לאפס את זה. */
+  if(view==='admin' && !opts.keepAdminTab) ui.adminTab = null;
   ui.view = view;
   renderNav();
   renderContent();
@@ -274,7 +278,7 @@ function goTo(view, opts){
   if(!suppressHistoryPush){
     // כל שינוי מסך נרשם כערך היסטוריה אמיתי — כך שכפתור "חזרה" (בדפדפן, במובייל,
     // או במחוות ה-swipe) מנווט בין המסכים בתוך ה-HUB במקום לצאת מהאתר לגמרי.
-    history.pushState({nizatHubView: view, nizatHubDept: ui.department}, '', '#' + view);
+    history.pushState({nizatHubView: view, nizatHubDept: ui.department, nizatHubAdminTab: ui.adminTab}, '', '#' + view);
   }
 }
 /* כניסה למחלקה מהמסך הגלובלי (לחיצה על אחד מכפתורי המחלקות). */
@@ -290,9 +294,11 @@ function goToDeptScreen(deptKey, view){
 window.addEventListener('popstate', function(e){
   const view = (e.state && e.state.nizatHubView) || 'dashboard';
   const dept = (e.state && ('nizatHubDept' in e.state)) ? e.state.nizatHubDept : null;
+  const adminTab = (e.state && ('nizatHubAdminTab' in e.state)) ? e.state.nizatHubAdminTab : null;
   suppressHistoryPush = true;
   ui.department = dept;
-  goTo(view, {keepDepartment:true});
+  ui.adminTab = adminTab;
+  goTo(view, {keepDepartment:true, keepAdminTab:true});
   suppressHistoryPush = false;
 });
 

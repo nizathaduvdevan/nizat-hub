@@ -43,16 +43,29 @@ function viewAdmin(){
     return isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1;
   });
   const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
-  const gridDeptKey = isMarketingDept ? 'marketing' : (canManageDepartment('purchasing') ? 'purchasing' : null);
-  const gridTiles = gridDeptKey ? DEPARTMENT_ADMIN_TILES[gridDeptKey] : null;
+  /* איזה מחלקות (מתוך אלה שיש להן קונפיגורציית גריד) המשתמש הזה שייך אליהן.
+     לרוב אנשי הצוות זו מחלקה אחת בלבד. למי שיש גישה מלאה (כמו אלירן) יש
+     יותר מאחת — במקרה כזה מציגים בורר קטן (פילס) מעל הגריד, ו-ui.adminDept
+     זוכר על איזו מחלקה מסתכלים כרגע. זה משפיע רק על איזה גריד מוצג — לא על
+     סינון התוכן עצמו (adminList/canManageDepartment ממשיכים בדיוק כמו תמיד,
+     ולכן גישה מלאה עדיין רואה את כל התוכן מכל המחלקות בתוך כל טאב). */
+  const myConfiguredDepts = Object.keys(DEPARTMENT_ADMIN_TILES).filter(d => myDepts.indexOf(d) !== -1);
+  const activeGridDept = myConfiguredDepts.length===1 ? myConfiguredDepts[0]
+    : (myConfiguredDepts.indexOf(ui.adminDept)!==-1 ? ui.adminDept : myConfiguredDepts[0]);
+  const gridTiles = activeGridDept ? DEPARTMENT_ADMIN_TILES[activeGridDept] : null;
 
   /* מסך נחיתה (גריד) — רק למחלקות עם קונפיגורציה למעלה, ורק כשאין טאב פעיל
      כרגע (ui.adminTab null). כפתור "חזרה" בתוך המסך המוצג מאפס את זה. */
   if(gridTiles && !ui.adminTab){
     return `
       <div class="page-head">
-        <h1>${deptLabel ? `${deptLabel} - ניהול תוכן` : 'ניהול תוכן'}</h1>
+        <h1>${(DEPARTMENTS[activeGridDept]||{}).label ? `${(DEPARTMENTS[activeGridDept]||{}).label} - ניהול תוכן` : 'ניהול תוכן'}</h1>
       </div>
+      ${myConfiguredDepts.length>1 ? `
+        <div style="display:flex;gap:8px;margin:-6px 0 16px;">
+          ${myConfiguredDepts.map(d=>`<button class="admin-tab ${activeGridDept===d?'active':''}" onclick="ui.adminDept='${d}';renderContent();">${(DEPARTMENTS[d]||{}).label||d}</button>`).join('')}
+        </div>
+      ` : ''}
       <div class="admin-tools-grid">
         ${gridTiles.map(t=>`
           <button type="button" class="admin-tool-card" onclick="${t.view ? `goTo('${t.view}')` : `setAdminTab('${t.tab}')`}">
@@ -72,14 +85,17 @@ function viewAdmin(){
 
   /* מסך מוצג (drill-in) — טאב ספציפי, עם כפתור חזרה לגריד רק אם יש גריד
      למחלקה הזו. מחלקה בלי גריד (תפעול/משאבי אנוש) ממשיכה לראות את סרגל
-     הטאבים האופקי המקורי, בדיוק כמו קודם. */
+     הטאבים האופקי המקורי, בדיוק כמו קודם. כפתור החזרה קורא ל-history.back()
+     (לא מאפס state ישירות) כדי שהוא יתנהג בדיוק כמו כפתור/מחוות "אחורה" של
+     הטלפון — שניהם עוברים דרך אותו מנגנון popstate ב-navigation.js, אז אין
+     צורך יותר בלחיצה על החץ בפינה כדי לחזור לתפריט. */
   if(!tabs.some(t=>t.id===ui.adminTab)) ui.adminTab = tabs[0] ? tabs[0].id : null;
   const activeLabel = (tabs.find(t=>t.id===ui.adminTab)||{}).label || '';
   return `
     <div class="page-head">
       ${gridTiles ? `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px;">
-          <button class="icon-btn" onclick="ui.adminTab=null;renderContent();" aria-label="חזרה לניהול תוכן">→</button>
+          <button class="icon-btn" onclick="history.back();" aria-label="חזרה לניהול תוכן">→</button>
           <h1 style="margin:0;">${activeLabel}</h1>
         </div>
       ` : `
@@ -636,7 +652,13 @@ function adminPwaInstalls(){
     </div>
   `;
 }
-function setAdminTab(t){ ui.adminTab=t; renderContent(); }
+function setAdminTab(t){
+  ui.adminTab = t;
+  renderContent();
+  if(!suppressHistoryPush){
+    history.pushState({nizatHubView: ui.view, nizatHubDept: ui.department, nizatHubAdminTab: t}, '', '#' + ui.view);
+  }
+}
 function adminTexts(){
   const keys = Object.keys(SITE_TEXT_LABELS);
   return `
