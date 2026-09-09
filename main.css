@@ -398,6 +398,41 @@
     .home-tool-card{padding:14px 12px;min-height:96px;}
   }
 
+  /* ============================================================
+     "ניהול תוכן" — App Grid לפי מחלקה (3 בשורה)
+     ------------------------------------------------------------
+     בלוק עצמאי, לא נוגע בכללי home-tool-* למעלה — הצרכים שונים מעט
+     (3 עמודות, טקסט ואייקון ממורכזים) אז יש להם מחלקות משלהם, אבל
+     אותם design tokens בדיוק לשמירה על שפה עיצובית אחידה.
+  ============================================================ */
+  .admin-tools-grid{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:16px 0 20px;
+  }
+  .admin-tool-card{
+    display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;
+    background:var(--surface-1);border:1px solid var(--border);border-radius:16px;
+    box-shadow:0 1px 2px rgba(11,11,11,0.04), 0 2px 10px rgba(11,11,11,0.05);
+    padding:16px 8px;min-height:104px;justify-content:center;cursor:pointer;
+    font-family:inherit;color:var(--text-primary);width:100%;
+  }
+  .admin-tool-card:hover{border-color:var(--brand-primary);}
+  .admin-tool-icon{
+    width:40px;height:40px;border-radius:12px;background:rgba(69,122,31,0.10);color:var(--brand-primary-dark);
+    display:flex;align-items:center;justify-content:center;font-size:19px;flex:none;
+  }
+  .admin-tool-title{font-size:13px;font-weight:700;line-height:1.3;}
+  .admin-tool-sub{font-size:10.5px;color:var(--muted);line-height:1.3;}
+  .admin-secondary{
+    display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+    padding:12px 10px;border-top:1px solid var(--gridline);margin-top:4px;
+  }
+  .admin-secondary a{font-size:12.5px;color:var(--blue-dark);font-weight:500;text-decoration:none;padding:4px 2px;}
+  html[data-theme="dark"] .admin-tool-icon{background:rgba(120,184,64,0.16);color:#a8d878;}
+  @media (max-width:400px){
+    .admin-tool-card{padding:13px 6px;min-height:96px;}
+    .admin-tool-title{font-size:12.5px;}
+  }
+
   /* ---------- Cards / lists ---------- */
   .card{
     background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);

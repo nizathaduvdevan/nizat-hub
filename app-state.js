@@ -221,7 +221,7 @@ let session = { role:null, branchName:null, branchInfo:null, areaName:null, area
    realSession שומר את הזהות האמיתית כדי לחזור אליה כשיוצאים ממצב התצוגה. */
 let previewMode = null; // null | {label: string}
 let realSession = null;
-let ui = { view:"dashboard", adminTab:"competitions", materialFilter:"הכל", department:null, conversationOpenKey:null };
+let ui = { view:"dashboard", adminTab:null, materialFilter:"הכל", department:null, conversationOpenKey:null };
 
 const STATUS_LABEL = {active:"פעילה", upcoming:"מתוכננת", ended:"הסתיימה"};
 const PRIORITY_LABEL = {urgent:"דחוף", normal:"רגיל"};
