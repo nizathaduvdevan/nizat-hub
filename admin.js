@@ -839,7 +839,7 @@ let formState = {type:null, editId:null};
 function openForm(type, editId){
   formState = {type, editId: editId || null};
   const item = editId ? appData[type].find(x=>x.id==editId) : null;
-  const titleMap = {competitions:'תחרות', instructions:'הוראה', materials:'חומר להורדה', events:'אירוע'};
+  const titleMap = {competitions:'תחרות', instructions:'עדכון', materials:'חומר להורדה', events:'אירוע'};
   let fieldsHtml = '';
 
   if(type==='events'){
@@ -945,7 +945,6 @@ function openForm(type, editId){
           <option value="urgent" ${item?.priority==='urgent'?'selected':''}>דחוף</option>
         </select>
       </div>
-      <div class="field"><label>תאריך</label><input id="f-date" value="${item?.date||''}" placeholder="DD.MM.YYYY"></div>
       <div class="field">
         <label>אורך העדכון</label>
         <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
@@ -954,7 +953,7 @@ function openForm(type, editId){
         </div>
       </div>
       <div class="field">
-        <label>סוג ההוראה</label>
+        <label>סוג העדכון</label>
         <div style="display:flex;gap:16px;font-size:14px;margin-top:4px;">
           <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-type" value="info" ${!reqAction?'checked':''} onchange="toggleInstrActionFields()"> לידיעה בלבד</label>
           <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="radio" name="f-instr-type" value="action" ${reqAction?'checked':''} onchange="toggleInstrActionFields()"> נדרש ביצוע</label>
@@ -970,7 +969,7 @@ function openForm(type, editId){
           <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">כל הסניפים (בחירת סניפים ספציפיים תיתמך בעתיד)</div>
         </div>
       </div>
-      <div class="field"><label>תוכן ההוראה</label><textarea id="f-body">${item?.body||''}</textarea></div>
+      <div class="field"><label>תוכן העדכון</label><textarea id="f-body">${item?.body||''}</textarea></div>
       <div class="field">
         <label>תמונה להמחשה (אופציונלי)</label>
         <button type="button" class="btn-import" onclick="document.getElementById('f-instr-image-input').click()">🖼 בחירת תמונה</button>
@@ -1079,7 +1078,7 @@ function saveForm(){
     const updateLength = document.querySelector('input[name="f-instr-length"]:checked')?.value || 'long';
     obj = {
       title: val('f-title'), category: val('f-category'), priority: val('f-priority'),
-      date: val('f-date'), body: val('f-body'), unread: true, updateLength,
+      date: existingInstr ? existingInstr.date : todayHeb(), body: val('f-body'), unread: true, updateLength,
       time: existingInstr ? (existingInstr.time || null) : new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
       requiresAction, dueDate: requiresAction ? dueDate : null,
       requiresPhoto: requiresAction ? !!document.getElementById('f-instr-photo').checked : false,
