@@ -16,6 +16,250 @@
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <!-- PWA END -->
 
+
+
+<!-- NIZAT AI START -->
+<style id="nizat-ai-styles">
+  :root{
+    --nizat-ai-green:#457a1f;
+    --nizat-ai-green-dark:#315d14;
+    --nizat-ai-border:rgba(17,24,39,.12);
+    --nizat-ai-text:#1f2937;
+    --nizat-ai-muted:#6b7280;
+    --nizat-ai-bg:#ffffff;
+    --nizat-ai-soft:#f5f7f2;
+  }
+
+  #nizat-ai-launcher{
+    position:fixed;
+    left:22px;
+    bottom:24px;
+    z-index:99970;
+    width:58px;
+    height:58px;
+    border:0;
+    border-radius:50%;
+    background:var(--nizat-ai-green);
+    color:#fff;
+    box-shadow:0 12px 30px rgba(0,0,0,.22);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:transform .18s ease, box-shadow .18s ease, background .18s ease;
+  }
+  #nizat-ai-launcher:hover{ transform:translateY(-2px); box-shadow:0 16px 34px rgba(0,0,0,.24); background:var(--nizat-ai-green-dark); }
+  #nizat-ai-launcher svg{ width:27px; height:27px; }
+  #nizat-ai-launcher .nizat-ai-dot{
+    position:absolute;
+    top:4px;
+    right:4px;
+    width:11px;
+    height:11px;
+    border-radius:50%;
+    background:#7bdc55;
+    border:2px solid #fff;
+  }
+
+  #nizat-ai-panel{
+    position:fixed;
+    left:22px;
+    bottom:94px;
+    z-index:99971;
+    width:min(390px, calc(100vw - 28px));
+    height:min(610px, calc(100vh - 135px));
+    background:var(--nizat-ai-bg);
+    color:var(--nizat-ai-text);
+    border:1px solid var(--nizat-ai-border);
+    border-radius:22px;
+    box-shadow:0 22px 55px rgba(0,0,0,.24);
+    overflow:hidden;
+    display:none;
+    flex-direction:column;
+    direction:rtl;
+    font-family:inherit;
+  }
+  #nizat-ai-panel.open{ display:flex; }
+
+  .nizat-ai-head{
+    display:flex;
+    align-items:center;
+    gap:11px;
+    padding:15px 16px;
+    background:linear-gradient(135deg,#457a1f,#5a902d);
+    color:#fff;
+    flex:none;
+  }
+  .nizat-ai-head-icon{
+    width:39px;
+    height:39px;
+    border-radius:13px;
+    background:rgba(255,255,255,.17);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex:none;
+  }
+  .nizat-ai-head-icon svg{ width:22px; height:22px; }
+  .nizat-ai-head-copy{ min-width:0; flex:1; }
+  .nizat-ai-title{ font-size:16px; font-weight:800; line-height:1.2; }
+  .nizat-ai-subtitle{ font-size:12px; opacity:.9; margin-top:3px; }
+  .nizat-ai-close{
+    border:0;
+    background:rgba(255,255,255,.14);
+    color:#fff;
+    width:32px;
+    height:32px;
+    border-radius:10px;
+    cursor:pointer;
+    font-size:21px;
+    line-height:1;
+  }
+
+  #nizat-ai-messages{
+    flex:1;
+    min-height:0;
+    overflow-y:auto;
+    padding:16px;
+    background:#fafbf9;
+    scroll-behavior:smooth;
+  }
+  .nizat-ai-msg-row{ display:flex; margin-bottom:11px; }
+  .nizat-ai-msg-row.user{ justify-content:flex-start; }
+  .nizat-ai-msg-row.bot{ justify-content:flex-end; }
+  .nizat-ai-msg{
+    max-width:86%;
+    padding:10px 12px;
+    border-radius:15px;
+    font-size:14px;
+    line-height:1.55;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+  }
+  .nizat-ai-msg-row.user .nizat-ai-msg{
+    background:var(--nizat-ai-green);
+    color:#fff;
+    border-bottom-left-radius:5px;
+  }
+  .nizat-ai-msg-row.bot .nizat-ai-msg{
+    background:#fff;
+    color:var(--nizat-ai-text);
+    border:1px solid var(--nizat-ai-border);
+    border-bottom-right-radius:5px;
+    box-shadow:0 3px 10px rgba(0,0,0,.04);
+  }
+  .nizat-ai-meta{
+    margin-top:7px;
+    font-size:11px;
+    color:var(--nizat-ai-muted);
+    border-top:1px solid rgba(17,24,39,.08);
+    padding-top:6px;
+  }
+
+  .nizat-ai-typing{
+    display:inline-flex;
+    gap:4px;
+    align-items:center;
+    min-height:20px;
+  }
+  .nizat-ai-typing i{
+    width:6px;
+    height:6px;
+    background:#8a9483;
+    border-radius:50%;
+    animation:nizatAiTyping 1s infinite ease-in-out;
+  }
+  .nizat-ai-typing i:nth-child(2){ animation-delay:.14s; }
+  .nizat-ai-typing i:nth-child(3){ animation-delay:.28s; }
+  @keyframes nizatAiTyping{ 0%,60%,100%{ transform:translateY(0); opacity:.45; } 30%{ transform:translateY(-4px); opacity:1; } }
+
+  .nizat-ai-quick-wrap{
+    padding:0 14px 11px;
+    background:#fafbf9;
+    display:flex;
+    gap:7px;
+    overflow-x:auto;
+    flex:none;
+  }
+  .nizat-ai-quick{
+    flex:none;
+    border:1px solid rgba(69,122,31,.24);
+    background:#fff;
+    color:#365f1c;
+    border-radius:999px;
+    padding:7px 10px;
+    font:inherit;
+    font-size:12px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .nizat-ai-quick:hover{ background:#f2f7ee; }
+
+  .nizat-ai-compose{
+    flex:none;
+    padding:11px;
+    border-top:1px solid var(--nizat-ai-border);
+    background:#fff;
+  }
+  .nizat-ai-input-row{
+    display:flex;
+    align-items:flex-end;
+    gap:8px;
+    border:1px solid rgba(17,24,39,.16);
+    border-radius:15px;
+    padding:6px 7px 6px 6px;
+    background:#fff;
+  }
+  #nizat-ai-input{
+    flex:1;
+    resize:none;
+    border:0;
+    outline:0;
+    background:transparent;
+    color:var(--nizat-ai-text);
+    font:inherit;
+    font-size:14px;
+    line-height:1.4;
+    min-height:38px;
+    max-height:110px;
+    padding:8px 6px;
+  }
+  #nizat-ai-send{
+    flex:none;
+    width:38px;
+    height:38px;
+    border:0;
+    border-radius:12px;
+    background:var(--nizat-ai-green);
+    color:#fff;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  #nizat-ai-send:disabled{ opacity:.5; cursor:default; }
+  #nizat-ai-send svg{ width:18px; height:18px; }
+  .nizat-ai-note{
+    margin-top:7px;
+    text-align:center;
+    font-size:10.5px;
+    color:var(--nizat-ai-muted);
+  }
+
+  @media (max-width:700px){
+    #nizat-ai-launcher{ left:16px; bottom:82px; width:54px; height:54px; }
+    #nizat-ai-panel{
+      left:8px;
+      right:8px;
+      bottom:145px;
+      width:auto;
+      height:min(560px, calc(100vh - 170px));
+      border-radius:20px;
+    }
+  }
+</style>
+<!-- NIZAT AI END -->
+
 </head>
 <body>
 
@@ -79,6 +323,52 @@
   <div class="mobile-tabbar" id="mobile-tabbar"></div>
   <div class="mobile-more-backdrop" id="mobile-more-backdrop" onclick="closeMobileMore()"></div>
   <div class="mobile-more-sheet" id="mobile-more-sheet"></div>
+
+  <!-- NIZAT AI START -->
+  <button id="nizat-ai-launcher" type="button" aria-label="פתיחת ניצה AI" title="ניצה AI">
+    <span class="nizat-ai-dot" aria-hidden="true"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3 1.7-5.1A7 7 0 0 1 3 12V9a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v6Z"/>
+      <path d="M8 10h.01M12 10h.01M16 10h.01"/>
+    </svg>
+  </button>
+
+  <section id="nizat-ai-panel" aria-label="ניצה AI" aria-hidden="true">
+    <div class="nizat-ai-head">
+      <div class="nizat-ai-head-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6l1 3h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2l-2 3H9l-2-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1-3Z"/>
+          <circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M9 16h6"/>
+        </svg>
+      </div>
+      <div class="nizat-ai-head-copy">
+        <div class="nizat-ai-title">ניצה AI</div>
+        <div class="nizat-ai-subtitle">העוזרת החכמה של NIZAT HUB</div>
+      </div>
+      <button class="nizat-ai-close" id="nizat-ai-close" type="button" aria-label="סגירה">×</button>
+    </div>
+
+    <div id="nizat-ai-messages" aria-live="polite"></div>
+
+    <div class="nizat-ai-quick-wrap" id="nizat-ai-quick-wrap">
+      <button class="nizat-ai-quick" type="button" data-question="הקופה שלי לא עובדת">תקלה בקופה</button>
+      <button class="nizat-ai-quick" type="button" data-question="לקוחה אומרת שהקופאי החזיר לה פחות עודף, מה אני עושה?">עודף שגוי</button>
+      <button class="nizat-ai-quick" type="button" data-question="איך אני מזמין חומרי שיווק?">חומרי שיווק</button>
+      <button class="nizat-ai-quick" type="button" data-question="הגיע אליי ספק ואני צריך עזרה">רכש וספקים</button>
+    </div>
+
+    <div class="nizat-ai-compose">
+      <div class="nizat-ai-input-row">
+        <textarea id="nizat-ai-input" rows="1" placeholder="אפשר לשאול אותי שאלה…"></textarea>
+        <button id="nizat-ai-send" type="button" aria-label="שליחה">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+        </button>
+      </div>
+      <div class="nizat-ai-note">התשובות מבוססות על מאגר הידע של NIZAT HUB</div>
+    </div>
+  </section>
+  <!-- NIZAT AI END -->
+
 </div>
 
 <!-- ===================== MODAL ===================== -->
@@ -185,6 +475,170 @@ setInterval(function(){
   }
 }, 10*60*1000);
 </script>
+
+
+<!-- NIZAT AI START -->
+<script>
+(function(){
+  const NIZAT_AI_ENDPOINT = 'https://nizat-hub-ai.ai-1c0.workers.dev/ask';
+
+  const launcher = document.getElementById('nizat-ai-launcher');
+  const panel = document.getElementById('nizat-ai-panel');
+  const closeBtn = document.getElementById('nizat-ai-close');
+  const messages = document.getElementById('nizat-ai-messages');
+  const input = document.getElementById('nizat-ai-input');
+  const sendBtn = document.getElementById('nizat-ai-send');
+  const quickWrap = document.getElementById('nizat-ai-quick-wrap');
+
+  if(!launcher || !panel || !messages || !input || !sendBtn) return;
+
+  let busy = false;
+  let welcomed = false;
+
+  function setOpen(open){
+    panel.classList.toggle('open', open);
+    panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if(open){
+      if(!welcomed){
+        addBotMessage('היי, אני ניצה AI. אפשר לשאול אותי על נהלים, תפעול, שיווק, רכש ושירות בסניף.');
+        welcomed = true;
+      }
+      setTimeout(()=>input.focus(), 40);
+    }
+  }
+
+  function scrollBottom(){
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addUserMessage(text){
+    const row = document.createElement('div');
+    row.className = 'nizat-ai-msg-row user';
+    const bubble = document.createElement('div');
+    bubble.className = 'nizat-ai-msg';
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    scrollBottom();
+  }
+
+  function addBotMessage(text, meta){
+    const row = document.createElement('div');
+    row.className = 'nizat-ai-msg-row bot';
+    const bubble = document.createElement('div');
+    bubble.className = 'nizat-ai-msg';
+    const body = document.createElement('div');
+    body.textContent = text;
+    bubble.appendChild(body);
+
+    if(meta && (meta.department || meta.topic || meta.source)){
+      const metaEl = document.createElement('div');
+      metaEl.className = 'nizat-ai-meta';
+      const parts = [];
+      if(meta.department) parts.push(meta.department);
+      if(meta.topic) parts.push(meta.topic);
+      if(meta.source && meta.source !== meta.department) parts.push('מקור: ' + meta.source);
+      metaEl.textContent = parts.join(' · ');
+      bubble.appendChild(metaEl);
+    }
+
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    scrollBottom();
+    return row;
+  }
+
+  function addTyping(){
+    const row = document.createElement('div');
+    row.className = 'nizat-ai-msg-row bot';
+    row.id = 'nizat-ai-typing-row';
+    const bubble = document.createElement('div');
+    bubble.className = 'nizat-ai-msg';
+    bubble.innerHTML = '<span class="nizat-ai-typing" aria-label="ניצה חושבת"><i></i><i></i><i></i></span>';
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    scrollBottom();
+  }
+
+  function removeTyping(){
+    const row = document.getElementById('nizat-ai-typing-row');
+    if(row) row.remove();
+  }
+
+  function resizeInput(){
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+  }
+
+  async function ask(question){
+    const text = String(question || '').trim();
+    if(!text || busy) return;
+
+    busy = true;
+    sendBtn.disabled = true;
+    input.disabled = true;
+    addUserMessage(text);
+    input.value = '';
+    resizeInput();
+    addTyping();
+
+    try{
+      const response = await fetch(NIZAT_AI_ENDPOINT, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({question:text})
+      });
+
+      let data = null;
+      try{ data = await response.json(); }catch(_e){}
+
+      if(!response.ok || !data){
+        throw new Error((data && (data.error || data.details)) || 'HTTP ' + response.status);
+      }
+
+      removeTyping();
+      addBotMessage(
+        data.answer || 'לא התקבלה תשובה כרגע.',
+        data.found ? {department:data.department, topic:data.topic, source:data.source} : null
+      );
+    }catch(err){
+      removeTyping();
+      addBotMessage('לא הצלחתי להתחבר כרגע לניצה AI. נסו שוב בעוד רגע.');
+      console.error('NIZAT AI error:', err);
+    }finally{
+      busy = false;
+      sendBtn.disabled = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  launcher.addEventListener('click', ()=>setOpen(!panel.classList.contains('open')));
+  closeBtn.addEventListener('click', ()=>setOpen(false));
+  sendBtn.addEventListener('click', ()=>ask(input.value));
+  input.addEventListener('input', resizeInput);
+  input.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      ask(input.value);
+    }
+  });
+
+  if(quickWrap){
+    quickWrap.addEventListener('click', function(e){
+      const btn = e.target.closest('[data-question]');
+      if(btn) ask(btn.getAttribute('data-question'));
+    });
+  }
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && panel.classList.contains('open')) setOpen(false);
+  });
+})();
+</script>
+<!-- NIZAT AI END -->
+
 <!-- PWA UI START: keep this block when editing with Claude -->
 <div id="pwa-install-wrap" hidden style="position:fixed;z-index:99998;left:18px;bottom:18px;max-width:330px;font-family:inherit;direction:rtl;">
   <button id="pwa-install-btn" type="button" style="border:0;border-radius:14px;padding:12px 16px;background:#457a1f;color:white;font:inherit;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.18);cursor:pointer;">התקן את NIZAT HUB</button>
