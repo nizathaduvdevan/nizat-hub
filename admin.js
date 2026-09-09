@@ -3,6 +3,26 @@
    התקנה) — מחלקות אחרות לא רואות אותם כלל. שאר הטאבים משותפים, אבל התוכן
    בתוכם מסונן למחלקה של המשתמש. */
 const MARKETING_ONLY_TABS = ['competitions', 'texts', 'pwa', 'stats'];
+/* ---------- "ניהול תוכן" כ-App Grid, לפי מחלקה ----------
+   כל אריח מצביע על adminTab קיים (נפתח עם כפתור חזרה לגריד) — חוץ מ"סטנדים"
+   שהוא מסך top-level נפרד (view:'stands', לא טאב בתוך ניהול תוכן, ר'
+   stands.js: viewStands()). מחלקה שאין לה הגדרה כאן (כרגע: תפעול, משאבי
+   אנוש) ממשיכה לקבל בדיוק את סרגל הטאבים המקורי, ללא שינוי כלשהו. */
+const DEPARTMENT_ADMIN_TILES = {
+  marketing: [
+    {tab:'competitions', icon:'🏆', title:'תחרויות', sub:'ניהול ומעקב מכירות'},
+    {tab:'instructions', icon:'📋', title:'עדכונים ומשימות', sub:'פרסום לסניפים'},
+    {tab:'events', icon:'🗓', title:'אירועים', sub:'יומן הרשת'},
+    {tab:'materials', icon:'🎨', title:'חומרים לשיווק', sub:'דיגיטל ורשתות'},
+    {view:'stands', icon:'🪧', title:'סטנדים', sub:'סטנדים לסניפים'},
+    {tab:'broadcast', icon:'📣', title:'שידור הודעות Push', sub:'התראה לכל הסניפים'}
+  ],
+  purchasing: [
+    {tab:'instructions', icon:'📋', title:'עדכונים', sub:'פרסום עדכונים לרשת'},
+    {tab:'promoUpload', icon:'📊', title:'מכר מבצעים', sub:'מעקב מכירות מבצעים'},
+    {tab:'events', icon:'🗓', title:'יומן אירועים', sub:'אירועים רשתיים'}
+  ]
+};
 function viewAdmin(){
   const myDepts = staffDepartments(currentUserEmail);
   const isMarketingDept = myDepts.indexOf('marketing') !== -1;
@@ -22,16 +42,53 @@ function viewAdmin(){
     if(t.id==='promoUpload') return canManageDepartment('purchasing');
     return isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1;
   });
-  /* אם הטאב הפעיל אינו מורשה למשתמש הזה (למשל נשמר מסשן קודם), נופלים לראשון המותר. */
-  if(!tabs.some(t=>t.id===ui.adminTab)) ui.adminTab = tabs[0].id;
   const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
+  const gridDeptKey = isMarketingDept ? 'marketing' : (canManageDepartment('purchasing') ? 'purchasing' : null);
+  const gridTiles = gridDeptKey ? DEPARTMENT_ADMIN_TILES[gridDeptKey] : null;
+
+  /* מסך נחיתה (גריד) — רק למחלקות עם קונפיגורציה למעלה, ורק כשאין טאב פעיל
+     כרגע (ui.adminTab null). כפתור "חזרה" בתוך המסך המוצג מאפס את זה. */
+  if(gridTiles && !ui.adminTab){
+    return `
+      <div class="page-head">
+        <h1>${deptLabel ? `${deptLabel} - ניהול תוכן` : 'ניהול תוכן'}</h1>
+      </div>
+      <div class="admin-tools-grid">
+        ${gridTiles.map(t=>`
+          <button type="button" class="admin-tool-card" onclick="${t.view ? `goTo('${t.view}')` : `setAdminTab('${t.tab}')`}">
+            <span class="admin-tool-icon">${t.icon}</span>
+            <span class="admin-tool-title">${t.title}</span>
+            <span class="admin-tool-sub">${t.sub}</span>
+          </button>
+        `).join('')}
+      </div>
+      ${isMarketingDept ? `
+        <div class="admin-secondary">
+          <a href="javascript:void(0)" onclick="setAdminTab('pwa')">התקנות אפליקציה <span style="color:var(--muted);font-weight:400;">— מי התקין את HUB</span></a>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  /* מסך מוצג (drill-in) — טאב ספציפי, עם כפתור חזרה לגריד רק אם יש גריד
+     למחלקה הזו. מחלקה בלי גריד (תפעול/משאבי אנוש) ממשיכה לראות את סרגל
+     הטאבים האופקי המקורי, בדיוק כמו קודם. */
+  if(!tabs.some(t=>t.id===ui.adminTab)) ui.adminTab = tabs[0] ? tabs[0].id : null;
+  const activeLabel = (tabs.find(t=>t.id===ui.adminTab)||{}).label || '';
   return `
     <div class="page-head">
-      <h1>ניהול תוכן${deptLabel ? ` · ${deptLabel}` : ''}</h1>
-      <p>${getText('admin_desc')}</p>
-    </div>
-    <div class="admin-tabs">
-      ${tabs.map(t=>`<button class="admin-tab ${ui.adminTab===t.id?'active':''}" onclick="setAdminTab('${t.id}')">${t.label}</button>`).join('')}
+      ${gridTiles ? `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px;">
+          <button class="icon-btn" onclick="ui.adminTab=null;renderContent();" aria-label="חזרה לניהול תוכן">→</button>
+          <h1 style="margin:0;">${activeLabel}</h1>
+        </div>
+      ` : `
+        <h1>ניהול תוכן${deptLabel ? ` · ${deptLabel}` : ''}</h1>
+        <p>${getText('admin_desc')}</p>
+        <div class="admin-tabs">
+          ${tabs.map(t=>`<button class="admin-tab ${ui.adminTab===t.id?'active':''}" onclick="setAdminTab('${t.id}')">${t.label}</button>`).join('')}
+        </div>
+      `}
     </div>
     ${ui.adminTab==='competitions' ? adminList('competitions') : ''}
     ${ui.adminTab==='instructions' ? adminList('instructions') : ''}
