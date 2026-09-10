@@ -273,7 +273,7 @@ function pbRenderFilterGroups(allRows){
   html += `<button type="button" class="pb-clear-btn ${anyActive?'pb-is-active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
   html += `
     <div class="pb-export-wrap" style="margin-inline-start:auto;">
-      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbExportPdfShare(this)">📤 שליחת PDF (וואטסאפ / מייל)</button>
+      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbExportPdfShare(this)">📄 הורדת PDF לשיתוף</button>
     </div>
   `;
   html += '</div>';
@@ -281,6 +281,9 @@ function pbRenderFilterGroups(allRows){
 }
 function pbToggleFilter(key, value, checked){
   if(checked) promoBoardFilters[key].add(value); else promoBoardFilters[key].delete(value);
+  // בכוונה *לא* סוגר את התא כאן - כדי לאפשר לסמן כמה ערכים ברצף בלי
+  // לפתוח מחדש בכל פעם. סגירה קורית רק בפעולה יזומה: כפתור "סגור",
+  // לחיצה על כפתור הפילטר עצמו, או קליק מחוץ לתא.
   renderPromoBoard();
 }
 function pbToggleAll(key, values, checked){
@@ -384,7 +387,7 @@ function renderPromoBoard(){
     // כפתור נוסף גם למטה, אחרי כל הרשימה - כדי שלא צריך לגלול חזרה למעלה
     html += `
       <div style="text-align:center;padding:16px 0 4px;">
-        <button type="button" class="pb-export-btn" onclick="pbExportPdfShare(this)">📤 שליחת PDF (וואטסאפ / מייל)</button>
+        <button type="button" class="pb-export-btn" onclick="pbExportPdfShare(this)">📄 הורדת PDF לשיתוף</button>
       </div>
     `;
   }
@@ -535,41 +538,12 @@ function pbLoadPdfLibs(){
   return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
     .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
 }
-let pbReadyFile = null; // ה-PDF המוכן, ממתין ללחיצת "שתף עכשיו" (לחיצה טרייה)
-
-/* כפתור "שתף עכשיו" צף, מוצמד ישירות ל-document.body (לא בתוך #pb-root) -
-   בכוונה, כדי שהוא לא "ייהרס" בטעות אם משהו אחר גורם לרינדור מחדש של
-   המסך בזמן ההמתנה (בדיקות checkbox, החלפת פילטר וכו') - זה בדיוק מה
-   שגרם לכשל החוזר: הכפתור שהוחלף בתוך הרשימה נמחק ונבנה מחדש מהתבנית
-   המקורית לפני שהספיקו ללחוץ עליו, כך שה-onclick המיוחד אבד. */
-function pbShowFloatingShareButton(){
-  pbRemoveFloatingShareButton();
-  const btn = document.createElement('button');
-  btn.id = 'pbFloatingShareBtn';
-  btn.textContent = '✅ שתף עכשיו (PDF מוכן)';
-  btn.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:9999;background:#4E7A3A;color:#fff;border:none;border-radius:10px;padding:14px 22px;font-family:inherit;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);';
-  btn.onclick = function(e){
-    e.stopPropagation();
-    if(!pbReadyFile) return;
-    navigator.share({files:[pbReadyFile], title:'דוח מבצעים'}).catch(function(err){
-      if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
-    }).finally(function(){
-      pbReadyFile = null;
-      pbRemoveFloatingShareButton();
-    });
-  };
-  document.body.appendChild(btn);
-}
-function pbRemoveFloatingShareButton(){
-  const el = document.getElementById('pbFloatingShareBtn');
-  if(el) el.remove();
-}
-
 function pbExportPdfShare(btn){
-  // בונה את ה-PDF (השלב האיטי). בכוונה *לא* קורא כאן ל-navigator.share() —
-  // דפדפנים דורשים שקריאה כזו תגיע מיד עם לחיצת משתמש, בלי המתנה לפניה.
-  // לכן: מכינים כאן, ומציגים כפתור צף נפרד (לא תלוי ברינדור של המסך)
-  // שרק לחיצה טרייה עליו עושה את השיתוף עצמו.
+  // גרסה פשוטה ואמינה: תמיד מורידה את ה-PDF (בלי לנסות navigator.share
+  // בכלל) - את/ה פותחים וואטסאפ/ג'ימייל בעצמכם ומצרפים ידנית. ויתרנו
+  // בכוונה על "שיתוף ישיר" אחרי כמה ניסיונות שנכשלו עם אותה שגיאה בדיוק
+  // גם אחרי גישות שונות מבנית - נראה שזו הגבלה של המכשיר/דפדפן הספציפי,
+  // לא משהו שניתן לתקן מצד הקוד.
   const originalText = btn ? btn.textContent : null;
   const setBtn = (t) => { if(btn) btn.textContent = t; };
   setBtn('⏳ טוען ספריות...');
@@ -602,21 +576,15 @@ function pbExportPdfShare(btn){
       return pdf.output('blob');
     });
   }).then(function(blob){
-    pbReadyFile = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
-    setBtn(originalText);
-    if(navigator.canShare && navigator.canShare({files:[pbReadyFile]})){
-      pbShowFloatingShareButton();
-      toast('ה-PDF מוכן! לחצו על הכפתור הירוק הצף למטה כדי לשתף');
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
-      URL.revokeObjectURL(url);
-      toast('המכשיר הזה לא תומך בשיתוף ישיר - ה-PDF ירד, אפשר לצרף אותו ידנית');
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
+    URL.revokeObjectURL(url);
+    toast('ה-PDF ירד בהצלחה — אפשר לפתוח וואטסאפ/מייל ולצרף אותו ידנית');
   }).catch(function(err){
     console.error('pbExportPdfShare failed:', err);
     toast('שגיאה ביצירת ה-PDF: ' + err.message);
+  }).finally(function(){
     setBtn(originalText);
   });
 }
