@@ -251,7 +251,7 @@ function pbRenderFilterGroups(allRows){
   html += `<button type="button" class="pb-clear-btn ${anyActive?'pb-is-active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
   html += `
     <div class="pb-export-wrap" style="margin-inline-start:auto;">
-      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbExportPdfShare()">📤 שליחת PDF (וואטסאפ / מייל)</button>
+      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbExportPdfShare(this)">📤 שליחת PDF (וואטסאפ / מייל)</button>
     </div>
   `;
   html += '</div>';
@@ -343,6 +343,12 @@ function renderPromoBoard(){
       `;
     });
     html += '</div>';
+    // כפתור נוסף גם למטה, אחרי כל הרשימה - כדי שלא צריך לגלול חזרה למעלה
+    html += `
+      <div style="text-align:center;padding:16px 0 4px;">
+        <button type="button" class="pb-export-btn" onclick="pbExportPdfShare(this)">📤 שליחת PDF (וואטסאפ / מייל)</button>
+      </div>
+    `;
   }
 
   root.innerHTML = html;
@@ -466,10 +472,10 @@ function pbBuildReportHTML(){
   `;
 }
 
-/* יוצר PDF אמיתי "מאחורי הקלעים" (בלי לפתוח חלון הדפסה בכלל), ופותח את
-   חלונית השיתוף המקורית של המכשיר עם ה-PDF כבר מצורף. שם צריך עדיין ללחוץ
-   פעם אחת על וואטסאפ/מייל/כל אפליקציה אחרת - זו לא הגבלה של הקוד שלנו:
-   שום אתר לא יכול "לבחור בשבילכם" לאיזו אפליקציה לשלוח, מטעמי אבטחת מכשיר -
+/* יוצר PDF אמיתי "מאחורי הקלעים" (בלי לפתוח חלון הדפסה), ופותח את חלונית
+   השיתוף המקורית של המכשיר עם ה-PDF כבר מצורף. שם צריך עדיין ללחוץ פעם
+   אחת על וואטסאפ/מייל/כל אפליקציה אחרת - זו לא הגבלה של הקוד שלנו: שום
+   אתר לא יכול "לבחור בשבילכם" לאיזו אפליקציה לשלוח, מטעמי אבטחת מכשיר -
    אבל ברגע שבוחרים, ה-PDF כבר שם, בלי לצרף ידנית.
    דורש html2canvas + jsPDF (נטענים אוטומטית מ-CDN בפעם הראשונה). */
 function pbLoadPdfLibs(){
@@ -482,15 +488,21 @@ function pbLoadPdfLibs(){
   return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
     .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
 }
-function pbExportPdfShare(){
-  toast('מכין PDF...');
+function pbExportPdfShare(btn){
+  // מציג משוב ישירות על הכפתור עצמו (לא רק toast חולף), כדי שיהיה ברור
+  // באיזה שלב זה נמצא אם משהו נתקע.
+  const originalText = btn ? btn.textContent : null;
+  const setBtn = (t) => { if(btn) btn.textContent = t; };
+  setBtn('⏳ טוען ספריות...');
   pbLoadPdfLibs().then(function(){
+    setBtn('⏳ מכין תמונה...');
     const holder = document.createElement('div');
     holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;';
     holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
     document.body.appendChild(holder);
     return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
       document.body.removeChild(holder);
+      setBtn('⏳ בונה PDF...');
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('p', 'pt', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -502,8 +514,6 @@ function pbExportPdfShare(){
       let position = 0;
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-      // דוח ארוך מ-A4 אחד: ממשיכים על עמודים נוספים (טכניקה סטנדרטית
-      // ל-html2canvas+jsPDF - "מזיזים" את אותה תמונה למעלה בכל עמוד נוסף).
       while(heightLeft > 0){
         position = heightLeft - imgHeight;
         pdf.addPage();
@@ -513,9 +523,10 @@ function pbExportPdfShare(){
       return pdf.output('blob');
     });
   }).then(function(blob){
+    setBtn('⏳ פותח שיתוף...');
     const file = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(err){
+      return navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(err){
         if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
       });
     } else {
@@ -528,113 +539,7 @@ function pbExportPdfShare(){
   }).catch(function(err){
     console.error('pbExportPdfShare failed:', err);
     toast('שגיאה ביצירת ה-PDF: ' + err.message);
-  });
-}
-/* יוצר PDF אמיתי "מאחורי הקלעים" (בלי לפתוח חלון הדפסה בכלל), ופותח את
-   חלונית השיתוף המקורית של המכשיר עם ה-PDF כבר מצורף. שם צריך עדיין ללחוץ
-   פעם אחת על וואטסאפ/מייל/כל אפליקציה אחרת - זו לא הגבלה של הקוד שלנו:
-   שום אתר לא יכול "לבחור בשבילכם" לאיזו אפליקציה לשלוח, מטעמי אבטחת מכשיר -
-   אבל ברגע שבוחרים, ה-PDF כבר שם, בלי לצרף ידנית.
-   דורש html2canvas + jsPDF (נטענים אוטומטית מ-CDN בפעם הראשונה). */
-function pbLoadPdfLibs(){
-  if(window.html2canvas && window.jspdf) return Promise.resolve();
-  const load = (src) => new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('טעינת ' + src + ' נכשלה'));
-    document.head.appendChild(s);
-  });
-  return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
-    .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
-}
-function pbExportPdfShare(){
-  toast('מכין PDF...');
-  pbLoadPdfLibs().then(function(){
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;';
-    holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
-    document.body.appendChild(holder);
-    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
-      document.body.removeChild(holder);
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'pt', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = canvas.height * imgWidth / canvas.width;
-      const imgData = canvas.toDataURL('image/png');
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      // דוח ארוך מ-A4 אחד: ממשיכים על עמודים נוספים (טכניקה סטנדרטית
-      // ל-html2canvas+jsPDF - "מזיזים" את אותה תמונה למעלה בכל עמוד נוסף).
-      while(heightLeft > 0){
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      return pdf.output('blob');
-    });
-  }).then(function(blob){
-    const file = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(err){
-        if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
-      });
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
-      URL.revokeObjectURL(url);
-      toast('המכשיר הזה לא תומך בשיתוף ישיר - ה-PDF ירד, אפשר לצרף אותו ידנית');
-    }
-  }).catch(function(err){
-    console.error('pbExportPdfShare failed:', err);
-    toast('שגיאה ביצירת ה-PDF: ' + err.message);
-  });
-}
-/* יוצר PDF אמיתי (לא רק דיאלוג הדפסה) מתוך אותו דוח HTML המעוצב, כדי
-   שאפשר יהיה לשתף אותו כקובץ אמיתי (במובייל: חלונית השיתוף המקורית של
-   הטלפון, שם אפשר לבחור וואטסאפ/מייל/כל אפליקציה אחרת; בדסקטופ: מוריד
-   את הקובץ, לצרף ידנית). טוען html2canvas + jsPDF מ-CDN בפעם הראשונה בלבד. */
-function pbLoadPdfLibs(){
-  if(window.html2canvas && window.jspdf) return Promise.resolve();
-  const load = (src) => new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src; s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
-    .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
-}
-function pbExportPdfShare(){
-  document.getElementById('pbExportMenu').classList.remove('open');
-  toast('מכין PDF...');
-  pbLoadPdfLibs().then(function(){
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;'; // ~A4 width at 96dpi
-    holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
-    document.body.appendChild(holder);
-    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
-      document.body.removeChild(holder);
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({unit:'px', format:[canvas.width, canvas.height]});
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
-      return pdf.output('blob');
-    });
-  }).then(function(blob){
-    const file = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(){});
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
-      URL.revokeObjectURL(url);
-      toast('ה-PDF ירד — אפשר לצרף אותו ידנית במייל/וואטסאפ');
-    }
-  }).catch(function(err){
-    toast('שגיאה ביצירת ה-PDF: ' + err.message);
+  }).finally(function(){
+    setBtn(originalText);
   });
 }
