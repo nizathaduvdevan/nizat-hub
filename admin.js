@@ -1277,7 +1277,7 @@ function handlePromoItemsUpload(evt){
         const it = items[barcode];
         const ref = db.collection('purchasingPromoItems').doc(barcode);
         batch.set(ref, {
-          code: it.code||null, name: it.name||null, dept: it.dept||null, group: it.group||null,
+          code: it.code||null, name: it.name||null, dept: it.dept||null, group: it.group||null, supplier: it.supplier||null,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         n++;
