@@ -512,12 +512,39 @@ function pbLoadPdfLibs(){
 }
 let pbReadyFile = null; // ה-PDF המוכן, ממתין ללחיצת "שתף עכשיו" (לחיצה טרייה)
 
+/* כפתור "שתף עכשיו" צף, מוצמד ישירות ל-document.body (לא בתוך #pb-root) -
+   בכוונה, כדי שהוא לא "ייהרס" בטעות אם משהו אחר גורם לרינדור מחדש של
+   המסך בזמן ההמתנה (בדיקות checkbox, החלפת פילטר וכו') - זה בדיוק מה
+   שגרם לכשל החוזר: הכפתור שהוחלף בתוך הרשימה נמחק ונבנה מחדש מהתבנית
+   המקורית לפני שהספיקו ללחוץ עליו, כך שה-onclick המיוחד אבד. */
+function pbShowFloatingShareButton(){
+  pbRemoveFloatingShareButton();
+  const btn = document.createElement('button');
+  btn.id = 'pbFloatingShareBtn';
+  btn.textContent = '✅ שתף עכשיו (PDF מוכן)';
+  btn.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:9999;background:#4E7A3A;color:#fff;border:none;border-radius:10px;padding:14px 22px;font-family:inherit;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);';
+  btn.onclick = function(e){
+    e.stopPropagation();
+    if(!pbReadyFile) return;
+    navigator.share({files:[pbReadyFile], title:'דוח מבצעים'}).catch(function(err){
+      if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
+    }).finally(function(){
+      pbReadyFile = null;
+      pbRemoveFloatingShareButton();
+    });
+  };
+  document.body.appendChild(btn);
+}
+function pbRemoveFloatingShareButton(){
+  const el = document.getElementById('pbFloatingShareBtn');
+  if(el) el.remove();
+}
+
 function pbExportPdfShare(btn){
   // בונה את ה-PDF (השלב האיטי). בכוונה *לא* קורא כאן ל-navigator.share() —
-  // דפדפנים דורשים שקריאה כזו תגיע מיד עם לחיצת משתמש, בלי המתנה לפניה
-  // (טעינת ספריות + רינדור יכולים לקחת כמה שניות, ואז הדפדפן כבר לא
-  // "מזהה" את זה כלחיצה טרייה וחוסם עם "Permission denied"). לכן: מכינים
-  // כאן, ורק לחיצה שנייה נפרדת (pbShareReadyFile) עושה את השיתוף עצמו.
+  // דפדפנים דורשים שקריאה כזו תגיע מיד עם לחיצת משתמש, בלי המתנה לפניה.
+  // לכן: מכינים כאן, ומציגים כפתור צף נפרד (לא תלוי ברינדור של המסך)
+  // שרק לחיצה טרייה עליו עושה את השיתוף עצמו.
   const originalText = btn ? btn.textContent : null;
   const setBtn = (t) => { if(btn) btn.textContent = t; };
   setBtn('⏳ טוען ספריות...');
@@ -551,39 +578,20 @@ function pbExportPdfShare(btn){
     });
   }).then(function(blob){
     pbReadyFile = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
+    setBtn(originalText);
     if(navigator.canShare && navigator.canShare({files:[pbReadyFile]})){
-      // מחליפים את הכפתור עצמו לכפתור "שתף עכשיו" - הלחיצה עליו היא
-      // לחיצה טרייה ונפרדת, בלי שום המתנה אחריה לפני share().
-      if(btn){
-        btn.textContent = '✅ שתף עכשיו';
-        btn.onclick = function(e){ e.stopPropagation(); pbShareReadyFile(btn, originalText); };
-      }
+      pbShowFloatingShareButton();
+      toast('ה-PDF מוכן! לחצו על הכפתור הירוק הצף למטה כדי לשתף');
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
       URL.revokeObjectURL(url);
       toast('המכשיר הזה לא תומך בשיתוף ישיר - ה-PDF ירד, אפשר לצרף אותו ידנית');
-      setBtn(originalText);
     }
   }).catch(function(err){
     console.error('pbExportPdfShare failed:', err);
     toast('שגיאה ביצירת ה-PDF: ' + err.message);
     setBtn(originalText);
-  });
-}
-
-/* קריאה זו רצה מיד עם לחיצה טרייה (בלי שום await/then לפניה) - זה בדיוק
-   מה שהדפדפן דורש כדי לא לחסום את navigator.share() עם "Permission denied". */
-function pbShareReadyFile(btn, originalText){
-  if(!pbReadyFile) return;
-  navigator.share({files:[pbReadyFile], title:'דוח מבצעים'}).catch(function(err){
-    if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
-  }).finally(function(){
-    pbReadyFile = null;
-    if(btn){
-      btn.textContent = originalText;
-      btn.onclick = function(e){ e.stopPropagation(); pbExportPdfShare(btn); };
-    }
   });
 }
