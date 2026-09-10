@@ -576,10 +576,11 @@ function pbExportPdfShare(btn){
   pbLoadPdfLibs().then(function(){
     setBtn('⏳ מכין תמונה...');
     const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;';
+    holder.setAttribute('dir', 'rtl');
+    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;box-sizing:border-box;overflow:hidden;';
     holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
     document.body.appendChild(holder);
-    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
+    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2, width:794, windowWidth:794}).then(function(canvas){
       document.body.removeChild(holder);
       setBtn('⏳ בונה PDF...');
       const { jsPDF } = window.jspdf;
