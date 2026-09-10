@@ -412,10 +412,9 @@ function promoBoardToggle(code, field, checked){
 function pbReportRows(){
   const allRows = promoBoardBuildRows();
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
-  // בדוח: רק מבצעים שסומן בהם לפחות צ'ק-בוקס אחד — מבצע שלא נגעו בו כלל
-  // (לא הוזמן, לא מדף, לא חוץ מדף) לא מוצג, לפי מה שביקשת.
-  const hasAnyMark = function(row){ const s = st(row.id); return s.ordered || s.shelf || s.offshelf; };
-  const rows = allRows.filter(pbMatchesFilters).filter(hasAnyMark);
+  // בדוח הסופי: כל המבצעים המסוננים מוצגים, גם מה שלא סומן בכלל — ומה
+  // שחסר (לא הוזמן / לא שולט) מודגש בבירור, לפי מה שביקשת אחרי ההדמיה.
+  const rows = allRows.filter(pbMatchesFilters);
   const bySection = {};
   rows.forEach(function(r){ (bySection[r.section||'ללא שיוך']=bySection[r.section||'ללא שיוך']||[]).push(r); });
   return {rows, st, bySection, ordered: rows.filter(r=>st(r.id).ordered).length};
@@ -426,7 +425,7 @@ function pbReportRows(){
 function pbBuildReportText(){
   const {rows, st, bySection, ordered} = pbReportRows();
   const today = new Date().toLocaleDateString('he-IL');
-  const mark = function(v){ return v ? '✅' : '⬜'; };
+  const mark = function(v){ return v ? '✅' : '❌'; };
   let lines = [
     `📋 *דוח מבצעים — ${session.branchName||''}*`,
     `📅 ${today}   |   הוזמנו ${ordered}/${rows.length}`,
@@ -444,13 +443,16 @@ function pbBuildReportText(){
   return lines.join('\n');
 }
 
-/* דוח HTML מעוצב, לחלון הדפסה בלבד — לא לשימוש ב-WhatsApp/מייל שלא תומכים ב-HTML. */
+/* דוח HTML מעוצב, ל-PDF/הדפסה. שורה עם משהו חסר מקבלת רקע ורוד + תגית
+   אדומה בולטת ("✗ לא X"), כדי שאפשר לזהות מיד מה עוד צריך לטפל בו,
+   בדיוק לפי ההדמיה שאושרה. */
 function pbBuildReportHTML(){
   const {rows, st, bySection, ordered} = pbReportRows();
   const today = new Date().toLocaleDateString('he-IL');
-  const chip = function(ok, label){
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:600;
-      background:${ok?'#E7F2E9':'#F3F3F1'};color:${ok?'#3D7A4F':'#999'};border:1px solid ${ok?'#3D7A4F':'#ddd'};">${ok?'✓':'—'} ${label}</span>`;
+  const chip = function(ok, doneLabel, missingLabel){
+    return ok
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:600;background:#E7F2E9;color:#3D7A4F;border:1px solid #3D7A4F;">✓ ${doneLabel}</span>`
+      : `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:800;background:#FDEAEA;color:#C0392B;border:1px solid #C0392B;">✗ ${missingLabel}</span>`;
   };
   let sectionsHtml = '';
   Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
@@ -464,15 +466,16 @@ function pbBuildReportHTML(){
         </div>
         ${secRows.map(function(row){
           const s = st(row.id);
+          const incomplete = !s.ordered || !s.shelf || (row.showOffShelf && !s.offshelf);
           return `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eee;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px ${incomplete?'10px':'0'};border-bottom:1px solid ${incomplete?'#FBECDD':'#eee'};${incomplete?'background:#FFF8F5;margin:0 -10px;border-radius:6px;':''}">
             <div>
               <div style="font-weight:700;font-size:14px;">${row.title||''} <span style="font-weight:400;color:#888;font-size:12px;">· ${row.supplier||''} · מבצע ${row.id}</span></div>
             </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;">
-              ${chip(s.ordered,'הוזמן')}
-              ${chip(s.shelf,'מדף')}
-              ${row.showOffShelf ? chip(s.offshelf,'חוץ מדף') : ''}
+            <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+              ${chip(s.ordered,'הוזמן','לא הוזמן')}
+              ${chip(s.shelf,'מדף','לא שולט מדף')}
+              ${row.showOffShelf ? chip(s.offshelf,'חוץ מדף','לא שולט חוץ מדף') : ''}
             </div>
           </div>`;
         }).join('')}
