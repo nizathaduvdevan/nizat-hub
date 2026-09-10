@@ -323,6 +323,7 @@ function renderContent(){
   else if(ui.view==='stands') el.innerHTML = viewStands();
   else if(ui.view==='promoSales') el.innerHTML = viewPromoSales();
   else if(ui.view==='promoBoard') el.innerHTML = viewPurchasingPromoBoard();
+  else if(ui.view==='purchasingPromoUpload') el.innerHTML = viewPurchasingPromoUpload();
   else if(ui.view==='sendAreaConversations') el.innerHTML = viewAreaManagerConversations();
   else if(ui.view==='areaConversations') el.innerHTML = viewBranchConversations();
   else if(ui.view==='myCalendar') el.innerHTML = viewMyCalendar();
