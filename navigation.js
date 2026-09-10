@@ -19,7 +19,7 @@ const DEPARTMENT_SCREENS = {
   operations: [],
   purchasing: [
     {id:'promoSales', label:'מכר מבצעים', icon:icon('chart')},
-    {id:'promoBoard', label:'לוח מבצעים', icon:icon('clipboard')}
+    {id:'promoBoard', label:'חוברת מבצעים', icon:icon('clipboard')}
   ],
   hr: []
 };

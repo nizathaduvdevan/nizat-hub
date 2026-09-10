@@ -1,7 +1,7 @@
 /* ============================================================
    purchasing-promo-board.js
    ------------------------------------------------------------
-   מסך הסניף: לוח מבצעים · רכש. עיצוב ולוגיקה נאמנים לפרוטוטייפ
+   מסך הסניף: חוברת מבצעים · רכש. עיצוב ולוגיקה נאמנים לפרוטוטייפ
    המאושר (nizat_promo_board_preview v11-13) — פילטרים עם "סמן הכל"
    וחיפוש, כפתור ייצוא עם 3 אפשרויות (הדפסה/וואטסאפ/מייל).
    קורא מ-appData.promoBooklet (מסונכרן כבר ע"י firebase-init.js
@@ -122,7 +122,7 @@ function viewPurchasingPromoBoard(){
   else { setTimeout(renderPromoBoard, 0); }
   return `
     <div class="page-head">
-      <h1>לוח מבצעים · רכש</h1>
+      <h1>חוברת מבצעים · רכש</h1>
       <p>הזמנה, שילוט מדף ושילוט חוץ-מדף לכל מבצע</p>
     </div>
     <div id="pb-root">${promoBoardLoaded ? '' : '<p style="color:var(--muted,#888);">טוען נתונים...</p>'}</div>
@@ -253,8 +253,8 @@ function pbRenderFilterGroups(allRows){
     <div class="pb-export-wrap" style="margin-inline-start:auto;">
       <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbToggleExportMenu();">📤 שתף / הדפס דוח</button>
       <div class="pb-export-menu" id="pbExportMenu" onclick="event.stopPropagation();">
-        <button type="button" class="pb-export-option" onclick="pbExportPrint()">🖨️ הדפסה / שמירה כ-PDF</button>
-        <button type="button" class="pb-export-option" onclick="pbExportEmail()">📧 שליחה למייל שלי</button>
+        <button type="button" class="pb-export-option" onclick="pbExportPrint()">🖨️ הדפסה (על נייר)</button>
+        <button type="button" class="pb-export-option" onclick="pbExportPdfShare()">📄 יצירת PDF לשיתוף (מייל / וואטסאפ)</button>
       </div>
     </div>
   `;
@@ -483,10 +483,47 @@ function pbExportPrint(){
   win.focus();
   setTimeout(function(){ win.print(); }, 300); // תן לדפדפן החדש רגע לרנדר לפני שפותחים הדפסה
 }
-function pbExportEmail(){
+/* יוצר PDF אמיתי (לא רק דיאלוג הדפסה) מתוך אותו דוח HTML המעוצב, כדי
+   שאפשר יהיה לשתף אותו כקובץ אמיתי (במובייל: חלונית השיתוף המקורית של
+   הטלפון, שם אפשר לבחור וואטסאפ/מייל/כל אפליקציה אחרת; בדסקטופ: מוריד
+   את הקובץ, לצרף ידנית). טוען html2canvas + jsPDF מ-CDN בפעם הראשונה בלבד. */
+function pbLoadPdfLibs(){
+  if(window.html2canvas && window.jspdf) return Promise.resolve();
+  const load = (src) => new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
+    .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
+}
+function pbExportPdfShare(){
   document.getElementById('pbExportMenu').classList.remove('open');
-  const text = pbBuildReportText();
-  const to = (session.branchInfo && session.branchInfo.email) || currentUserEmail || '';
-  const subject = encodeURIComponent('דוח מבצעים - ' + (session.branchName||''));
-  window.location.href = `mailto:${to}?subject=${subject}&body=${encodeURIComponent(text)}`;
+  toast('מכין PDF...');
+  pbLoadPdfLibs().then(function(){
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;'; // ~A4 width at 96dpi
+    holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
+    document.body.appendChild(holder);
+    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
+      document.body.removeChild(holder);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({unit:'px', format:[canvas.width, canvas.height]});
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+      return pdf.output('blob');
+    });
+  }).then(function(blob){
+    const file = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(){});
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
+      URL.revokeObjectURL(url);
+      toast('ה-PDF ירד — אפשר לצרף אותו ידנית במייל/וואטסאפ');
+    }
+  }).catch(function(err){
+    toast('שגיאה ביצירת ה-PDF: ' + err.message);
+  });
 }
