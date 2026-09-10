@@ -20,6 +20,8 @@ let promoBoardFilters = {supplier:new Set(), section:new Set(), dept:new Set(), 
 let promoBoardOpenPanel = null;
 let promoBoardSearch = '';
 let promoBoardLoaded = false;
+let pbPanelSearch = {supplier:'', section:'', dept:'', group:''};
+let pbFocusRestore = null; // {id, selStart, selEnd} to restore focus/cursor after a full re-render
 let promoBoardExpanded = {};
 
 const PB_FILTER_DEFS = [
@@ -156,9 +158,20 @@ function promoBoardBuildRows(){
 }
 
 function pbPriceLabel(row){
-  if(row.price==null) return row.template||'';
-  const isPercent = (row.template||'').indexOf('%')!==-1 || (row.template||'').indexOf('הנחה')!==-1;
-  return isPercent ? `${row.template}: ${row.price}%` : `${row.template}: ₪${Number(row.price).toFixed(2)}`;
+  const t = (row.template||'').trim();
+  const p = row.price;
+  if(p==null) return t;
+  const pct = Number(p).toFixed(0);
+  const money = '₪' + Number(p).toFixed(2);
+  // exact-match on the known template strings (see cloud function / import JSON
+  // for the canonical set) rather than fragile keyword search — Hebrew
+  // inflected forms ("בהנחת" vs "הנחה") don't reliably substring-match.
+  if(t === 'מוצר שני ב-% הנחה') return `מוצר שני ב-${pct}% הנחה`;
+  if(t === 'פריט בהנחת אחוז') return `פריט ב-${pct}% הנחה`;
+  if(t === 'פריט במחיר נקוב') return `פריט במחיר נקוב: ${money}`;
+  if(/^\d+\s*(יח'|יחידות)\s*ב-$/.test(t)) return `${t}${money}`; // "2 יח' ב-" / "5 יחידות ב-"
+  if(t.indexOf('%')!==-1 || t.indexOf('הנחה')!==-1) return `${t.replace('%', pct+'%')}`;
+  return t ? `${t}: ${money}` : money;
 }
 
 function pbUniqueOptions(key, allRows){
@@ -185,7 +198,9 @@ function pbRenderFilterGroups(allRows){
   PB_FILTER_DEFS.forEach(function(def){
     const active = promoBoardFilters[def.key].size>0;
     const open = promoBoardOpenPanel===def.key;
-    const opts = pbUniqueOptions(def.key, allRows);
+    const allOpts = pbUniqueOptions(def.key, allRows);
+    const term = (pbPanelSearch[def.key]||'').toLowerCase();
+    const opts = term ? allOpts.filter(o=>o.value.toLowerCase().indexOf(term)!==-1) : allOpts;
     const allChecked = opts.length && opts.every(o=>promoBoardFilters[def.key].has(o.value));
     html += `
       <div class="pb-filter-group">
@@ -193,16 +208,18 @@ function pbRenderFilterGroups(allRows){
           ${def.label}${active?` <span class="pb-count">${promoBoardFilters[def.key].size}</span>`:''}
         </button>
         <div class="pb-filter-panel ${open?'open':''}" onclick="event.stopPropagation();">
+          <input type="text" class="pb-filter-search" id="pb-panel-search-${def.key}" placeholder="הקלד לחיפוש..." value="${pbPanelSearch[def.key]||''}"
+            oninput="pbPanelSearch['${def.key}']=this.value;renderPromoBoard();">
           <label class="pb-filter-option select-all">
             <input type="checkbox" ${allChecked?'checked':''} onchange="pbToggleAll('${def.key}', ${JSON.stringify(opts.map(o=>o.value)).replace(/"/g,'&quot;')}, this.checked)">
             <span class="pb-opt-label">סמן הכל</span>
           </label>
-          ${opts.map(function(o){
+          ${opts.length ? opts.map(function(o){
             return `<label class="pb-filter-option">
               <input type="checkbox" ${promoBoardFilters[def.key].has(o.value)?'checked':''} onchange="pbToggleFilter('${def.key}', ${JSON.stringify(o.value).replace(/"/g,'&quot;')}, this.checked)">
               <span class="pb-opt-label">${o.value}</span><span class="pb-opt-n">${o.n}</span>
             </label>`;
-          }).join('')}
+          }).join('') : '<div style="padding:10px;color:var(--muted,#888);font-size:12.5px;">אין תוצאות תואמות</div>'}
           <button type="button" class="pb-filter-close" onclick="promoBoardOpenPanel=null;renderPromoBoard();">סגור</button>
         </div>
       </div>
@@ -234,6 +251,7 @@ function pbToggleAll(key, values, checked){
 }
 function pbClearFilters(){
   Object.keys(promoBoardFilters).forEach(k=>promoBoardFilters[k].clear());
+  Object.keys(pbPanelSearch).forEach(k=>pbPanelSearch[k]='');
   promoBoardSearch=''; promoBoardOpenPanel=null;
   const box = document.getElementById('pbSearchBox'); if(box) box.value='';
   renderPromoBoard();
@@ -253,6 +271,13 @@ document.addEventListener('click', function(){
 function renderPromoBoard(){
   const root = document.getElementById('pb-root');
   if(!root) return;
+  // remember which input had focus (and cursor position) so typing isn't
+  // interrupted by the full innerHTML rebuild below
+  const active = document.activeElement;
+  let focusInfo = null;
+  if(active && active.id && root.contains(active)){
+    focusInfo = {id: active.id, selStart: active.selectionStart, selEnd: active.selectionEnd};
+  }
   const allRows = promoBoardBuildRows();
   const rows = allRows.filter(pbMatchesFilters);
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
@@ -314,6 +339,16 @@ function renderPromoBoard(){
   root.innerHTML = html;
   const box = document.getElementById('pbSearchBox');
   if(box) box.addEventListener('input', function(e){ promoBoardSearch = e.target.value; renderPromoBoard(); });
+  // restore focus + cursor position to whichever input was being typed in
+  if(focusInfo){
+    const el = document.getElementById(focusInfo.id);
+    if(el){
+      el.focus();
+      if(typeof el.setSelectionRange === 'function' && focusInfo.selStart != null){
+        try{ el.setSelectionRange(focusInfo.selStart, focusInfo.selEnd); }catch(e){}
+      }
+    }
+  }
 }
 
 function pbToggleItems(code, count){
@@ -339,36 +374,93 @@ function promoBoardToggle(code, field, checked){
   renderPromoBoard();
 }
 
-/* ---------- ייצוא: הדפסה / WhatsApp / מייל ---------- */
-function pbBuildReportText(){
+/* ---------- ייצוא: הדפסה (HTML מעוצב) / WhatsApp / מייל (טקסט נקי) ---------- */
+function pbReportRows(){
   const allRows = promoBoardBuildRows();
   const rows = allRows.filter(pbMatchesFilters);
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
-  const today = new Date().toLocaleDateString('he-IL');
-  const ordered = rows.filter(r=>st(r.id).ordered).length;
-  const mark = function(v){ return v ? '✓' : '✗'; };
-  let lines = [`דוח מבצעים - ${session.branchName||''}`, `תאריך: ${today}`, `הוזמנו: ${ordered}/${rows.length}`, ''];
   const bySection = {};
   rows.forEach(function(r){ (bySection[r.section||'ללא שיוך']=bySection[r.section||'ללא שיוך']||[]).push(r); });
+  return {rows, st, bySection, ordered: rows.filter(r=>st(r.id).ordered).length};
+}
+
+/* טקסט פשוט (ל-WhatsApp/מייל, שלא תומכים ב-HTML מעוצב) — עדיין קריא ומסודר:
+   כותרות סקשן עם קו מפריד, שורה לכל מבצע עם ✅/❌ ברור לכל צ'ק-בוקס. */
+function pbBuildReportText(){
+  const {rows, st, bySection, ordered} = pbReportRows();
+  const today = new Date().toLocaleDateString('he-IL');
+  const mark = function(v){ return v ? '✅' : '⬜'; };
+  let lines = [
+    `📋 *דוח מבצעים — ${session.branchName||''}*`,
+    `📅 ${today}   |   הוזמנו ${ordered}/${rows.length}`,
+    '━━━━━━━━━━━━━━━━━━',
+  ];
   Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
-    lines.push('▸ ' + sec);
+    lines.push('', `📍 *${sec}*`);
     bySection[sec].forEach(function(row){
       const s = st(row.id);
-      const parts = [`הוזמן ${mark(s.ordered)}`, `מדף ${mark(s.shelf)}`];
-      if(row.showOffShelf) parts.push(`חוץ מדף ${mark(s.offshelf)}`);
-      lines.push(`  מבצע ${row.id} - ${row.title||''} (${row.supplier||''}) | ${parts.join(' | ')}`);
+      const parts = [`${mark(s.ordered)} הוזמן`, `${mark(s.shelf)} מדף`];
+      if(row.showOffShelf) parts.push(`${mark(s.offshelf)} חוץ מדף`);
+      lines.push(`• #${row.id} ${row.title||''} (${row.supplier||''})`, `   ${parts.join('   ')}`);
     });
-    lines.push('');
   });
   return lines.join('\n');
 }
+
+/* דוח HTML מעוצב, לחלון הדפסה בלבד — לא לשימוש ב-WhatsApp/מייל שלא תומכים ב-HTML. */
+function pbBuildReportHTML(){
+  const {rows, st, bySection, ordered} = pbReportRows();
+  const today = new Date().toLocaleDateString('he-IL');
+  const chip = function(ok, label){
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:600;
+      background:${ok?'#E7F2E9':'#F3F3F1'};color:${ok?'#3D7A4F':'#999'};border:1px solid ${ok?'#3D7A4F':'#ddd'};">${ok?'✓':'—'} ${label}</span>`;
+  };
+  let sectionsHtml = '';
+  Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
+    const secRows = bySection[sec];
+    const secDone = secRows.filter(r=>st(r.id).ordered).length;
+    sectionsHtml += `
+      <div style="margin-bottom:22px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #1B221E;padding-bottom:6px;margin-bottom:10px;">
+          <h2 style="font-size:16px;margin:0;">📍 ${sec}</h2>
+          <span style="font-size:12.5px;color:#666;">${secDone}/${secRows.length} הוזמנו</span>
+        </div>
+        ${secRows.map(function(row){
+          const s = st(row.id);
+          return `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eee;">
+            <div>
+              <div style="font-weight:700;font-size:14px;">${row.title||''} <span style="font-weight:400;color:#888;font-size:12px;">· ${row.supplier||''} · מבצע ${row.id}</span></div>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              ${chip(s.ordered,'הוזמן')}
+              ${chip(s.shelf,'מדף')}
+              ${row.showOffShelf ? chip(s.offshelf,'חוץ מדף') : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  });
+  return `
+    <html dir="rtl" lang="he"><head><meta charset="UTF-8"><title>דוח מבצעים</title></head>
+    <body style="font-family:Arial,Helvetica,sans-serif;color:#1B221E;padding:28px;max-width:800px;margin:0 auto;">
+      <div style="border-bottom:3px solid #1B221E;padding-bottom:14px;margin-bottom:20px;">
+        <h1 style="margin:0 0 4px;font-size:22px;">📋 דוח מבצעים</h1>
+        <div style="color:#666;font-size:13.5px;">${session.branchName||''} · ${today} · הוזמנו ${ordered}/${rows.length}</div>
+      </div>
+      ${sectionsHtml}
+    </body></html>
+  `;
+}
+
 function pbExportPrint(){
   document.getElementById('pbExportMenu').classList.remove('open');
-  const text = pbBuildReportText();
   const win = window.open('', '_blank');
-  win.document.write(`<pre style="font-family:Arial;white-space:pre-wrap;direction:rtl;padding:20px;">${text}</pre>`);
-  win.document.title = 'דוח מבצעים';
-  win.print();
+  win.document.write(pbBuildReportHTML());
+  win.document.close();
+  win.focus();
+  setTimeout(function(){ win.print(); }, 300); // תן לדפדפן החדש רגע לרנדר לפני שפותחים הדפסה
 }
 function pbExportWhatsapp(){
   document.getElementById('pbExportMenu').classList.remove('open');
