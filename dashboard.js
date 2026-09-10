@@ -182,6 +182,11 @@ function viewGlobalHome(){
         <span class="home-tool-title">פעולות מהירות</span>
         <span class="home-tool-sub">דיווחים ובקשות נפוצות</span>
       </div>
+
+      <button type="button" class="home-tool-card" onclick="goTo('digitalForms')" aria-label="טפסים דיגיטליים">
+        <span class="home-tool-icon" aria-hidden="true">📄</span>
+        <span class="home-tool-title">טפסים דיגיטליים</span>
+      </button>
     </div>
 
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
