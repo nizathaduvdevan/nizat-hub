@@ -19,6 +19,7 @@ let promoBoardChecklist = {};
 let promoBoardFilters = {supplier:new Set(), section:new Set(), dept:new Set(), group:new Set()};
 let promoBoardOpenPanel = null;
 let promoBoardSearch = '';
+let pbActiveTab = 'order'; // 'order' | 'signage' - שני שלבים עצמאיים, לא גייטינג
 let promoBoardLoaded = false;
 let pbPanelSearch = {supplier:'', section:'', dept:'', group:''};
 let pbFocusRestore = null; // {id, selStart, selEnd} to restore focus/cursor after a full re-render
@@ -56,6 +57,9 @@ function pbInjectStyleOnce(){
     .pb-clear-btn{border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:8px; padding:8px 12px; font-family:inherit; font-size:13.5px; cursor:pointer;}
     .pb-clear-btn.pb-is-active{border:2px solid #B4611E; background:#FBECDD; color:#B4611E; font-weight:700;}
 
+    .pb-tabs{display:flex; gap:8px; margin-bottom:14px;}
+    .pb-tab-btn{flex:1; border:2px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:10px; padding:12px; font-family:inherit; font-size:14.5px; font-weight:700; cursor:pointer; text-align:center; color:var(--muted,#888);}
+    .pb-tab-btn.pb-tab-active{border-color:var(--brand,#4E7A3A); background:rgba(78,122,58,.1); color:var(--brand,#4E7A3A);}
     .pb-summary{display:flex; gap:18px; flex-wrap:wrap; align-items:center; font-size:13.5px; color:var(--muted,#666); margin-bottom:16px;}
     .pb-pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:12.5px; font-weight:600;}
     .pb-pill.done{background:#E7F2E9; color:#3D7A4F;}
@@ -291,6 +295,8 @@ function renderPromoBoard(){
   const rows = allRows.filter(pbMatchesFilters);
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
   const orderedCount = rows.filter(r=>st(r.id).ordered).length;
+  const signageDone = function(row){ const s = st(row.id); return s.shelf && (!row.showOffShelf || s.offshelf); };
+  const signageCount = rows.filter(signageDone).length;
 
   let html = `
     <div class="pb-toolbar">
@@ -299,12 +305,22 @@ function renderPromoBoard(){
       </div>
       ${pbRenderFilterGroups(allRows)}
     </div>
+    <div class="pb-tabs">
+      <button type="button" class="pb-tab-btn ${pbActiveTab==='order'?'pb-tab-active':''}" onclick="pbActiveTab='order';renderPromoBoard();">📦 שלב 1 · הזמנה</button>
+      <button type="button" class="pb-tab-btn ${pbActiveTab==='signage'?'pb-tab-active':''}" onclick="pbActiveTab='signage';renderPromoBoard();">🏷️ שלב 2 · שילוט</button>
+    </div>
     <div class="pb-summary">
       מוצגים <b>${rows.length}</b> מתוך <b>${allRows.length}</b> מבצעים
-      <span class="pb-pill done">✓ הוזמנו: ${orderedCount}/${rows.length}</span>
-      <span class="pb-pill pending">⏳ ממתינים: ${rows.length-orderedCount}/${rows.length}</span>
+      ${pbActiveTab==='order' ? `
+        <span class="pb-pill done">✓ הוזמנו: ${orderedCount}/${rows.length}</span>
+        <span class="pb-pill pending">⏳ ממתינים: ${rows.length-orderedCount}/${rows.length}</span>
+      ` : `
+        <span class="pb-pill done">✓ שולט במלואו: ${signageCount}/${rows.length}</span>
+        <span class="pb-pill pending">⏳ ממתין לשילוט: ${rows.length-signageCount}/${rows.length}</span>
+      `}
     </div>
   `;
+
 
   if(!rows.length){
     html += '<div class="pb-empty">אין מבצעים התואמים את הסינון הנוכחי.</div>';
@@ -335,9 +351,12 @@ function renderPromoBoard(){
             ${row.notes ? `<div class="pb-note">📌 ${row.notes}</div>` : ''}
           </div>
           <div class="pb-checklist">
-            <label class="pb-chk ${s.ordered?'on':''}"><input type="checkbox" ${s.ordered?'checked':''} onchange="promoBoardToggle('${row.id}','ordered',this.checked)"> ${s.ordered?'✓ ':''}הוזמן</label>
-            <label class="pb-chk ${s.shelf?'on':''}"><input type="checkbox" ${s.shelf?'checked':''} onchange="promoBoardToggle('${row.id}','shelf',this.checked)"> ${s.shelf?'✓ ':''}שילוט מדף</label>
-            ${row.showOffShelf ? `<label class="pb-chk ${s.offshelf?'on':''}"><input type="checkbox" ${s.offshelf?'checked':''} onchange="promoBoardToggle('${row.id}','offshelf',this.checked)"> ${s.offshelf?'✓ ':''}שילוט חוץ מדף</label>` : ''}
+            ${pbActiveTab==='order' ? `
+              <label class="pb-chk ${s.ordered?'on':''}"><input type="checkbox" ${s.ordered?'checked':''} onchange="promoBoardToggle('${row.id}','ordered',this.checked)"> ${s.ordered?'✓ ':''}הוזמן</label>
+            ` : `
+              <label class="pb-chk ${s.shelf?'on':''}"><input type="checkbox" ${s.shelf?'checked':''} onchange="promoBoardToggle('${row.id}','shelf',this.checked)"> ${s.shelf?'✓ ':''}שילוט מדף</label>
+              ${row.showOffShelf ? `<label class="pb-chk ${s.offshelf?'on':''}"><input type="checkbox" ${s.offshelf?'checked':''} onchange="promoBoardToggle('${row.id}','offshelf',this.checked)"> ${s.offshelf?'✓ ':''}שילוט חוץ מדף</label>` : ''}
+            `}
           </div>
         </div>
       `;
