@@ -43,7 +43,7 @@ function pbInjectStyleOnce(){
     .pb-filter-group{position:relative;}
     .pb-filter-toggle{display:flex; align-items:center; gap:6px; border:1px solid var(--gridline,#ddd); background:var(--bg,#f7f7f5); border-radius:8px; padding:8px 12px; font-family:inherit; font-size:13.5px; cursor:pointer;}
     .pb-filter-toggle .pb-count{background:var(--brand,#4E7A3A); color:#fff; border-radius:10px; font-size:11px; padding:1px 7px; font-weight:600;}
-    .pb-filter-toggle.active{border-color:var(--brand,#4E7A3A); background:rgba(78,122,58,.1);}
+    .pb-filter-toggle.pb-is-active{border:2px solid var(--brand,#4E7A3A); background:rgba(78,122,58,.14); color:var(--brand,#4E7A3A); font-weight:700;}
     .pb-filter-panel{display:none; position:absolute; top:calc(100% + 6px); right:0; z-index:20; background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.15); min-width:270px; max-height:380px; overflow-y:auto; padding:8px;}
     .pb-filter-panel.open{display:block;}
     .pb-filter-search{width:100%; border:1px solid var(--gridline,#ddd); border-radius:7px; padding:7px 10px; margin-bottom:6px; font-family:inherit; font-size:13px; box-sizing:border-box;}
@@ -54,7 +54,7 @@ function pbInjectStyleOnce(){
     .pb-filter-option .pb-opt-n{color:var(--muted,#888); font-size:12px;}
     .pb-filter-option.select-all{font-weight:700; border-bottom:1px solid var(--gridline,#ddd); margin-bottom:4px; padding-bottom:8px;}
     .pb-clear-btn{border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:8px; padding:8px 12px; font-family:inherit; font-size:13.5px; cursor:pointer;}
-    .pb-clear-btn.active{border-color:#B4611E; background:#FBECDD; color:#B4611E; font-weight:700;}
+    .pb-clear-btn.pb-is-active{border:2px solid #B4611E; background:#FBECDD; color:#B4611E; font-weight:700;}
 
     .pb-summary{display:flex; gap:18px; flex-wrap:wrap; align-items:center; font-size:13.5px; color:var(--muted,#666); margin-bottom:16px;}
     .pb-pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:12.5px; font-weight:600;}
@@ -90,6 +90,21 @@ function pbInjectStyleOnce(){
     .pb-export-option{display:flex; align-items:center; gap:10px; width:100%; text-align:right; background:none; border:none; border-radius:7px; padding:10px 12px; font-family:inherit; font-size:14px; cursor:pointer;}
     .pb-export-option:hover{background:var(--bg,#f7f7f5);}
     .pb-empty{padding:40px; text-align:center; color:var(--muted,#888); font-size:14px; background:var(--card,#fff); border-radius:10px; border:1px solid var(--gridline,#ddd);}
+
+    /* מובייל: כרטיס מבצע נערם לעמודה אחת, הצ'ק-ליסט נפרש לרוחב מתחת לטקסט
+       (במקום עמודה צרה בצד) כדי שהטקסט יקבל את כל הרוחב ולא יראה "גושי". */
+    @media (max-width: 640px){
+      .pb-promo{grid-template-columns:1fr; gap:10px;}
+      .pb-checklist{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
+      .pb-chk{flex:1 1 auto; justify-content:center;}
+      .pb-title{font-size:15px; line-height:1.4;}
+      .pb-meta{gap:8px;}
+      .pb-filter-groups{gap:6px;}
+      .pb-filter-panel{min-width:0; width:min(90vw, 300px); left:0; right:auto;}
+      .pb-export-wrap{margin-inline-start:0 !important; width:100%;}
+      .pb-export-btn{width:100%; justify-content:center;}
+      .pb-export-menu{left:0; right:0; width:100%;}
+    }
   `;
   document.head.appendChild(style);
 }
@@ -204,7 +219,7 @@ function pbRenderFilterGroups(allRows){
     const allChecked = opts.length && opts.every(o=>promoBoardFilters[def.key].has(o.value));
     html += `
       <div class="pb-filter-group">
-        <button type="button" class="pb-filter-toggle ${active?'active':''}" onclick="event.stopPropagation();promoBoardOpenPanel=promoBoardOpenPanel==='${def.key}'?null:'${def.key}';renderPromoBoard();">
+        <button type="button" class="pb-filter-toggle ${active?'pb-is-active':''}" onclick="event.stopPropagation();promoBoardOpenPanel=promoBoardOpenPanel==='${def.key}'?null:'${def.key}';renderPromoBoard();">
           ${def.label}${active?` <span class="pb-count">${promoBoardFilters[def.key].size}</span>`:''}
         </button>
         <div class="pb-filter-panel ${open?'open':''}" onclick="event.stopPropagation();">
@@ -226,7 +241,7 @@ function pbRenderFilterGroups(allRows){
     `;
   });
   const anyActive = Object.values(promoBoardFilters).some(s=>s.size>0);
-  html += `<button type="button" class="pb-clear-btn ${anyActive?'active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
+  html += `<button type="button" class="pb-clear-btn ${anyActive?'pb-is-active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
   html += `
     <div class="pb-export-wrap" style="margin-inline-start:auto;">
       <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbToggleExportMenu();">📤 שתף / הדפס דוח</button>
@@ -462,10 +477,46 @@ function pbExportPrint(){
   win.focus();
   setTimeout(function(){ win.print(); }, 300); // תן לדפדפן החדש רגע לרנדר לפני שפותחים הדפסה
 }
+/* WhatsApp לא תומך בהודעות HTML מעוצבות — הפתרון: להפוך את הדוח היפה
+   לתמונה (html2canvas) ולשתף אותה כקובץ דרך ה-Web Share API של הדפדפן,
+   שבמובייל פותח את חלונית השיתוף המקורית (שם אפשר לבחור וואטסאפ) עם
+   התמונה כבר מצורפת. בדסקטופ (שלא תומך ב-Web Share של קבצים) — מורידים
+   את התמונה ומזמינים לצרף אותה ידנית. */
+function pbLoadHtml2Canvas(){
+  if(window.html2canvas) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
 function pbExportWhatsapp(){
   document.getElementById('pbExportMenu').classList.remove('open');
-  const text = pbBuildReportText();
-  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  toast('מכין תמונה של הדוח...');
+  pbLoadHtml2Canvas().then(function(){
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;';
+    holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
+    document.body.appendChild(holder);
+    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
+      document.body.removeChild(holder);
+      return new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
+    });
+  }).then(function(blob){
+    const file = new File([blob], 'דוח-מבצעים.png', {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(){});
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'דוח-מבצעים.png'; a.click();
+      URL.revokeObjectURL(url);
+      toast('התמונה ירדה — אפשר לצרף אותה ידנית בוואטסאפ');
+    }
+  }).catch(function(err){
+    toast('שגיאה ביצירת התמונה: ' + err.message);
+  });
 }
 function pbExportEmail(){
   document.getElementById('pbExportMenu').classList.remove('open');
