@@ -63,6 +63,13 @@ function renderPurchasingUploadUI(){
       .ppu-preview.open{display:block;}
       .ppu-row{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:5px 0;}
       .ppu-row.ok{color:#3D7A4F;} .ppu-row.warn{color:#B4611E;}
+      .ppu-status{margin-top:14px;padding:12px 14px;border-radius:8px;font-size:13.5px;display:none;}
+      .ppu-status.show{display:flex;align-items:center;gap:10px;}
+      .ppu-status.busy{background:#EAF1E4;color:#3D6B2E;}
+      .ppu-status.error{background:#FBECDD;color:#B4611E;}
+      .ppu-status.success{background:#E7F2E9;color:#3D7A4F;font-weight:700;}
+      .ppu-spinner{width:16px;height:16px;border:2.5px solid rgba(0,0,0,.15);border-top-color:currentColor;border-radius:50%;animation:ppu-spin 0.8s linear infinite;flex-shrink:0;}
+      @keyframes ppu-spin{to{transform:rotate(360deg);}}
     </style>
 
     <div class="ppu-card">
@@ -111,8 +118,36 @@ function renderPurchasingUploadUI(){
       <button class="ppu-primary" id="ppuPublishBtn" disabled onclick="ppuPublish()">✅ פרסם לסניפים</button>
     </div>
 
+    <div class="ppu-status" id="ppuStatus"></div>
     <div class="ppu-preview" id="ppuPreviewBox"></div>
   `;
+}
+
+/* מציג שורת סטטוס עם ספינר + טיימר שנספר בזמן אמת, כדי שיהיה ברור
+   שמשהו קורה ברקע (במקום מסך "מת" בלי שום משוב). kind: 'busy'|'error'|'success'. */
+let ppuStatusTimer = null;
+let ppuStatusStart = null;
+function ppuSetStatus(kind, text){
+  const el = document.getElementById('ppuStatus');
+  if(!el) return;
+  clearInterval(ppuStatusTimer);
+  el.className = 'ppu-status show ' + kind;
+  if(kind === 'busy'){
+    ppuStatusStart = Date.now();
+    const render = () => {
+      const secs = Math.floor((Date.now() - ppuStatusStart) / 1000);
+      el.innerHTML = `<span class="ppu-spinner"></span><span>${text} (${secs} שניות... זה יכול לקחת עד כ-2 דקות, אל תסגרו את הדף)</span>`;
+    };
+    render();
+    ppuStatusTimer = setInterval(render, 1000);
+  } else {
+    el.innerHTML = (kind==='success' ? '✅ ' : '⚠️ ') + text;
+  }
+}
+function ppuClearStatus(){
+  clearInterval(ppuStatusTimer);
+  const el = document.getElementById('ppuStatus');
+  if(el){ el.className = 'ppu-status'; el.innerHTML=''; }
 }
 
 /* ---------- File selection: just remember it locally, upload happens on "בדוק" ---------- */
@@ -139,7 +174,7 @@ function ppuRunPreview(){
     toast('חובה לבחור את שני קבצי המבצעים (ספקים + תצוגה) לפני הבדיקה');
     return;
   }
-  toast('מעלה קבצים ובודק...');
+  ppuSetStatus('busy', 'מעלה קבצים...');
 
   const stamp = Date.now();
   const uploads = [
@@ -153,7 +188,10 @@ function ppuRunPreview(){
   }
 
   Promise.all(uploads)
-    .then(() => firebase.auth().currentUser.getIdToken())
+    .then(() => {
+      ppuSetStatus('busy', 'הקבצים הועלו. מריץ פענוח (הצעד הכי איטי - יכול לקחת דקה-שתיים)...');
+      return firebase.auth().currentUser.getIdToken();
+    })
     .then(idToken => {
       const payload = {
         mode: 'preview',
@@ -169,12 +207,13 @@ function ppuRunPreview(){
     })
     .then(r => r.json())
     .then(summary => {
-      if(summary.error){ toast('שגיאה: ' + summary.error); return; }
+      if(summary.error){ ppuSetStatus('error', 'שגיאה: ' + summary.error); return; }
       purchasingUploadState.previewSummary = summary;
+      ppuClearStatus();
       ppuRenderPreview(summary);
       document.getElementById('ppuPublishBtn').disabled = false;
     })
-    .catch(err => toast('שגיאה: ' + err.message));
+    .catch(err => ppuSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' — אם זה קרה אחרי המתנה ארוכה, ייתכן שזו בעיית timeout; נסו שוב.'));
 }
 
 function ppuRenderPreview(summary){
@@ -197,7 +236,8 @@ function ppuPublish(){
     toast('יש להריץ קודם "בדוק ותצוגה מקדימה"');
     return;
   }
-  toast('מפרסם לסניפים...');
+  document.getElementById('ppuPublishBtn').disabled = true; // מונע לחיצה כפולה בזמן שזה רץ
+  ppuSetStatus('busy', 'מפרסם לסניפים - מריץ פענוח שוב וכותב ל-Firestore (הפעולה הארוכה ביותר, אל תסגרו את הדף)...');
   firebase.auth().currentUser.getIdToken().then(idToken => {
     const payload = {
       mode: 'publish',
@@ -213,7 +253,11 @@ function ppuPublish(){
   })
   .then(r => r.json())
   .then(result => {
-    if(result.error){ toast('שגיאה: ' + result.error); return; }
+    if(result.error){
+      ppuSetStatus('error', 'שגיאה: ' + result.error);
+      document.getElementById('ppuPublishBtn').disabled = false;
+      return;
+    }
     // Save the title/notes text alongside the campaign metadata.
     db.collection('siteTexts').doc('purchasingPromoNotice').set({
       title: val('ppuTitle'),
@@ -221,26 +265,15 @@ function ppuPublish(){
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedBy: firebase.auth().currentUser.email,
     }, {merge:true}).catch(err => console.error('siteTexts write failed', err));
-    toast('פורסם בהצלחה לכל הסניפים! 🎉');
+    ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore. אפשר לבדוק עכשיו במסך "לוח מבצעים".`);
   })
-  .catch(err => toast('שגיאה: ' + err.message));
+  .catch(err => {
+    ppuSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' — אם זה קרה אחרי המתנה ארוכה (מעל 2-3 דקות), ייתכן שהפרסום בכל זאת הצליח בצד השרת אבל התשובה לא הגיעה בזמן; בדקו את "לוח מבצעים" לפני שמנסים שוב, כדי לא לכתוב פעמיים.');
+    document.getElementById('ppuPublishBtn').disabled = false;
+  });
 }
 
 /* ============================================================
-   דברים שעדיין חסרים כדי שזה יעבוד בפועל (לא בקוד הזה עצמו):
-
-   1. תגית סקריפט חדשה ב-index.html, לפני purchasing-promo-upload.js:
-        <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js"></script>
-      וגם תגית לטעינת הקובץ הזה עצמו:
-        <script src="purchasing-promo-upload.js"></script>
-      (אחרי firebase-init.js, לפני/אחרי stands.js לא משנה — אין תלות ביניהם)
-
-   2. כניסה בניווט (navigation.js) תחת מחלקת רכש, שקוראת ל-
-      goTo('purchasing-promo-upload') ומפעילה viewPurchasingPromoUpload().
-      לא כתבתי את זה כי אין לי את navigation.js לראות את התבנית המדויקת
-      של שאר הכניסות בתפריט.
-
-   3. כללי Storage (לא רק Firestore!) - צריך גם firebase Storage rules
-      שמאפשרות כתיבה לנתיב purchasing/... רק למחלקת רכש/super-admin,
-      בדומה לרוח firestore.rules. עדיין לא נכתב.
+   סטטוס: כל 3 הפריטים שהיו כאן בעבר (תגית Storage ב-index.html,
+   כניסת ניווט, ו-storage.rules) כבר בוצעו - ר' קובצי הפרויקט.
 ============================================================ */
