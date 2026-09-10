@@ -92,7 +92,10 @@ function pbInjectStyleOnce(){
     .pb-empty{padding:40px; text-align:center; color:var(--muted,#888); font-size:14px; background:var(--card,#fff); border-radius:10px; border:1px solid var(--gridline,#ddd);}
 
     /* מובייל: כרטיס מבצע נערם לעמודה אחת, הצ'ק-ליסט נפרש לרוחב מתחת לטקסט
-       (במקום עמודה צרה בצד) כדי שהטקסט יקבל את כל הרוחב ולא יראה "גושי". */
+       (במקום עמודה צרה בצד) כדי שהטקסט יקבל את כל הרוחב ולא יראה "גושי".
+       פאנל הפילטר: על מסך צר, "דבוק לכפתור" שובר (בורח חוץ למסך, קורס
+       לרוחב עד שרק המספרים נראים) — לכן על מובייל הוא הופך לחלון מרכזי
+       קבוע (כמו מודל), לא dropdown צמוד לכפתור. */
     @media (max-width: 640px){
       .pb-promo{grid-template-columns:1fr; gap:10px;}
       .pb-checklist{flex-direction:row; flex-wrap:wrap; min-width:0; width:100%;}
@@ -100,10 +103,14 @@ function pbInjectStyleOnce(){
       .pb-title{font-size:15px; line-height:1.4;}
       .pb-meta{gap:8px;}
       .pb-filter-groups{gap:6px;}
-      .pb-filter-panel{min-width:0; width:min(90vw, 300px); left:0; right:auto;}
+      .pb-filter-panel{
+        position:fixed; top:12vh; right:5vw; left:5vw; bottom:auto;
+        width:auto; max-width:none; max-height:76vh; z-index:200;
+        box-shadow:0 10px 40px rgba(0,0,0,.3);
+      }
       .pb-export-wrap{margin-inline-start:0 !important; width:100%;}
       .pb-export-btn{width:100%; justify-content:center;}
-      .pb-export-menu{left:0; right:0; width:100%;}
+      .pb-export-menu{position:fixed; left:5vw; right:5vw; top:auto; bottom:10vh; width:auto;}
     }
   `;
   document.head.appendChild(style);
@@ -247,7 +254,6 @@ function pbRenderFilterGroups(allRows){
       <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbToggleExportMenu();">📤 שתף / הדפס דוח</button>
       <div class="pb-export-menu" id="pbExportMenu" onclick="event.stopPropagation();">
         <button type="button" class="pb-export-option" onclick="pbExportPrint()">🖨️ הדפסה / שמירה כ-PDF</button>
-        <button type="button" class="pb-export-option" onclick="pbExportWhatsapp()">💬 שליחה ב-WhatsApp</button>
         <button type="button" class="pb-export-option" onclick="pbExportEmail()">📧 שליחה למייל שלי</button>
       </div>
     </div>
@@ -476,47 +482,6 @@ function pbExportPrint(){
   win.document.close();
   win.focus();
   setTimeout(function(){ win.print(); }, 300); // תן לדפדפן החדש רגע לרנדר לפני שפותחים הדפסה
-}
-/* WhatsApp לא תומך בהודעות HTML מעוצבות — הפתרון: להפוך את הדוח היפה
-   לתמונה (html2canvas) ולשתף אותה כקובץ דרך ה-Web Share API של הדפדפן,
-   שבמובייל פותח את חלונית השיתוף המקורית (שם אפשר לבחור וואטסאפ) עם
-   התמונה כבר מצורפת. בדסקטופ (שלא תומך ב-Web Share של קבצים) — מורידים
-   את התמונה ומזמינים לצרף אותה ידנית. */
-function pbLoadHtml2Canvas(){
-  if(window.html2canvas) return Promise.resolve();
-  return new Promise(function(resolve, reject){
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-    s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-function pbExportWhatsapp(){
-  document.getElementById('pbExportMenu').classList.remove('open');
-  toast('מכין תמונה של הדוח...');
-  pbLoadHtml2Canvas().then(function(){
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;';
-    holder.innerHTML = pbBuildReportHTML().replace(/^[\s\S]*<body[^>]*>/,'').replace(/<\/body>[\s\S]*$/,'');
-    document.body.appendChild(holder);
-    return html2canvas(holder, {backgroundColor:'#ffffff', scale:2}).then(function(canvas){
-      document.body.removeChild(holder);
-      return new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
-    });
-  }).then(function(blob){
-    const file = new File([blob], 'דוח-מבצעים.png', {type:'image/png'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(){});
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'דוח-מבצעים.png'; a.click();
-      URL.revokeObjectURL(url);
-      toast('התמונה ירדה — אפשר לצרף אותה ידנית בוואטסאפ');
-    }
-  }).catch(function(err){
-    toast('שגיאה ביצירת התמונה: ' + err.message);
-  });
 }
 function pbExportEmail(){
   document.getElementById('pbExportMenu').classList.remove('open');
