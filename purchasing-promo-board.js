@@ -429,7 +429,10 @@ function pbOpenImageLightbox(url){
     box = document.createElement('div');
     box.id = 'pbLightbox';
     box.className = 'pb-lightbox';
-    box.innerHTML = '<img id="pbLightboxImg" src="" alt="">';
+    box.innerHTML = `
+      <button type="button" id="pbLightboxClose" style="position:absolute;top:18px;left:18px;width:40px;height:40px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;">✕</button>
+      <img id="pbLightboxImg" src="" alt="">
+    `;
     box.onclick = function(){ box.classList.remove('open'); };
     document.body.appendChild(box);
   }
@@ -602,8 +605,11 @@ function pbExportPdfShare(btn){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
-    URL.revokeObjectURL(url);
-    toast('ה-PDF ירד בהצלחה — אפשר לפתוח וואטסאפ/מייל ולצרף אותו ידנית');
+    // פותח את ה-PDF גם בכרטיסייה חדשה - כך רואים אותו מיד ולא צריך לחפש
+    // בתיקיית ההורדות של הטלפון כדי לוודא שהוא באמת שם.
+    window.open(url, '_blank');
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    toast('ה-PDF נפתח בכרטיסייה חדשה, וגם ירד לתיקיית ההורדות — אפשר לפתוח משם וואטסאפ/מייל ולצרף');
   }).catch(function(err){
     console.error('pbExportPdfShare failed:', err);
     toast('שגיאה ביצירת ה-PDF: ' + err.message);
