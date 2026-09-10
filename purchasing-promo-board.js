@@ -77,6 +77,11 @@ function pbInjectStyleOnce(){
     .pb-item-row .pb-iname{font-weight:600;}
     .pb-thumb{width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
     .pb-thumb-placeholder{width:36px; height:36px; border-radius:6px; border:1px dashed var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
+    .pb-thumb-wrap{position:relative; flex-shrink:0; width:36px; height:36px; cursor:pointer;}
+    .pb-thumb-zoom{position:absolute; bottom:-3px; left:-3px; width:16px; height:16px; background:#fff; border:1px solid var(--gridline,#ddd); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9px; box-shadow:0 1px 3px rgba(0,0,0,.25);}
+    .pb-lightbox{display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,.85); align-items:center; justify-content:center; cursor:zoom-out;}
+    .pb-lightbox.open{display:flex;}
+    .pb-lightbox img{max-width:90vw; max-height:90vh; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,.5);}
     .pb-show-items{background:none; border:1px dashed var(--gridline,#ddd); color:var(--brand,#4E7A3A); border-radius:7px; font-family:inherit; font-size:12px; padding:4px 10px; cursor:pointer; margin-top:4px;}
     .pb-items-extra{display:none; margin-top:4px;}
     .pb-items-extra.open{display:block;}
@@ -409,9 +414,27 @@ function renderPromoBoard(){
 
 function pbItemRowHtml(i){
   const thumb = i.imageUrl
-    ? `<img class="pb-thumb" src="${i.imageUrl}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'pb-thumb-placeholder'}))">`
+    ? `<div class="pb-thumb-wrap" onclick="pbOpenImageLightbox('${i.imageUrl.replace(/'/g,"\\'")}')">
+         <img class="pb-thumb" src="${i.imageUrl}" alt="" loading="lazy" onerror="this.closest('.pb-thumb-wrap').outerHTML='<div class=\'pb-thumb-placeholder\'></div>'">
+         <span class="pb-thumb-zoom">🔍</span>
+       </div>`
     : '<div class="pb-thumb-placeholder"></div>';
   return `<div class="pb-item-row">${thumb}<span class="pb-barcode">${i.barcode}</span><span class="pb-iname">${i.name}</span></div>`;
+}
+/* לייטבוקס פשוט - לחיצה על תמונה ממוזערת/סמל הזכוכית המגדלת פותחת תצוגה
+   גדולה על כל המסך; לחיצה בכל מקום סוגרת. נבנה פעם אחת ומשומש מחדש. */
+function pbOpenImageLightbox(url){
+  let box = document.getElementById('pbLightbox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'pbLightbox';
+    box.className = 'pb-lightbox';
+    box.innerHTML = '<img id="pbLightboxImg" src="" alt="">';
+    box.onclick = function(){ box.classList.remove('open'); };
+    document.body.appendChild(box);
+  }
+  document.getElementById('pbLightboxImg').src = url;
+  box.classList.add('open');
 }
 function pbToggleItems(code, count){
   promoBoardExpanded[code] = !promoBoardExpanded[code];
