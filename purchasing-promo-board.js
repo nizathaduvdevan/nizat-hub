@@ -1,11 +1,12 @@
 /* ============================================================
    purchasing-promo-board.js
    ------------------------------------------------------------
-   מסך הסניף: לוח מבצעים · רכש. קורא מ-appData.promoBooklet (כבר מסונכרן
-   ע"י firebase-init.js לצורך promo-sales.js) + purchasingPromoItems +
-   purchasingPromoChecklist (טעינה חד-פעמית כשנכנסים למסך).
-
-   הוראות שילוב: ראו purchasing-promo-module-status.md / השיחה.
+   מסך הסניף: לוח מבצעים · רכש. עיצוב ולוגיקה נאמנים לפרוטוטייפ
+   המאושר (nizat_promo_board_preview v11-13) — פילטרים עם "סמן הכל"
+   וחיפוש, כפתור ייצוא עם 3 אפשרויות (הדפסה/וואטסאפ/מייל).
+   קורא מ-appData.promoBooklet (מסונכרן כבר ע"י firebase-init.js
+   לצורך promo-sales.js) + purchasingPromoItems + purchasingPromoChecklist
+   (טעינה חד-פעמית כשנכנסים למסך).
 ============================================================ */
 
 const PROMO_BOARD_OFFSHELF_SECTIONS = [
@@ -16,19 +17,91 @@ const PROMO_BOARD_OFFSHELF_SECTIONS = [
 let promoBoardItems = null;
 let promoBoardChecklist = {};
 let promoBoardFilters = {supplier:new Set(), section:new Set(), dept:new Set(), group:new Set()};
-let promoBoardPanelSearch = {supplier:'', section:'', dept:'', group:''};
 let promoBoardOpenPanel = null;
 let promoBoardSearch = '';
 let promoBoardLoaded = false;
+let promoBoardExpanded = {};
+
+const PB_FILTER_DEFS = [
+  {key:'supplier', label:'ספקים'},
+  {key:'section', label:'הנחיות תצוגה'},
+  {key:'dept', label:'מחלקות'},
+  {key:'group', label:'קבוצות'},
+];
+
+function pbInjectStyleOnce(){
+  if(document.getElementById('pb-style')) return;
+  const style = document.createElement('style');
+  style.id = 'pb-style';
+  style.textContent = `
+    .pb-toolbar{background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:10px; padding:14px 16px; margin-bottom:16px;}
+    .pb-search-row{display:flex; gap:10px; margin-bottom:12px;}
+    .pb-search-row input{flex:1; border:1px solid var(--gridline,#ddd); border-radius:8px; padding:9px 12px; font-family:inherit; font-size:14px; box-sizing:border-box;}
+    .pb-filter-groups{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+    .pb-filter-group{position:relative;}
+    .pb-filter-toggle{display:flex; align-items:center; gap:6px; border:1px solid var(--gridline,#ddd); background:var(--bg,#f7f7f5); border-radius:8px; padding:8px 12px; font-family:inherit; font-size:13.5px; cursor:pointer;}
+    .pb-filter-toggle .pb-count{background:var(--brand,#4E7A3A); color:#fff; border-radius:10px; font-size:11px; padding:1px 7px; font-weight:600;}
+    .pb-filter-toggle.active{border-color:var(--brand,#4E7A3A); background:rgba(78,122,58,.1);}
+    .pb-filter-panel{display:none; position:absolute; top:calc(100% + 6px); right:0; z-index:20; background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.15); min-width:270px; max-height:380px; overflow-y:auto; padding:8px;}
+    .pb-filter-panel.open{display:block;}
+    .pb-filter-search{width:100%; border:1px solid var(--gridline,#ddd); border-radius:7px; padding:7px 10px; margin-bottom:6px; font-family:inherit; font-size:13px; box-sizing:border-box;}
+    .pb-filter-close{display:block; width:100%; text-align:center; margin-top:6px; padding:6px; border-radius:7px; border:1px solid var(--gridline,#ddd); background:var(--bg,#f7f7f5); font-family:inherit; font-size:12px; cursor:pointer;}
+    .pb-filter-option{display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:13.5px; cursor:pointer;}
+    .pb-filter-option:hover{background:var(--bg,#f7f7f5);}
+    .pb-filter-option .pb-opt-label{flex:1;}
+    .pb-filter-option .pb-opt-n{color:var(--muted,#888); font-size:12px;}
+    .pb-filter-option.select-all{font-weight:700; border-bottom:1px solid var(--gridline,#ddd); margin-bottom:4px; padding-bottom:8px;}
+    .pb-clear-btn{border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:8px; padding:8px 12px; font-family:inherit; font-size:13.5px; cursor:pointer;}
+    .pb-clear-btn.active{border-color:#B4611E; background:#FBECDD; color:#B4611E; font-weight:700;}
+
+    .pb-summary{display:flex; gap:18px; flex-wrap:wrap; align-items:center; font-size:13.5px; color:var(--muted,#666); margin-bottom:16px;}
+    .pb-pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:12.5px; font-weight:600;}
+    .pb-pill.done{background:#E7F2E9; color:#3D7A4F;}
+    .pb-pill.pending{background:#FBECDD; color:#B4611E;}
+
+    .pb-list{border:1px solid var(--gridline,#ddd); border-radius:10px; overflow:hidden;}
+    .pb-promo{display:grid; grid-template-columns:1fr auto; gap:14px; padding:14px 16px; border-bottom:1px solid var(--gridline,#ddd); align-items:start; background:var(--card,#fff);}
+    .pb-promo:last-child{border-bottom:none;}
+    .pb-title{font-size:15.5px; font-weight:800; margin-bottom:3px;}
+    .pb-supplier{font-size:13px; font-weight:600; color:var(--brand,#4E7A3A); margin-bottom:4px;}
+    .pb-id{font-weight:700; font-size:12px; color:var(--muted,#888); background:var(--bg,#f7f7f5); padding:1px 7px; border-radius:5px; display:inline-block; margin-bottom:6px;}
+    .pb-id.flag{color:#B4611E; background:#FBECDD; font-style:italic;}
+    .pb-item-row{display:flex; align-items:baseline; gap:8px; font-size:13.5px; margin-bottom:2px;}
+    .pb-item-row .pb-barcode{font-size:11.5px; color:var(--muted,#888);}
+    .pb-item-row .pb-iname{font-weight:600;}
+    .pb-show-items{background:none; border:1px dashed var(--gridline,#ddd); color:var(--brand,#4E7A3A); border-radius:7px; font-family:inherit; font-size:12px; padding:4px 10px; cursor:pointer; margin-top:4px;}
+    .pb-items-extra{display:none; margin-top:4px;}
+    .pb-items-extra.open{display:block;}
+    .pb-meta{display:flex; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--muted,#888); margin:6px 0; align-items:center;}
+    .pb-price{font-weight:700; font-size:14px; background:var(--bg,#f7f7f5); padding:2px 9px; border-radius:6px;}
+    .pb-note{font-size:12.5px; color:var(--muted,#888); margin-top:6px; line-height:1.6;}
+    .pb-tag{font-size:11.5px; font-weight:700; padding:1px 8px; border-radius:20px; background:#F1E9F6; color:#7A4F9E;}
+    .pb-checklist{display:flex; flex-direction:column; gap:6px; min-width:160px;}
+    .pb-chk{display:flex; align-items:center; gap:7px; font-size:12.5px; cursor:pointer; padding:5px 9px; border-radius:7px; border:1px solid var(--gridline,#ddd); background:var(--bg,#f7f7f5); white-space:nowrap;}
+    .pb-chk input{width:15px; height:15px; margin:0; cursor:pointer;}
+    .pb-chk.on{background:#E7F2E9; border-color:#3D7A4F; color:#3D7A4F; font-weight:600;}
+
+    .pb-export-wrap{position:relative;}
+    .pb-export-btn{display:flex; align-items:center; gap:8px; background:var(--brand,#4E7A3A); color:#fff; border:none; border-radius:10px; padding:10px 18px; font-family:inherit; font-size:14px; font-weight:800; cursor:pointer;}
+    .pb-export-menu{display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:30; background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.16); min-width:230px; padding:6px;}
+    .pb-export-menu.open{display:block;}
+    .pb-export-option{display:flex; align-items:center; gap:10px; width:100%; text-align:right; background:none; border:none; border-radius:7px; padding:10px 12px; font-family:inherit; font-size:14px; cursor:pointer;}
+    .pb-export-option:hover{background:var(--bg,#f7f7f5);}
+    .pb-empty{padding:40px; text-align:center; color:var(--muted,#888); font-size:14px; background:var(--card,#fff); border-radius:10px; border:1px solid var(--gridline,#ddd);}
+  `;
+  document.head.appendChild(style);
+}
 
 function viewPurchasingPromoBoard(){
-  if(!promoBoardLoaded) loadPromoBoardData();
+  pbInjectStyleOnce();
+  if(!promoBoardLoaded){ loadPromoBoardData(); }
+  else { setTimeout(renderPromoBoard, 0); }
   return `
     <div class="page-head">
       <h1>לוח מבצעים · רכש</h1>
       <p>הזמנה, שילוט מדף ושילוט חוץ-מדף לכל מבצע</p>
     </div>
-    <div id="pb-root">${promoBoardLoaded ? '' : '<p style="color:var(--text-secondary);">טוען נתונים...</p>'}</div>
+    <div id="pb-root">${promoBoardLoaded ? '' : '<p style="color:var(--muted,#888);">טוען נתונים...</p>'}</div>
   `;
 }
 
@@ -38,19 +111,16 @@ function loadPromoBoardData(){
     db.collection('purchasingPromoItems').get(),
     db.collection('purchasingPromoChecklist').where('branchEmail','==',branchEmail).get()
   ]).then(function(results){
-    const itemsSnap = results[0], checklistSnap = results[1];
     promoBoardItems = {};
-    itemsSnap.forEach(function(doc){ promoBoardItems[doc.id] = doc.data(); });
+    results[0].forEach(function(doc){ promoBoardItems[doc.id] = doc.data(); });
     promoBoardChecklist = {};
-    checklistSnap.forEach(function(doc){
+    results[1].forEach(function(doc){
       const d = doc.data();
       promoBoardChecklist[d.promoCode] = {ordered:!!d.ordered, shelf:!!d.shelf, offshelf:!!d.offshelf};
     });
     promoBoardLoaded = true;
     renderPromoBoard();
-  }).catch(function(err){
-    toast('שגיאה בטעינת נתוני לוח המבצעים: ' + err.message);
-  });
+  }).catch(function(err){ toast('שגיאה בטעינת נתוני לוח המבצעים: ' + err.message); });
 }
 
 function promoBoardBuildRows(){
@@ -67,166 +137,191 @@ function promoBoardBuildRows(){
     return Object.keys(c).sort((a,b)=>c[b]-c[a])[0];
   };
   const booklet = appData.promoBooklet || {};
+  const codeCounts = {};
+  Object.keys(booklet).forEach(c=>{ codeCounts[c]=(codeCounts[c]||0)+1; }); // booklet keys are unique doc ids, always 1 — kept for parity/documents only
   return Object.keys(booklet).map(function(code){
     const b = booklet[code];
     const items = byCode[code] || [];
     return {
-      code: code,
+      id: code, displayId: code, needsCheck:false,
       title: items[0] ? items[0].name : null,
       items: items,
-      price: b.price, template: b.template, note: b.note, section: b.section,
+      price: b.price, template: b.template, notes: b.note||'', section: b.section,
       dept: mostCommon(items.map(i=>i.dept)),
       group: mostCommon(items.map(i=>i.group)),
       supplier: mostCommon(items.map(i=>i.supplier)),
-      needsOffshelf: PROMO_BOARD_OFFSHELF_SECTIONS.indexOf(b.section) !== -1,
+      showOffShelf: PROMO_BOARD_OFFSHELF_SECTIONS.indexOf(b.section) !== -1,
     };
   });
 }
 
-function priceLabel(row){
+function pbPriceLabel(row){
   if(row.price==null) return row.template||'';
-  const isPercent = (row.template||'').indexOf('%') !== -1 || (row.template||'').indexOf('הנחה')!==-1;
+  const isPercent = (row.template||'').indexOf('%')!==-1 || (row.template||'').indexOf('הנחה')!==-1;
   return isPercent ? `${row.template}: ${row.price}%` : `${row.template}: ₪${Number(row.price).toFixed(2)}`;
 }
 
-function promoBoardMatchesFilters(row){
-  if(promoBoardFilters.supplier.size && !promoBoardFilters.supplier.has(row.supplier)) return false;
-  if(promoBoardFilters.section.size && !promoBoardFilters.section.has(row.section)) return false;
-  if(promoBoardFilters.dept.size && !promoBoardFilters.dept.has(row.dept)) return false;
-  if(promoBoardFilters.group.size && !promoBoardFilters.group.has(row.group)) return false;
-  if(promoBoardSearch){
-    const hay = [row.title, row.code, row.note, ...(row.items||[]).map(i=>i.name+' '+i.barcode)].join(' ').toLowerCase();
-    if(hay.indexOf(promoBoardSearch.toLowerCase())===-1) return false;
-  }
-  return true;
-}
-
-const PROMO_BOARD_FILTER_DEFS = [
-  {key:'supplier', label:'ספקים'},
-  {key:'section', label:'הנחיות תצוגה'},
-  {key:'dept', label:'מחלקות'},
-  {key:'group', label:'קבוצות'},
-];
-
-function promoBoardUniqueOptions(key, allRows){
+function pbUniqueOptions(key, allRows){
   const counts = {};
   allRows.forEach(function(r){ const v=r[key]; if(!v) return; counts[v]=(counts[v]||0)+1; });
   return Object.keys(counts).sort((a,b)=>a.localeCompare(b,'he')).map(function(v){ return {value:v, n:counts[v]}; });
 }
 
-function promoBoardRenderFilters(allRows){
+function pbMatchesFilters(row){
+  for(const def of PB_FILTER_DEFS){
+    const set = promoBoardFilters[def.key];
+    if(set.size && !set.has(row[def.key])) return false;
+  }
+  if(promoBoardSearch){
+    const itemText = (row.items||[]).map(i=>i.name+' '+i.barcode).join(' ');
+    const hay = [row.notes, row.supplier, row.id, row.title, itemText].join(' ').toLowerCase();
+    if(hay.indexOf(promoBoardSearch.toLowerCase())===-1) return false;
+  }
+  return true;
+}
+
+function pbRenderFilterGroups(allRows){
+  let html = '<div class="pb-filter-groups">';
+  PB_FILTER_DEFS.forEach(function(def){
+    const active = promoBoardFilters[def.key].size>0;
+    const open = promoBoardOpenPanel===def.key;
+    const opts = pbUniqueOptions(def.key, allRows);
+    const allChecked = opts.length && opts.every(o=>promoBoardFilters[def.key].has(o.value));
+    html += `
+      <div class="pb-filter-group">
+        <button type="button" class="pb-filter-toggle ${active?'active':''}" onclick="event.stopPropagation();promoBoardOpenPanel=promoBoardOpenPanel==='${def.key}'?null:'${def.key}';renderPromoBoard();">
+          ${def.label}${active?` <span class="pb-count">${promoBoardFilters[def.key].size}</span>`:''}
+        </button>
+        <div class="pb-filter-panel ${open?'open':''}" onclick="event.stopPropagation();">
+          <label class="pb-filter-option select-all">
+            <input type="checkbox" ${allChecked?'checked':''} onchange="pbToggleAll('${def.key}', ${JSON.stringify(opts.map(o=>o.value)).replace(/"/g,'&quot;')}, this.checked)">
+            <span class="pb-opt-label">סמן הכל</span>
+          </label>
+          ${opts.map(function(o){
+            return `<label class="pb-filter-option">
+              <input type="checkbox" ${promoBoardFilters[def.key].has(o.value)?'checked':''} onchange="pbToggleFilter('${def.key}', ${JSON.stringify(o.value).replace(/"/g,'&quot;')}, this.checked)">
+              <span class="pb-opt-label">${o.value}</span><span class="pb-opt-n">${o.n}</span>
+            </label>`;
+          }).join('')}
+          <button type="button" class="pb-filter-close" onclick="promoBoardOpenPanel=null;renderPromoBoard();">סגור</button>
+        </div>
+      </div>
+    `;
+  });
   const anyActive = Object.values(promoBoardFilters).some(s=>s.size>0);
-  return `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-      ${PROMO_BOARD_FILTER_DEFS.map(function(def){
-        const active = promoBoardFilters[def.key].size>0;
-        const open = promoBoardOpenPanel===def.key;
-        const allOpts = promoBoardUniqueOptions(def.key, allRows);
-        const term = (promoBoardPanelSearch[def.key]||'').toLowerCase();
-        const opts = term ? allOpts.filter(o=>o.value.toLowerCase().indexOf(term)!==-1) : allOpts;
-        return `
-        <div style="position:relative;">
-          <button class="icon-btn" style="width:auto;padding:7px 12px;font-size:13px;${active?'border-color:var(--brand,#4E7A3A);color:var(--brand,#4E7A3A);font-weight:700;':''}"
-            onclick="promoBoardOpenPanel=promoBoardOpenPanel==='${def.key}'?null:'${def.key}';renderPromoBoard();">
-            ${def.label}${active?` (${promoBoardFilters[def.key].size})`:''}
-          </button>
-          ${open ? `
-          <div style="position:absolute;top:calc(100% + 4px);right:0;z-index:20;background:var(--card,#fff);border:1px solid var(--gridline,#ddd);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);min-width:240px;max-height:320px;overflow-y:auto;padding:8px;" onclick="event.stopPropagation();">
-            <input type="text" placeholder="הקלד לחיפוש..." value="${promoBoardPanelSearch[def.key]||''}"
-              style="width:100%;border:1px solid var(--gridline,#ddd);border-radius:7px;padding:6px 9px;font-family:inherit;font-size:13px;margin-bottom:6px;box-sizing:border-box;"
-              oninput="promoBoardPanelSearch['${def.key}']=this.value;renderPromoBoard();">
-            <label style="display:flex;align-items:center;gap:8px;padding:5px 6px;font-weight:700;border-bottom:1px solid var(--gridline,#ddd);margin-bottom:4px;cursor:pointer;">
-              <input type="checkbox" ${opts.length && opts.every(o=>promoBoardFilters[def.key].has(o.value))?'checked':''}
-                onchange="promoBoardToggleAll('${def.key}', ${JSON.stringify(opts.map(o=>o.value))}, this.checked)">
-              סמן הכל
-            </label>
-            ${opts.map(function(o){
-              return `<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;font-size:13px;cursor:pointer;">
-                <input type="checkbox" ${promoBoardFilters[def.key].has(o.value)?'checked':''}
-                  onchange="promoBoardToggleFilter('${def.key}','${o.value.replace(/'/g,"\\'")}',this.checked)">
-                <span style="flex:1;">${o.value}</span><span style="color:var(--muted);font-size:11px;">${o.n}</span>
-              </label>`;
-            }).join('')}
-            <button class="icon-btn" style="width:100%;margin-top:6px;font-size:12px;" onclick="promoBoardOpenPanel=null;renderPromoBoard();">סגור</button>
-          </div>` : ''}
-        </div>`;
-      }).join('')}
-      <button class="icon-btn" style="width:auto;padding:7px 12px;font-size:13px;${anyActive?'border-color:#B4611E;color:#B4611E;font-weight:700;':''}" onclick="promoBoardClearFilters()">נקה סינון</button>
-      <button class="btn-primary" style="margin-inline-start:auto;" onclick="promoBoardExport()">📤 שתף / הדפס דוח</button>
+  html += `<button type="button" class="pb-clear-btn ${anyActive?'active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
+  html += `
+    <div class="pb-export-wrap" style="margin-inline-start:auto;">
+      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbToggleExportMenu();">📤 שתף / הדפס דוח</button>
+      <div class="pb-export-menu" id="pbExportMenu" onclick="event.stopPropagation();">
+        <button type="button" class="pb-export-option" onclick="pbExportPrint()">🖨️ הדפסה / שמירה כ-PDF</button>
+        <button type="button" class="pb-export-option" onclick="pbExportWhatsapp()">💬 שליחה ב-WhatsApp</button>
+        <button type="button" class="pb-export-option" onclick="pbExportEmail()">📧 שליחה למייל שלי</button>
+      </div>
     </div>
   `;
+  html += '</div>';
+  return html;
 }
-function promoBoardToggleFilter(key, value, checked){
+function pbToggleFilter(key, value, checked){
   if(checked) promoBoardFilters[key].add(value); else promoBoardFilters[key].delete(value);
   renderPromoBoard();
 }
-function promoBoardToggleAll(key, values, checked){
+function pbToggleAll(key, values, checked){
   if(checked) values.forEach(v=>promoBoardFilters[key].add(v));
   else values.forEach(v=>promoBoardFilters[key].delete(v));
   renderPromoBoard();
 }
-function promoBoardClearFilters(){
+function pbClearFilters(){
   Object.keys(promoBoardFilters).forEach(k=>promoBoardFilters[k].clear());
-  Object.keys(promoBoardPanelSearch).forEach(k=>promoBoardPanelSearch[k]='');
   promoBoardSearch=''; promoBoardOpenPanel=null;
+  const box = document.getElementById('pbSearchBox'); if(box) box.value='';
   renderPromoBoard();
 }
+function pbToggleExportMenu(){
+  const menu = document.getElementById('pbExportMenu');
+  if(menu) menu.classList.toggle('open');
+}
+document.addEventListener('click', function(){
+  let changed = false;
+  if(promoBoardOpenPanel){ promoBoardOpenPanel=null; changed=true; }
+  const menu = document.getElementById('pbExportMenu');
+  if(menu && menu.classList.contains('open')){ menu.classList.remove('open'); }
+  if(changed) renderPromoBoard();
+});
 
 function renderPromoBoard(){
   const root = document.getElementById('pb-root');
   if(!root) return;
   const allRows = promoBoardBuildRows();
-  const rows = allRows.filter(promoBoardMatchesFilters);
+  const rows = allRows.filter(pbMatchesFilters);
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
-  const orderedCount = rows.filter(r=>st(r.code).ordered).length;
+  const orderedCount = rows.filter(r=>st(r.id).ordered).length;
 
-  root.innerHTML = `
-    <div class="card" style="margin-bottom:14px;">
-      <input type="text" placeholder="חיפוש לפי שם מוצר, ברקוד או מספר מבצע..." value="${promoBoardSearch}"
-        style="width:100%;border:1px solid var(--gridline);border-radius:8px;padding:9px 12px;font-family:inherit;box-sizing:border-box;margin-bottom:10px;"
-        oninput="promoBoardSearch=this.value;renderPromoBoard();">
-      ${promoBoardRenderFilters(allRows)}
+  let html = `
+    <div class="pb-toolbar">
+      <div class="pb-search-row">
+        <input type="text" id="pbSearchBox" placeholder="חיפוש לפי שם מוצר, ברקוד, מספר מבצע או ספק..." value="${promoBoardSearch}">
+      </div>
+      ${pbRenderFilterGroups(allRows)}
     </div>
-    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
-      מוצגים ${rows.length} מתוך ${allRows.length} מבצעים · הוזמנו ${orderedCount}/${rows.length}
-    </div>
-    <div class="admin-list">
-      ${rows.map(function(row){
-        const s = st(row.code);
-        return `
-        <div class="admin-row" style="flex-direction:column;align-items:stretch;">
-          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <div style="font-weight:700;">${row.title || '(שם לא זוהה)'}</div>
-              <div style="font-size:12px;color:var(--muted);">מבצע ${row.code} · ${row.supplier||''} · ${row.dept||''} / ${row.group||''} ${row.section?`· 📍 ${row.section}`:''}</div>
-              <div style="font-size:13px;margin-top:4px;">${priceLabel(row)}</div>
-              ${row.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">📌 ${row.note}</div>` : ''}
-              ${row.items.length>1 ? `
-                <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;margin-top:6px;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block';">
-                  הצג מוצרים נוספים (${row.items.length-1})
-                </button>
-                <div style="display:none;margin-top:6px;font-size:12.5px;">
-                  ${row.items.slice(1).map(i=>`<div>${i.barcode} — ${i.name}</div>`).join('')}
-                </div>
-              ` : (row.items[0] ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;">${row.items[0].barcode}</div>` : '')}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;min-width:150px;">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                <input type="checkbox" ${s.ordered?'checked':''} onchange="promoBoardToggle('${row.code}','ordered',this.checked)"> הוזמן
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                <input type="checkbox" ${s.shelf?'checked':''} onchange="promoBoardToggle('${row.code}','shelf',this.checked)"> שילוט מדף
-              </label>
-              ${row.needsOffshelf ? `
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-                <input type="checkbox" ${s.offshelf?'checked':''} onchange="promoBoardToggle('${row.code}','offshelf',this.checked)"> שילוט חוץ מדף
-              </label>` : ''}
-            </div>
-          </div>
-        </div>`;
-      }).join('')}
+    <div class="pb-summary">
+      מוצגים <b>${rows.length}</b> מתוך <b>${allRows.length}</b> מבצעים
+      <span class="pb-pill done">✓ הוזמנו: ${orderedCount}/${rows.length}</span>
+      <span class="pb-pill pending">⏳ ממתינים: ${rows.length-orderedCount}/${rows.length}</span>
     </div>
   `;
+
+  if(!rows.length){
+    html += '<div class="pb-empty">אין מבצעים התואמים את הסינון הנוכחי.</div>';
+  } else {
+    html += '<div class="pb-list">';
+    rows.forEach(function(row){
+      const s = st(row.id);
+      const items = row.items||[];
+      const first = items[0], rest = items.slice(1);
+      html += `
+        <div class="pb-promo">
+          <div>
+            <div class="pb-supplier">${row.supplier||''}</div>
+            <div class="pb-id${row.needsCheck?' flag':''}">מבצע ${row.displayId}</div>
+            <div class="pb-title">${row.title || '(שם לא זוהה)'}</div>
+            ${first ? `<div class="pb-item-row"><span class="pb-barcode">${first.barcode}</span><span class="pb-iname">${first.name}</span></div>` : ''}
+            ${rest.length ? `
+              <button type="button" class="pb-show-items" onclick="pbToggleItems('${row.id}', ${rest.length})">הצג מוצרים נוספים (${rest.length})</button>
+              <div class="pb-items-extra ${promoBoardExpanded[row.id]?'open':''}" id="pb-items-${row.id}">
+                ${rest.map(i=>`<div class="pb-item-row"><span class="pb-barcode">${i.barcode}</span><span class="pb-iname">${i.name}</span></div>`).join('')}
+              </div>
+            ` : ''}
+            <div class="pb-meta">
+              <span class="pb-price">${pbPriceLabel(row)}</span>
+              <span>${row.dept||''} / ${row.group||''}</span>
+              ${row.section ? `<span class="pb-tag">📍 ${row.section}</span>` : ''}
+            </div>
+            ${row.notes ? `<div class="pb-note">📌 ${row.notes}</div>` : ''}
+          </div>
+          <div class="pb-checklist">
+            <label class="pb-chk ${s.ordered?'on':''}"><input type="checkbox" ${s.ordered?'checked':''} onchange="promoBoardToggle('${row.id}','ordered',this.checked)"> ${s.ordered?'✓ ':''}הוזמן</label>
+            <label class="pb-chk ${s.shelf?'on':''}"><input type="checkbox" ${s.shelf?'checked':''} onchange="promoBoardToggle('${row.id}','shelf',this.checked)"> ${s.shelf?'✓ ':''}שילוט מדף</label>
+            ${row.showOffShelf ? `<label class="pb-chk ${s.offshelf?'on':''}"><input type="checkbox" ${s.offshelf?'checked':''} onchange="promoBoardToggle('${row.id}','offshelf',this.checked)"> ${s.offshelf?'✓ ':''}שילוט חוץ מדף</label>` : ''}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  root.innerHTML = html;
+  const box = document.getElementById('pbSearchBox');
+  if(box) box.addEventListener('input', function(e){ promoBoardSearch = e.target.value; renderPromoBoard(); });
+}
+
+function pbToggleItems(code, count){
+  promoBoardExpanded[code] = !promoBoardExpanded[code];
+  const el = document.getElementById('pb-items-' + code);
+  if(el) el.classList.toggle('open', promoBoardExpanded[code]);
+  const btn = event.target;
+  btn.textContent = promoBoardExpanded[code] ? 'הסתר מוצרים' : `הצג מוצרים נוספים (${count})`;
 }
 
 function promoBoardToggle(code, field, checked){
@@ -240,37 +335,50 @@ function promoBoardToggle(code, field, checked){
     ordered: st.ordered, shelf: st.shelf, offshelf: st.offshelf,
     expireAt: expireAt,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  }, {merge:true}).catch(function(err){
-    toast('שגיאה בשמירה: ' + err.message);
-  });
+  }, {merge:true}).catch(function(err){ toast('שגיאה בשמירה: ' + err.message); });
   renderPromoBoard();
 }
 
-/* ---------- ייצוא/הדפסה: מדפיס את הרשימה המסוננת הנוכחית ---------- */
-function promoBoardExport(){
+/* ---------- ייצוא: הדפסה / WhatsApp / מייל ---------- */
+function pbBuildReportText(){
   const allRows = promoBoardBuildRows();
-  const rows = allRows.filter(promoBoardMatchesFilters);
+  const rows = allRows.filter(pbMatchesFilters);
   const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
   const today = new Date().toLocaleDateString('he-IL');
+  const ordered = rows.filter(r=>st(r.id).ordered).length;
   const mark = function(v){ return v ? '✓' : '✗'; };
-  let lines = [`דוח מבצעים - ${session.branchName||''}`, `תאריך: ${today}`, ''];
+  let lines = [`דוח מבצעים - ${session.branchName||''}`, `תאריך: ${today}`, `הוזמנו: ${ordered}/${rows.length}`, ''];
   const bySection = {};
   rows.forEach(function(r){ (bySection[r.section||'ללא שיוך']=bySection[r.section||'ללא שיוך']||[]).push(r); });
   Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
     lines.push('▸ ' + sec);
     bySection[sec].forEach(function(row){
-      const s = st(row.code);
+      const s = st(row.id);
       const parts = [`הוזמן ${mark(s.ordered)}`, `מדף ${mark(s.shelf)}`];
-      if(row.needsOffshelf) parts.push(`חוץ מדף ${mark(s.offshelf)}`);
-      lines.push(`  מבצע ${row.code} - ${row.title||''} (${row.supplier||''}) | ${parts.join(' | ')}`);
+      if(row.showOffShelf) parts.push(`חוץ מדף ${mark(s.offshelf)}`);
+      lines.push(`  מבצע ${row.id} - ${row.title||''} (${row.supplier||''}) | ${parts.join(' | ')}`);
     });
     lines.push('');
   });
-  const text = lines.join('\n');
+  return lines.join('\n');
+}
+function pbExportPrint(){
+  document.getElementById('pbExportMenu').classList.remove('open');
+  const text = pbBuildReportText();
   const win = window.open('', '_blank');
   win.document.write(`<pre style="font-family:Arial;white-space:pre-wrap;direction:rtl;padding:20px;">${text}</pre>`);
   win.document.title = 'דוח מבצעים';
   win.print();
 }
-
-document.addEventListener('click', function(){ if(promoBoardOpenPanel){ promoBoardOpenPanel=null; renderPromoBoard(); } });
+function pbExportWhatsapp(){
+  document.getElementById('pbExportMenu').classList.remove('open');
+  const text = pbBuildReportText();
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
+function pbExportEmail(){
+  document.getElementById('pbExportMenu').classList.remove('open');
+  const text = pbBuildReportText();
+  const to = (session.branchInfo && session.branchInfo.email) || currentUserEmail || '';
+  const subject = encodeURIComponent('דוח מבצעים - ' + (session.branchName||''));
+  window.location.href = `mailto:${to}?subject=${subject}&body=${encodeURIComponent(text)}`;
+}
