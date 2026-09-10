@@ -510,9 +510,14 @@ function pbLoadPdfLibs(){
   return load('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
     .then(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
 }
+let pbReadyFile = null; // ה-PDF המוכן, ממתין ללחיצת "שתף עכשיו" (לחיצה טרייה)
+
 function pbExportPdfShare(btn){
-  // מציג משוב ישירות על הכפתור עצמו (לא רק toast חולף), כדי שיהיה ברור
-  // באיזה שלב זה נמצא אם משהו נתקע.
+  // בונה את ה-PDF (השלב האיטי). בכוונה *לא* קורא כאן ל-navigator.share() —
+  // דפדפנים דורשים שקריאה כזו תגיע מיד עם לחיצת משתמש, בלי המתנה לפניה
+  // (טעינת ספריות + רינדור יכולים לקחת כמה שניות, ואז הדפדפן כבר לא
+  // "מזהה" את זה כלחיצה טרייה וחוסם עם "Permission denied"). לכן: מכינים
+  // כאן, ורק לחיצה שנייה נפרדת (pbShareReadyFile) עושה את השיתוף עצמו.
   const originalText = btn ? btn.textContent : null;
   const setBtn = (t) => { if(btn) btn.textContent = t; };
   setBtn('⏳ טוען ספריות...');
@@ -545,23 +550,40 @@ function pbExportPdfShare(btn){
       return pdf.output('blob');
     });
   }).then(function(blob){
-    setBtn('⏳ פותח שיתוף...');
-    const file = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      return navigator.share({files:[file], title:'דוח מבצעים'}).catch(function(err){
-        if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
-      });
+    pbReadyFile = new File([blob], 'דוח-מבצעים.pdf', {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[pbReadyFile]})){
+      // מחליפים את הכפתור עצמו לכפתור "שתף עכשיו" - הלחיצה עליו היא
+      // לחיצה טרייה ונפרדת, בלי שום המתנה אחריה לפני share().
+      if(btn){
+        btn.textContent = '✅ שתף עכשיו';
+        btn.onclick = function(e){ e.stopPropagation(); pbShareReadyFile(btn, originalText); };
+      }
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'דוח-מבצעים.pdf'; a.click();
       URL.revokeObjectURL(url);
       toast('המכשיר הזה לא תומך בשיתוף ישיר - ה-PDF ירד, אפשר לצרף אותו ידנית');
+      setBtn(originalText);
     }
   }).catch(function(err){
     console.error('pbExportPdfShare failed:', err);
     toast('שגיאה ביצירת ה-PDF: ' + err.message);
-  }).finally(function(){
     setBtn(originalText);
+  });
+}
+
+/* קריאה זו רצה מיד עם לחיצה טרייה (בלי שום await/then לפניה) - זה בדיוק
+   מה שהדפדפן דורש כדי לא לחסום את navigator.share() עם "Permission denied". */
+function pbShareReadyFile(btn, originalText){
+  if(!pbReadyFile) return;
+  navigator.share({files:[pbReadyFile], title:'דוח מבצעים'}).catch(function(err){
+    if(err && err.name !== 'AbortError') toast('שגיאה בשיתוף: ' + err.message);
+  }).finally(function(){
+    pbReadyFile = null;
+    if(btn){
+      btn.textContent = originalText;
+      btn.onclick = function(e){ e.stopPropagation(); pbExportPdfShare(btn); };
+    }
   });
 }
