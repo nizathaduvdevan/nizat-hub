@@ -399,6 +399,33 @@
   }
 
   /* ============================================================
+     טפסים דיגיטליים — רשימת קישורים לטפסי Apps Script חיצוניים
+     קיימים (כרטיס מתנה / כרטיסי מנהלים). לא נוגע ב-.home-tool-*
+     שמעליו; קלאסים חדשים בלבד (df- prefix).
+  ============================================================ */
+  .df-list{display:flex;flex-direction:column;gap:10px;}
+  .df-item{
+    display:flex;align-items:center;gap:12px;
+    background:var(--surface-1);border:1px solid var(--border);border-radius:16px;
+    padding:14px;width:100%;text-align:right;font-family:inherit;color:inherit;
+    text-decoration:none;cursor:pointer;
+  }
+  .df-item:hover{border-color:var(--brand-primary);}
+  .df-item-icon{
+    width:38px;height:38px;border-radius:10px;background:rgba(69,122,31,0.10);
+    display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;
+  }
+  html[data-theme="dark"] .df-item-icon{background:rgba(120,184,64,0.16);}
+  .df-item-title{flex:1;font-size:14.5px;font-weight:700;}
+  .df-item-arrow{font-size:16px;color:var(--muted);flex:none;}
+  .df-iframe-wrap{
+    display:none;overflow:auto;border-radius:16px;border:1px solid var(--border);
+    margin:-4px 0 4px;background:var(--surface-1);
+  }
+  .df-iframe-wrap.open{display:block;}
+  .df-iframe-wrap iframe{display:block;}
+
+  /* ============================================================
      "ניהול תוכן" — App Grid לפי מחלקה (3 בשורה)
      ------------------------------------------------------------
      בלוק עצמאי, לא נוגע בכללי home-tool-* למעלה — הצרכים שונים מעט
