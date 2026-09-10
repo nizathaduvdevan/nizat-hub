@@ -20,7 +20,6 @@ const DEPARTMENT_ADMIN_TILES = {
   purchasing: [
     {tab:'instructions', icon:'📋', title:'עדכונים', sub:'פרסום עדכונים לרשת'},
     {tab:'promoUpload', icon:'📊', title:'מכר מבצעים', sub:'מעקב מכירות מבצעים'},
-    {tab:'promoItems', icon:'🏷️', title:'פריטי מבצע', sub:'ברקוד ושם מוצר לכל קוד'},
     {view:'purchasingPromoUpload', icon:'📥', title:'העלאת חוברת מבצעים', sub:'אוטומטי מ-PDF'},
     {tab:'events', icon:'🗓', title:'יומן אירועים', sub:'אירועים רשתיים'}
   ]
@@ -45,7 +44,6 @@ function viewAdmin(){
     {id:'events', label:'אירועים'},
     {id:'materials', label:'חומרים'},
     {id:'promoUpload', label:'מכר מבצעים'},
-    {id:'promoItems', label:'פריטי מבצע'},
     {id:'feedback', label:'משוב מהסניפים'},
     {id:'stats', label:'סטטיסטיקות'},
     {id:'texts', label:'טקסטים באתר'},
@@ -53,7 +51,7 @@ function viewAdmin(){
     {id:'broadcast', label:'שידור עדכון (Push)'}
   ];
   const tabs = allTabs.filter(t => {
-    if(t.id==='promoUpload' || t.id==='promoItems') return canManageDepartment('purchasing');
+    if(t.id==='promoUpload') return canManageDepartment('purchasing');
     return isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1;
   });
   const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
@@ -124,7 +122,6 @@ function viewAdmin(){
     ${ui.adminTab==='events' ? adminList('events') : ''}
     ${ui.adminTab==='materials' ? adminList('materials') : ''}
     ${ui.adminTab==='promoUpload' ? adminPromoUpload() : ''}
-    ${ui.adminTab==='promoItems' ? adminPromoItemsUpload() : ''}
     ${ui.adminTab==='feedback' ? adminFeedback() : ''}
     ${ui.adminTab==='stats' ? adminStats() : ''}
     ${ui.adminTab==='texts' ? adminTexts() : ''}

@@ -251,11 +251,7 @@ function pbRenderFilterGroups(allRows){
   html += `<button type="button" class="pb-clear-btn ${anyActive?'pb-is-active':''}" onclick="pbClearFilters()">נקה סינון</button>`;
   html += `
     <div class="pb-export-wrap" style="margin-inline-start:auto;">
-      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbToggleExportMenu();">📤 שתף / הדפס דוח</button>
-      <div class="pb-export-menu" id="pbExportMenu" onclick="event.stopPropagation();">
-        <button type="button" class="pb-export-option" onclick="pbExportPrint()">🖨️ הדפסה (על נייר)</button>
-        <button type="button" class="pb-export-option" onclick="pbExportPdfShare()">📄 יצירת PDF לשיתוף (מייל / וואטסאפ)</button>
-      </div>
+      <button type="button" class="pb-export-btn" onclick="event.stopPropagation();pbExportPrint()">📄 הפקת PDF (לשיתוף / הדפסה)</button>
     </div>
   `;
   html += '</div>';
@@ -277,16 +273,8 @@ function pbClearFilters(){
   const box = document.getElementById('pbSearchBox'); if(box) box.value='';
   renderPromoBoard();
 }
-function pbToggleExportMenu(){
-  const menu = document.getElementById('pbExportMenu');
-  if(menu) menu.classList.toggle('open');
-}
 document.addEventListener('click', function(){
-  let changed = false;
-  if(promoBoardOpenPanel){ promoBoardOpenPanel=null; changed=true; }
-  const menu = document.getElementById('pbExportMenu');
-  if(menu && menu.classList.contains('open')){ menu.classList.remove('open'); }
-  if(changed) renderPromoBoard();
+  if(promoBoardOpenPanel){ promoBoardOpenPanel=null; renderPromoBoard(); }
 });
 
 function renderPromoBoard(){
@@ -476,12 +464,24 @@ function pbBuildReportHTML(){
 }
 
 function pbExportPrint(){
-  document.getElementById('pbExportMenu').classList.remove('open');
   const win = window.open('', '_blank');
   win.document.write(pbBuildReportHTML());
   win.document.close();
   win.focus();
-  setTimeout(function(){ win.print(); }, 300); // תן לדפדפן החדש רגע לרנדר לפני שפותחים הדפסה
+  // בחלון ההדפסה שנפתח: בחירת "Save as PDF" (או "שמור כ-PDF") כיעד ההדפסה
+  // מפיקה קובץ PDF אמיתי שאפשר לצרף במייל/וואטסאפ - זה עובד ככה גם בנייד
+  // וגם בדסקטופ, בלי צורך בספריות חיצוניות שעלולות להיכשל בטעינה.
+  setTimeout(function(){ win.print(); }, 300);
+}
+function pbExportPrint(){
+  const win = window.open('', '_blank');
+  win.document.write(pbBuildReportHTML());
+  win.document.close();
+  win.focus();
+  // בחלון ההדפסה שנפתח: בחירת "Save as PDF" (או "שמור כ-PDF") כיעד ההדפסה
+  // מפיקה קובץ PDF אמיתי שאפשר לצרף במייל/וואטסאפ - זה עובד ככה גם בנייד
+  // וגם בדסקטופ, בלי צורך בספריות חיצוניות שעלולות להיכשל בטעינה.
+  setTimeout(function(){ win.print(); }, 300);
 }
 /* יוצר PDF אמיתי (לא רק דיאלוג הדפסה) מתוך אותו דוח HTML המעוצב, כדי
    שאפשר יהיה לשתף אותו כקובץ אמיתי (במובייל: חלונית השיתוף המקורית של
