@@ -21,9 +21,11 @@ let purchasingUploadState = {
   supplierFile: null,
   displayFile: null,
   catalogFile: null,
+  imagesFile: null,
   supplierFileUrl: null,
   displayFileUrl: null,
   catalogFileUrl: null,
+  imagesFileUrl: null,
   previewSummary: null,
 };
 
@@ -111,6 +113,14 @@ function renderPurchasingUploadUI(){
           <button class="ppu-btn" onclick="document.getElementById('ppuFile_catalog').click()">בחר קובץ (אופציונלי)</button>
         </div>
       </div>
+
+      <div class="ppu-slot" id="ppuSlot_images">
+        <div><div class="ppu-slot-title">קובץ תמונות מוצרים (קישורים)</div><div class="ppu-slot-meta">Excel · מהאתר · המגוון גדל, מומלץ לרענן מדי פעם</div></div>
+        <div>
+          <input type="file" accept=".xlsx,.xls" id="ppuFile_images" style="display:none" onchange="ppuFileSelected('images', this.files[0])">
+          <button class="ppu-btn" onclick="document.getElementById('ppuFile_images').click()">בחר קובץ (אופציונלי)</button>
+        </div>
+      </div>
     </div>
 
     <div class="ppu-actions">
@@ -169,7 +179,7 @@ function ppuUploadToStorage(file, path){
 
 /* ---------- Preview: upload files (if changed), call the Cloud Function in "preview" mode ---------- */
 function ppuRunPreview(){
-  const { supplierFile, displayFile, catalogFile } = purchasingUploadState;
+  const { supplierFile, displayFile, catalogFile, imagesFile } = purchasingUploadState;
   if(!supplierFile || !displayFile){
     toast('חובה לבחור את שני קבצי המבצעים (ספקים + תצוגה) לפני הבדיקה');
     return;
@@ -186,6 +196,11 @@ function ppuRunPreview(){
       ppuUploadToStorage(catalogFile, `purchasing/latest_catalog.xlsx`).then(url => purchasingUploadState.catalogFileUrl = url)
     );
   }
+  if(imagesFile){
+    uploads.push(
+      ppuUploadToStorage(imagesFile, `purchasing/latest_images.xlsx`).then(url => purchasingUploadState.imagesFileUrl = url)
+    );
+  }
 
   Promise.all(uploads)
     .then(() => {
@@ -199,6 +214,7 @@ function ppuRunPreview(){
         displayFileUrl: purchasingUploadState.displayFileUrl,
       };
       if(purchasingUploadState.catalogFileUrl) payload.catalogFileUrl = purchasingUploadState.catalogFileUrl;
+      if(purchasingUploadState.imagesFileUrl) payload.imagesFileUrl = purchasingUploadState.imagesFileUrl;
       return fetch(CLOUD_FUNCTION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
@@ -223,6 +239,7 @@ function ppuRenderPreview(summary){
   box.innerHTML = `
     <div class="ppu-row ok">✓ ${summary.total_promos} מבצעים זוהו</div>
     <div class="ppu-row ok">✓ ${summary.barcode_catalog_matches}/${summary.barcode_catalog_total} ברקודים תואמו לקטלוג</div>
+    <div class="ppu-row ok">✓ ${summary.barcode_image_matches||0}/${summary.barcode_catalog_total} ברקודים עם תמונה</div>
     ${flagged.length ? `<div class="ppu-row warn">⚠ ${flagged.length} שורות מסומנות לבדיקה ידנית:</div>
       <ul style="font-size:12.5px;color:#B4611E;margin:4px 0 0;padding-inline-start:20px;">
         ${flagged.map(f => `<li>${f.reason} — ${f.desc || ''}</li>`).join('')}
@@ -245,6 +262,7 @@ function ppuPublish(){
       displayFileUrl: purchasingUploadState.displayFileUrl,
     };
     if(purchasingUploadState.catalogFileUrl) payload.catalogFileUrl = purchasingUploadState.catalogFileUrl;
+    if(purchasingUploadState.imagesFileUrl) payload.imagesFileUrl = purchasingUploadState.imagesFileUrl;
     return fetch(CLOUD_FUNCTION_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },

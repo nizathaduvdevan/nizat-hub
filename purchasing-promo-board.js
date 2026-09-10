@@ -72,9 +72,11 @@ function pbInjectStyleOnce(){
     .pb-supplier{font-size:13px; font-weight:600; color:var(--brand,#4E7A3A); margin-bottom:4px;}
     .pb-id{font-weight:700; font-size:12px; color:var(--muted,#888); background:var(--bg,#f7f7f5); padding:1px 7px; border-radius:5px; display:inline-block; margin-bottom:6px;}
     .pb-id.flag{color:#B4611E; background:#FBECDD; font-style:italic;}
-    .pb-item-row{display:flex; align-items:baseline; gap:8px; font-size:13.5px; margin-bottom:2px;}
+    .pb-item-row{display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:2px;}
     .pb-item-row .pb-barcode{font-size:11.5px; color:var(--muted,#888);}
     .pb-item-row .pb-iname{font-weight:600;}
+    .pb-thumb{width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
+    .pb-thumb-placeholder{width:36px; height:36px; border-radius:6px; border:1px dashed var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
     .pb-show-items{background:none; border:1px dashed var(--gridline,#ddd); color:var(--brand,#4E7A3A); border-radius:7px; font-family:inherit; font-size:12px; padding:4px 10px; cursor:pointer; margin-top:4px;}
     .pb-items-extra{display:none; margin-top:4px;}
     .pb-items-extra.open{display:block;}
@@ -206,6 +208,22 @@ function pbUniqueOptions(key, allRows){
   return Object.keys(counts).sort((a,b)=>a.localeCompare(b,'he')).map(function(v){ return {value:v, n:counts[v]}; });
 }
 
+/* אפשרויות השלמה אוטומטית לתיבת החיפוש הראשית - שמות מוצרים, ברקודים,
+   מספרי מבצע וספקים, כדי שהדפדפן יציע השלמה תוך כדי הקלדה. */
+function pbSearchSuggestionOptions(allRows){
+  const set = new Set();
+  allRows.forEach(function(row){
+    if(row.supplier) set.add(row.supplier);
+    set.add('מבצע ' + row.displayId);
+    (row.items||[]).forEach(function(i){
+      if(i.name) set.add(i.name);
+      if(i.barcode) set.add(i.barcode);
+    });
+  });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'he'))
+    .map(function(v){ return `<option value="${v}">`; }).join('');
+}
+
 function pbMatchesFilters(row){
   for(const def of PB_FILTER_DEFS){
     const set = promoBoardFilters[def.key];
@@ -301,7 +319,8 @@ function renderPromoBoard(){
   let html = `
     <div class="pb-toolbar">
       <div class="pb-search-row">
-        <input type="text" id="pbSearchBox" placeholder="חיפוש לפי שם מוצר, ברקוד, מספר מבצע או ספק..." value="${promoBoardSearch}">
+        <input type="text" id="pbSearchBox" list="pbSearchSuggestions" placeholder="חיפוש לפי שם מוצר, ברקוד, מספר מבצע או ספק..." value="${promoBoardSearch}">
+        <datalist id="pbSearchSuggestions">${pbSearchSuggestionOptions(allRows)}</datalist>
       </div>
       ${pbRenderFilterGroups(allRows)}
     </div>
@@ -336,11 +355,11 @@ function renderPromoBoard(){
             <div class="pb-supplier">${row.supplier||''}</div>
             <div class="pb-id${row.needsCheck?' flag':''}">מבצע ${row.displayId}</div>
             <div class="pb-title">${row.title || '(שם לא זוהה)'}</div>
-            ${first ? `<div class="pb-item-row"><span class="pb-barcode">${first.barcode}</span><span class="pb-iname">${first.name}</span></div>` : ''}
+            ${first ? pbItemRowHtml(first) : ''}
             ${rest.length ? `
               <button type="button" class="pb-show-items" onclick="pbToggleItems('${row.id}', ${rest.length})">הצג מוצרים נוספים (${rest.length})</button>
               <div class="pb-items-extra ${promoBoardExpanded[row.id]?'open':''}" id="pb-items-${row.id}">
-                ${rest.map(i=>`<div class="pb-item-row"><span class="pb-barcode">${i.barcode}</span><span class="pb-iname">${i.name}</span></div>`).join('')}
+                ${rest.map(pbItemRowHtml).join('')}
               </div>
             ` : ''}
             <div class="pb-meta">
@@ -385,6 +404,12 @@ function renderPromoBoard(){
   }
 }
 
+function pbItemRowHtml(i){
+  const thumb = i.imageUrl
+    ? `<img class="pb-thumb" src="${i.imageUrl}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'pb-thumb-placeholder'}))">`
+    : '<div class="pb-thumb-placeholder"></div>';
+  return `<div class="pb-item-row">${thumb}<span class="pb-barcode">${i.barcode}</span><span class="pb-iname">${i.name}</span></div>`;
+}
 function pbToggleItems(code, count){
   promoBoardExpanded[code] = !promoBoardExpanded[code];
   const el = document.getElementById('pb-items-' + code);
