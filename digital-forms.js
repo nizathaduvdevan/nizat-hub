@@ -82,12 +82,15 @@ function toggleDigitalForm(key){
     return;
   }
 
+  /* חשוב: מוסיפים 'open' *לפני* המדידה. כל עוד הקלאס לא קיים, ה-CSS
+     מגדיר display:none, ואלמנט מוסתר תמיד נמדד ברוחב 0 — מה שהיה גורם
+     ל-scale=0 (iframe קיים אבל בגודל אפס, בלי שום שגיאה בקונסולה). */
+  wrap.classList.add('open');
   if(!wrap.dataset.built){
     const scale = wrap.clientWidth / cfg.naturalWidth;
     wrap.innerHTML = `<iframe src="${cfg.url}" style="width:${cfg.naturalWidth}px;height:${cfg.naturalHeight}px;border:none;transform:scale(${scale});transform-origin:top right;"></iframe>`;
     wrap.style.height = Math.round(cfg.naturalHeight*scale)+'px';
     wrap.dataset.built = '1';
   }
-  wrap.classList.add('open');
   btn.setAttribute('aria-expanded','true');
 }
