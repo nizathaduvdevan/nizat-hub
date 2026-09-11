@@ -329,4 +329,5 @@ function renderContent(){
   else if(ui.view==='myCalendar') el.innerHTML = viewMyCalendar();
   else if(ui.view==='messages') el.innerHTML = viewMessages();
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
+  else if(ui.view==='digitalForms') el.innerHTML = viewDigitalForms();
 }
