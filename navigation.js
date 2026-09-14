@@ -332,4 +332,5 @@ function renderContent(){
   else if(ui.view==='digitalForms') el.innerHTML = viewDigitalForms();
   else if(ui.view==='giftCardForm') el.innerHTML = viewGiftCardForm();
   else if(ui.view==='managerCardForm') el.innerHTML = viewManagerCardForm();
+  else if(ui.view==='aiChat') el.innerHTML = viewAiChat();
 }

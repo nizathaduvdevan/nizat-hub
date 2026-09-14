@@ -169,12 +169,11 @@ function viewGlobalHome(){
         <span class="home-tool-sub">בקשה או דיווח למחלקה</span>
       </div>
 
-      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="ידע ונהלים, חיפוש במידע של HUB, בקרוב">
-        <span class="home-tool-soon-tag">בקרוב</span>
+      <button type="button" class="home-tool-card" onclick="goTo('aiChat')" aria-label="ידע ונהלים, שאלו את עוזר ה-AI">
         <span class="home-tool-icon" aria-hidden="true">📚</span>
         <span class="home-tool-title">ידע ונהלים</span>
-        <span class="home-tool-sub">חיפוש במידע של HUB</span>
-      </div>
+        <span class="home-tool-sub">שאלו את עוזר ה-AI</span>
+      </button>
 
       <div class="home-tool-card home-tool-card--soon" role="group" aria-label="פעולות מהירות, דיווחים ובקשות נפוצות, בקרוב">
         <span class="home-tool-soon-tag">בקרוב</span>
