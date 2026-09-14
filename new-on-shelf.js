@@ -72,6 +72,14 @@ function nosInjectStyleOnce(){
     .nos-dropzone.drag-over{outline:2px dashed var(--brand,#4E7A3A); outline-offset:-2px;}
     .nos-unmatched-strip{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
     .nos-unmatched-strip img{width:70px; height:70px; object-fit:contain; border-radius:8px; background:#fff; border:1px solid var(--gridline,#ddd); cursor:grab;}
+
+    .nos-batch-actions{margin-inline-start:auto;}
+    .nos-icon-btn{border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:6px; padding:3px 8px; font-size:12px; cursor:pointer; color:var(--muted,#888);}
+    .nos-icon-btn.danger{color:#B4611E; border-color:#F0C9A8;}
+    .nos-card-wrap{position:relative;}
+    .nos-card-del{position:absolute; top:4px; left:4px; background:rgba(255,255,255,.9); border:1px solid var(--gridline,#ddd); border-radius:50%; width:22px; height:22px; line-height:20px; text-align:center; cursor:pointer; font-size:12px; color:#B4611E; z-index:2;}
+    .nos-img-actions{display:flex; gap:4px; padding:5px 10px 0;}
+    .nos-img-actions button{flex:1; font-size:11px; padding:3px 4px; border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:6px; cursor:pointer; color:var(--muted,#777);}
   `;
   document.head.appendChild(style);
 }
@@ -117,6 +125,7 @@ function nosRenderFeed(){
     root.innerHTML = `<div class="nos-empty">אין כרגע מוצרים חדשים על המדף.</div>`;
     return;
   }
+  const isAdmin = typeof canManageDepartment === 'function' && canManageDepartment('purchasing');
   /* קיבוץ לפי batchId (קובץ/ספק+תאריך שהועלה יחד), שמירה על סדר מהחדש לישן */
   const batches = [];
   const byId = {};
@@ -128,21 +137,24 @@ function nosRenderFeed(){
     byId[item.batchId].products.push(item);
   });
 
-  root.innerHTML = batches.map(b => `
+  root.innerHTML = `
+    <input type="file" id="nosImageUploadInput" accept="image/*" style="display:none" onchange="nosImageFileSelected(this.files[0])">
+    ${batches.map(b => `
     <div class="nos-batch">
       <div class="nos-batch-head">
         <span class="nos-supplier">${b.supplier||'ספק'}</span>
         <span class="nos-date">${b.dateText||''}</span>
         ${b.note ? `<span class="nos-note">${b.note}</span>` : ''}
+        ${isAdmin ? `<span class="nos-batch-actions"><button class="nos-icon-btn danger" onclick="nosDeleteBatch('${b.batchId}')">🗑 מחק ספק זה</button></span>` : ''}
       </div>
       <div class="nos-grid">
-        ${b.products.map(nosProductCard).join('')}
+        ${b.products.map(p => nosProductCard(p, isAdmin)).join('')}
       </div>
     </div>
-  `).join('');
+  `).join('')}`;
 }
 
-function nosProductCard(p){
+function nosProductCard(p, isAdmin){
   const img = p.imageUrl
     ? `<img class="nos-card-img" src="${p.imageUrl}" alt="${p.name||''}">`
     : `<div class="nos-card-img-placeholder">אין תמונה</div>`;
@@ -151,17 +163,69 @@ function nosProductCard(p){
     .map(k => `<span>${k}: ${p.fields[k]}</span>`)
     .join('');
   return `
-    <div class="nos-card">
-      ${img}
-      <div class="nos-card-body">
-        <div class="nos-card-name">${p.name||'(ללא שם)'}</div>
-        <div class="nos-card-meta">
-          ${p.code ? `<span>קוד: ${p.code}</span>` : ''}
-          ${extraFields}
+    <div class="nos-card-wrap">
+      ${isAdmin ? `<div class="nos-card-del" title="מחק מוצר" onclick="nosDeleteProduct('${p.id}')">✕</div>` : ''}
+      <div class="nos-card">
+        ${img}
+        ${isAdmin ? `
+          <div class="nos-img-actions">
+            <button onclick="nosTriggerImageUpload('${p.id}')">📷 החלף</button>
+            ${p.imageUrl ? `<button onclick="nosDeleteImage('${p.id}')">מחק תמונה</button>` : ''}
+          </div>
+        ` : ''}
+        <div class="nos-card-body">
+          <div class="nos-card-name">${p.name||'(ללא שם)'}</div>
+          <div class="nos-card-meta">
+            ${p.code ? `<span>קוד: ${p.code}</span>` : ''}
+            ${extraFields}
+          </div>
         </div>
       </div>
     </div>
   `;
+}
+
+/* ---------- Admin management: delete product / batch, replace / remove image ---------- */
+
+function nosDeleteProduct(docId){
+  if(!confirm('למחוק את המוצר הזה? הפעולה בלתי הפיכה.')) return;
+  db.collection('newOnShelf').doc(docId).delete()
+    .then(() => { toast('נמחק'); nosLoadFeed(); })
+    .catch(err => toast('שגיאה במחיקה: ' + err.message));
+}
+
+function nosDeleteBatch(batchId){
+  const items = nosFeedItems.filter(i => i.batchId === batchId);
+  if(!confirm(`למחוק את כל ${items.length} המוצרים של הספק הזה? הפעולה בלתי הפיכה.`)) return;
+  const batch = db.batch();
+  items.forEach(i => batch.delete(db.collection('newOnShelf').doc(i.id)));
+  batch.commit()
+    .then(() => { toast('נמחק'); nosLoadFeed(); })
+    .catch(err => toast('שגיאה במחיקה: ' + err.message));
+}
+
+let nosImageUploadTargetId = null;
+function nosTriggerImageUpload(docId){
+  nosImageUploadTargetId = docId;
+  document.getElementById('nosImageUploadInput').click();
+}
+
+function nosImageFileSelected(file){
+  if(!file || !nosImageUploadTargetId) return;
+  const docId = nosImageUploadTargetId;
+  toast('מעלה תמונה...');
+  uploadFileToCloudinary(file)
+    .then(result => db.collection('newOnShelf').doc(docId).update({imageUrl: result.secure_url}))
+    .then(() => { toast('התמונה עודכנה'); nosLoadFeed(); })
+    .catch(err => toast('שגיאה בהעלאה: ' + err.message))
+    .finally(() => { nosImageUploadTargetId = null; });
+}
+
+function nosDeleteImage(docId){
+  if(!confirm('למחוק את התמונה של המוצר הזה?')) return;
+  db.collection('newOnShelf').doc(docId).update({imageUrl: null})
+    .then(() => { toast('התמונה הוסרה'); nosLoadFeed(); })
+    .catch(err => toast('שגיאה: ' + err.message));
 }
 
 /* ============================================================
