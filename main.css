@@ -426,6 +426,28 @@
   .df-iframe-wrap iframe{display:block;}
 
   /* ============================================================
+     טופס GIFT CARD (native) — gcf- prefix בלבד, לא נוגע ב-.field
+     הכללי (שכבר משמש את מסך ההתחברות ומשמש גם כאן).
+  ============================================================ */
+  .gcf-section{
+    background:var(--surface-1);border:1px solid var(--border);border-radius:14px;
+    padding:14px;margin-bottom:12px;
+  }
+  .gcf-section-title{font-size:13px;font-weight:700;color:var(--blue-dark);margin:0 0 10px;}
+  .gcf-section-sub{font-size:13px;color:var(--text-secondary);margin:-6px 0 10px;}
+  .gcf-radio-group{display:flex;flex-direction:column;gap:8px;}
+  .gcf-radio-option{
+    display:flex;align-items:center;gap:8px;padding:10px 12px;
+    background:#fff;border:1.5px solid var(--gridline);border-radius:10px;cursor:pointer;
+  }
+  html[data-theme="dark"] .gcf-radio-option{background:#242422;}
+  .gcf-radio-option input[type="radio"]{width:16px;height:16px;accent-color:var(--blue);flex:none;margin:0;}
+  .gcf-radio-option:has(input:checked){border-color:var(--blue);background:rgba(69,122,31,0.08);}
+  .gcf-conditional{margin:2px 4px;padding-right:10px;border-right:2px solid var(--blue);}
+  .gcf-receipt-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+  .gcf-receipt-grid .field{margin-bottom:0;}
+
+  /* ============================================================
      "ניהול תוכן" — App Grid לפי מחלקה (3 בשורה)
      ------------------------------------------------------------
      בלוק עצמאי, לא נוגע בכללי home-tool-* למעלה — הצרכים שונים מעט

@@ -48,11 +48,11 @@ function viewDigitalForms(){
       <h1>טפסים דיגיטליים</h1>
     </div>
     <div class="df-list">
-      <a class="df-item" href="${DIGITAL_FORMS.giftCard.url}">
+      <button type="button" class="df-item" onclick="goTo('giftCardForm')">
         <span class="df-item-icon" aria-hidden="true">${DIGITAL_FORMS.giftCard.icon}</span>
         <span class="df-item-title">${DIGITAL_FORMS.giftCard.title}</span>
-        <span class="df-item-arrow" aria-hidden="true">↗</span>
-      </a>
+        <span class="df-item-arrow" aria-hidden="true">‹</span>
+      </button>
 
       <button type="button" class="df-item" onclick="toggleDigitalForm('managerCard')" id="df-toggle-managerCard" aria-expanded="false">
         <span class="df-item-icon" aria-hidden="true">${DIGITAL_FORMS.managerCard.icon}</span>
