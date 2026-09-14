@@ -1,14 +1,24 @@
 /* ============================================================
    טופס הזמנת כרטיס מנהלים — טופס פנימי ב-NIZAT HUB, בעיצוב האתר
    עצמו, שמחליף בהדרגה את הטופס החיצוני (Google Apps Script).
-   השליחה ממשיכה להגיע לאותו Apps Script ברקע (fetch, no-cors) —
-   דרך הענף החדש שנוסף ל-doGet ב-Main.gs, שקורא לאותה
+
+   שיטת השליחה: ניווט ישיר (location.href), לא fetch ברקע. הסיבה:
+   הטופס הזה דורש זיהוי Google (getAuthorizedUserEmail_ ב-Main.gs)
+   בשתי שכבות, וזה לא עובד ב-fetch חוצה-דומיין (session.getActiveUser
+   לא מזוהה מחוץ להקשר ניווט רגיל של גוגל) — נבדק ואומת בפועל. GIFT
+   CARD לא נתקל בזה כי doGet שלו לא דורש זיהוי גוגל בכלל. סוד משותף
+   בקוד לא רלוונטי כאן כי ריפו nizat-hub ציבורי — כל מפתח כאן יהיה
+   גלוי לכולם, אז זו לא הגנה אמיתית.
+
+   המשמעות: הדפדפן עצמו עובר לעמוד של גוגל (לא "toast + חזרה
+   אוטומטית" חלק כמו ב-GIFT CARD) — אבל האימות עובד בלי סיכון אבטחה
+   חדש. דרך הענף החדש ב-doGet (Main.gs), שקורא לאותה
    submitManagerCardRequest() שהטופס המקורי כבר משתמש בה.
 
-   הוולידציה כאן במכוון מחמירה ותואמת בדיוק את הכללים ב-
-   Validation.gs (validateAndNormalize_), כי אין דרך לקרוא שגיאת
-   שרת חזרה במצב no-cors — כל שגיאה שהשרת עלול לזרוק חייבת
-   להיתפס כאן קודם, אחרת השליחה תיכשל בשקט.
+   הוולידציה כאן תואמת בדיוק את הכללים ב-Validation.gs
+   (validateAndNormalize_) — נבדקת כאן קודם כדי לא לשלוח בקשה פגומה,
+   אבל אם היא כן תיכשל בצד גוגל, השגיאה תוצג בדף התשובה עצמו (JSON
+   גלוי), לא בשקט כמו שהיה קורה עם fetch.
 
    שם הסניף ומייל הסניף לא מוצגים כשדות — נלקחים מ-session,
    בדיוק כמו בטופס GIFT CARD.
@@ -112,7 +122,7 @@ function mcfClearError(){
   if(el) el.style.display = 'none';
 }
 
-async function submitManagerCardFormNizatHub(){
+function submitManagerCardFormNizatHub(){
   mcfClearError();
 
   const val = id => (document.getElementById(id)||{}).value?.trim() || '';
@@ -175,15 +185,8 @@ async function submitManagerCardFormNizatHub(){
 
   const btn = document.getElementById('mcf-submit-btn');
   btn.disabled = true;
-  btn.textContent = 'שולח...';
+  btn.textContent = 'מעביר לאישור...';
 
-  try{
-    await fetch(MANAGER_CARD_FORM_URL + '?' + query, {mode:'no-cors'});
-    toast('הבקשה נשלחה בהצלחה');
-    goTo('digitalForms');
-  }catch(err){
-    mcfShowError('לא הצלחנו לשלוח את הבקשה. בדקו את החיבור לאינטרנט ונסו שוב.');
-    btn.disabled = false;
-    btn.textContent = 'שלח/י בקשה';
-  }
+  // ניווט ישיר, לא fetch — כדי שהזיהוי מול גוגל יעבוד (ראו הערה בראש הקובץ).
+  location.href = MANAGER_CARD_FORM_URL + '?' + query;
 }
