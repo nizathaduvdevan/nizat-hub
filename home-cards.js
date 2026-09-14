@@ -56,3 +56,37 @@ function renderAreaManagerConversationsCard(){
     </div>
   `;
 }
+/* ---------- מודאל "שירות לקוחות" — כפתור בגריד "הכלים שלי" במסך הבית של הסניפים ----------
+   פותח מודאל קצר עם שלוש דרכי פנייה: וואטסאפ, שיחת טלפון ומייל. משתמש
+   במנגנון המודאל הקיים (modal-overlay/modal-body, ר' materials.js/admin.js)
+   ובמחלקת dtc-item הקיימת (ר' main.css) לשורת פעולה עם אייקון וחץ, כדי
+   לא להוסיף CSS חדש. */
+function openCustomerServiceModal(){
+  const branchName = (session.branchInfo && session.branchName) ? session.branchName : '';
+  const greeting = branchName ? `שלום, פנייה לשירות הלקוחות מסניף ${branchName}` : 'שלום, פנייה לשירות הלקוחות';
+  const waText = encodeURIComponent(greeting + ' - ');
+  const mailSubject = encodeURIComponent(branchName ? `פנייה משירות הלקוחות - סניף ${branchName}` : 'פנייה משירות הלקוחות');
+  const mailBody = encodeURIComponent(greeting + '\n\n');
+  document.getElementById('modal-body').innerHTML = `
+    <h3>שירות לקוחות</h3>
+    <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;margin:-8px 0 4px;">בחרו את הדרך הנוחה לכם לפנות</p>
+    <div class="dtc-list">
+      <a class="dtc-item" style="text-decoration:none;" href="https://wa.me/97225473584?text=${waText}" target="_blank" rel="noopener" onclick="closeModal()">
+        <span class="dtc-icon">💬</span><span class="dtc-text">וואטסאפ</span>
+        <span class="df-item-arrow" style="margin-inline-start:auto;">›</span>
+      </a>
+      <a class="dtc-item" style="text-decoration:none;" href="tel:025473584" onclick="closeModal()">
+        <span class="dtc-icon">📞</span><span class="dtc-text">שיחת טלפון</span>
+        <span class="df-item-arrow" style="margin-inline-start:auto;">›</span>
+      </a>
+      <a class="dtc-item" style="text-decoration:none;" href="mailto:service@nizat.co.il?subject=${mailSubject}&body=${mailBody}" onclick="closeModal()">
+        <span class="dtc-icon">✉️</span><span class="dtc-text">מייל</span>
+        <span class="df-item-arrow" style="margin-inline-start:auto;">›</span>
+      </a>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">סגירה</button>
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}

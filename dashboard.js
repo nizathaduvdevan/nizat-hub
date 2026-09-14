@@ -187,6 +187,11 @@ function viewGlobalHome(){
         <span class="home-tool-icon" aria-hidden="true">📄</span>
         <span class="home-tool-title">טפסים דיגיטליים</span>
       </button>
+
+      <button type="button" class="home-tool-card" onclick="openCustomerServiceModal()" aria-label="שירות לקוחות, יצירת קשר בוואטסאפ, בטלפון או במייל">
+        <span class="home-tool-icon" aria-hidden="true">🎧</span>
+        <span class="home-tool-title">שירות לקוחות</span>
+      </button>
     </div>
 
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
