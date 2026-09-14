@@ -1,0 +1,329 @@
+/* ============================================================
+   new-on-shelf.js
+   ------------------------------------------------------------
+   "חדש על המדף" · רכש.
+   שני מסכים:
+     1. viewNewOnShelf()        — פיד לסניפים: כל המוצרים החדשים
+        שהועלו ב-14 הימים האחרונים (מחיקה בפועל דרך Firestore TTL
+        על השדה expiresAt — יש להפעיל TTL policy בקונסולה על
+        הקולקציה newOnShelf / השדה expiresAt, פעם אחת).
+     2. viewNewOnShelfUpload()  — מסך לצוות רכש: גוררים כמה קבצי
+        .docx בבת אחת (קובץ אחד לכל ספק, כמו שמתקבל בפועל), המערכת
+        מעלה אותם ל-Storage, שולחת ל-Cloud Function parse_new_on_shelf
+        (mode:'preview') שמפענחת טבלה+כותרת+תמונות ומשייכת כל תמונה
+        למוצר המתאים לה (AI Vision), ומציגה preview לבדיקה. רק
+        בלחיצה על "פרסם לסניפים" (mode:'publish') זה נכתב בפועל
+        ל-Firestore ונחשף לסניפים.
+
+   דורש: firebase-init.js (db, firebase.auth()) ו-
+   firebase-storage-compat.js כבר טעונים לפני קובץ זה.
+   נטען כמו שאר קבצי המודולים: <script src="new-on-shelf.js"></script>
+   אחרי purchasing-promo-board.js.
+============================================================ */
+
+const NOS_CLOUD_FUNCTION_URL = "https://us-central1-nizat-hub.cloudfunctions.net/parse_new_on_shelf";
+const NOS_ICON_BOX = '<path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>';
+
+function nosInjectStyleOnce(){
+  if(document.getElementById('nos-style')) return;
+  const style = document.createElement('style');
+  style.id = 'nos-style';
+  style.textContent = `
+    .nos-batch{background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:12px; padding:16px 18px; margin-bottom:16px;}
+    .nos-batch-head{display:flex; align-items:baseline; gap:10px; margin-bottom:12px; flex-wrap:wrap;}
+    .nos-supplier{font-size:16px; font-weight:800; color:var(--brand,#4E7A3A);}
+    .nos-date{font-size:13px; color:var(--muted,#888);}
+    .nos-note{font-size:12.5px; color:var(--muted,#777); width:100%; font-style:italic;}
+    .nos-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px;}
+    .nos-card{border:1px solid var(--gridline,#ddd); border-radius:10px; overflow:hidden; background:var(--bg,#f7f7f5);}
+    .nos-card-img{width:100%; height:120px; object-fit:contain; background:#fff; display:block;}
+    .nos-card-img-placeholder{width:100%; height:120px; background:#eee; display:flex; align-items:center; justify-content:center; color:var(--muted,#999); font-size:12px;}
+    .nos-card-body{padding:8px 10px;}
+    .nos-card-name{font-size:13px; font-weight:700; line-height:1.35; margin-bottom:4px;}
+    .nos-card-meta{font-size:11.5px; color:var(--muted,#888); display:flex; flex-wrap:wrap; gap:4px 8px;}
+    .nos-empty{text-align:center; color:var(--muted,#888); padding:40px 10px;}
+
+    .nos-drop{border:2px dashed var(--gridline,#ddd); border-radius:12px; padding:32px 16px; text-align:center; cursor:pointer; margin-bottom:16px; background:var(--card,#fff);}
+    .nos-drop.drag{border-color:var(--brand,#4E7A3A); background:rgba(78,122,58,.08);}
+    .nos-drop-title{font-weight:800; font-size:15px; margin-bottom:4px;}
+    .nos-drop-hint{font-size:12.5px; color:var(--muted,#888);}
+    .nos-filelist{margin:0 0 16px; padding:0; list-style:none;}
+    .nos-filelist li{display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--gridline,#ddd); border-radius:8px; margin-bottom:6px; font-size:13.5px; background:var(--card,#fff);}
+    .nos-filelist button{margin-inline-start:auto; border:none; background:none; color:#B4611E; cursor:pointer; font-size:13px;}
+
+    .nos-actions{display:flex; gap:12px; margin-bottom:16px;}
+    .nos-primary{background:var(--brand,#4E7A3A); color:#fff; border:none; border-radius:10px; padding:13px 22px; font-family:inherit; font-size:15px; font-weight:800; cursor:pointer;}
+    .nos-primary:disabled{background:#B7C4AE; cursor:not-allowed;}
+    .nos-secondary{background:var(--card,#fff); border:1px solid var(--gridline,#ddd); border-radius:10px; padding:13px 18px; font-family:inherit; font-size:14px; font-weight:600; cursor:pointer;}
+
+    .nos-status{margin-bottom:16px; padding:12px 14px; border-radius:8px; font-size:13.5px; display:none; align-items:center; gap:10px;}
+    .nos-status.show{display:flex;}
+    .nos-status.busy{background:#EAF1E4; color:#3D6B2E;}
+    .nos-status.error{background:#FBECDD; color:#B4611E;}
+    .nos-status.success{background:#E7F2E9; color:#3D7A4F; font-weight:700;}
+    .nos-spinner{width:16px; height:16px; border:2.5px solid rgba(0,0,0,.15); border-top-color:currentColor; border-radius:50%; animation:nos-spin .8s linear infinite; flex-shrink:0;}
+    @keyframes nos-spin{to{transform:rotate(360deg);}}
+
+    .nos-preview-batch{border:1px solid var(--gridline,#ddd); border-radius:10px; padding:14px 16px; margin-bottom:14px;}
+    .nos-flag-row{color:#B4611E; font-size:12.5px; margin-top:4px;}
+    .nos-unmatched{border:1px dashed #B4611E; border-radius:8px; padding:10px; margin-top:10px; background:#FBECDD;}
+  `;
+  document.head.appendChild(style);
+}
+
+/* ============================================================
+   מסך 1: פיד לסניפים
+============================================================ */
+let nosFeedItems = null;
+let nosFeedLoaded = false;
+
+function viewNewOnShelf(){
+  nosInjectStyleOnce();
+  setTimeout(nosLoadFeed, 0);
+  return `
+    <div class="page-head">
+      <h1>${icon('cart')} חדש על המדף</h1>
+      <p>מוצרים חדשים שנכנסו למדף · רכש · 14 הימים האחרונים</p>
+    </div>
+    <div id="nos-feed-root"><div class="nos-empty">טוען...</div></div>
+  `;
+}
+
+function nosLoadFeed(){
+  const root = document.getElementById('nos-feed-root');
+  if(!root) return;
+  db.collection('newOnShelf').orderBy('createdAt','desc').get()
+    .then(snap => {
+      nosFeedItems = [];
+      snap.forEach(doc => nosFeedItems.push(Object.assign({id:doc.id}, doc.data())));
+      nosFeedLoaded = true;
+      nosRenderFeed();
+    })
+    .catch(err => {
+      console.error('nosLoadFeed failed', err);
+      root.innerHTML = `<div class="nos-empty">שגיאה בטעינת הנתונים: ${err.message}</div>`;
+    });
+}
+
+function nosRenderFeed(){
+  const root = document.getElementById('nos-feed-root');
+  if(!root) return;
+  if(!nosFeedItems || !nosFeedItems.length){
+    root.innerHTML = `<div class="nos-empty">אין כרגע מוצרים חדשים על המדף.</div>`;
+    return;
+  }
+  /* קיבוץ לפי batchId (קובץ/ספק+תאריך שהועלה יחד), שמירה על סדר מהחדש לישן */
+  const batches = [];
+  const byId = {};
+  nosFeedItems.forEach(item => {
+    if(!byId[item.batchId]){
+      byId[item.batchId] = { batchId:item.batchId, supplier:item.supplier, dateText:item.dateText, note:item.note, products:[] };
+      batches.push(byId[item.batchId]);
+    }
+    byId[item.batchId].products.push(item);
+  });
+
+  root.innerHTML = batches.map(b => `
+    <div class="nos-batch">
+      <div class="nos-batch-head">
+        <span class="nos-supplier">${b.supplier||'ספק'}</span>
+        <span class="nos-date">${b.dateText||''}</span>
+        ${b.note ? `<span class="nos-note">${b.note}</span>` : ''}
+      </div>
+      <div class="nos-grid">
+        ${b.products.map(nosProductCard).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function nosProductCard(p){
+  const img = p.imageUrl
+    ? `<img class="nos-card-img" src="${p.imageUrl}" alt="${p.name||''}">`
+    : `<div class="nos-card-img-placeholder">אין תמונה</div>`;
+  const extraFields = Object.keys(p.fields||{})
+    .filter(k => ['קוד','שם המוצר'].indexOf(k) === -1)
+    .map(k => `<span>${k}: ${p.fields[k]}</span>`)
+    .join('');
+  return `
+    <div class="nos-card">
+      ${img}
+      <div class="nos-card-body">
+        <div class="nos-card-name">${p.name||'(ללא שם)'}</div>
+        <div class="nos-card-meta">
+          ${p.code ? `<span>קוד: ${p.code}</span>` : ''}
+          ${extraFields}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   מסך 2: העלאה (רכש)
+============================================================ */
+let nosUploadState = { files:[], previewSummary:null };
+
+function viewNewOnShelfUpload(){
+  nosInjectStyleOnce();
+  setTimeout(nosRenderUploadUI, 0);
+  return `
+    <div class="page-head">
+      <h1>העלאת "חדש על המדף"</h1>
+      <p>ניהול תוכן · רכש</p>
+    </div>
+    <div id="nos-upload-root"></div>
+  `;
+}
+
+function nosRenderUploadUI(){
+  const root = document.getElementById('nos-upload-root');
+  if(!root) return;
+  root.innerHTML = `
+    <div class="nos-drop" id="nosDropZone">
+      <div class="nos-drop-title">גררו לכאן את קבצי ה-Word של השבוע</div>
+      <div class="nos-drop-hint">אפשר כמה קבצים בבת אחת (קובץ אחד לכל ספק) · חייב להיות .docx</div>
+      <input type="file" id="nosFileInput" accept=".docx" multiple style="display:none">
+    </div>
+    <ul class="nos-filelist" id="nosFileList"></ul>
+    <div class="nos-actions">
+      <button class="nos-secondary" onclick="nosRunPreview()">🔍 בדוק ותצוגה מקדימה</button>
+      <button class="nos-primary" id="nosPublishBtn" disabled onclick="nosPublish()">✅ פרסם לסניפים</button>
+    </div>
+    <div class="nos-status" id="nosStatus"></div>
+    <div id="nosPreviewRoot"></div>
+  `;
+
+  const dropZone = document.getElementById('nosDropZone');
+  const fileInput = document.getElementById('nosFileInput');
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => nosAddFiles([...e.target.files]));
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    nosAddFiles([...e.dataTransfer.files]);
+  });
+}
+
+function nosAddFiles(files){
+  const docx = files.filter(f => /\.docx$/i.test(f.name));
+  if(docx.length < files.length) toast('רק קבצי .docx נתמכים - קבצים אחרים סוננו החוצה');
+  nosUploadState.files.push(...docx);
+  nosRenderFileList();
+}
+
+function nosRenderFileList(){
+  const list = document.getElementById('nosFileList');
+  if(!list) return;
+  list.innerHTML = nosUploadState.files.map((f,i) => `
+    <li>📄 ${f.name} <button onclick="nosRemoveFile(${i})">הסר</button></li>
+  `).join('');
+}
+
+function nosRemoveFile(i){
+  nosUploadState.files.splice(i,1);
+  nosRenderFileList();
+}
+
+function nosSetStatus(kind, text){
+  const el = document.getElementById('nosStatus');
+  if(!el) return;
+  el.className = 'nos-status show ' + kind;
+  el.innerHTML = (kind==='busy' ? '<span class="nos-spinner"></span>' : (kind==='success' ? '✅ ' : '⚠️ ')) + text;
+}
+function nosClearStatus(){
+  const el = document.getElementById('nosStatus');
+  if(el){ el.className = 'nos-status'; el.innerHTML=''; }
+}
+
+function nosUploadToStorage(file, path){
+  const ref = firebase.storage().ref().child(path);
+  return ref.put(file).then(snap => snap.ref.getDownloadURL());
+}
+
+function nosRunPreview(){
+  if(!nosUploadState.files.length){
+    toast('חובה לבחור לפחות קובץ אחד לפני הבדיקה');
+    return;
+  }
+  nosSetStatus('busy', 'מעלה קבצים...');
+  const stamp = Date.now();
+  const uploads = nosUploadState.files.map((file,i) =>
+    nosUploadToStorage(file, `newOnShelf/${stamp}_${i}_${file.name}`).then(url => ({url, name:file.name}))
+  );
+  Promise.all(uploads)
+    .then(fileRefs => {
+      nosSetStatus('busy', 'הקבצים הועלו. מפענח ומשייך תמונות (יכול לקחת דקה-שתיים)...');
+      return firebase.auth().currentUser.getIdToken().then(idToken => ({idToken, fileRefs}));
+    })
+    .then(({idToken, fileRefs}) => fetch(NOS_CLOUD_FUNCTION_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+      body: JSON.stringify({mode:'preview', files:fileRefs})
+    }))
+    .then(r => r.json())
+    .then(summary => {
+      if(summary.error){ nosSetStatus('error', 'שגיאה: ' + summary.error); return; }
+      nosUploadState.previewSummary = summary;
+      nosClearStatus();
+      nosRenderPreview(summary);
+      document.getElementById('nosPublishBtn').disabled = false;
+    })
+    .catch(err => nosSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message));
+}
+
+function nosRenderPreview(summary){
+  const root = document.getElementById('nosPreviewRoot');
+  root.innerHTML = summary.files.map(f => `
+    <div class="nos-preview-batch">
+      <div class="nos-batch-head">
+        <span class="nos-supplier">${f.supplier||'(ספק לא זוהה)'}</span>
+        <span class="nos-date">${f.dateText||''}</span>
+      </div>
+      <div class="nos-grid">
+        ${f.products.map(nosProductCard).join('')}
+      </div>
+      ${!f.supplier ? `<div class="nos-flag-row">⚠ לא זוהה שם ספק בקובץ ${f.fileName} - כדאי לבדוק ידנית לפני הפרסום</div>` : ''}
+      ${f.unmatchedImages && f.unmatchedImages.length ? `
+        <div class="nos-unmatched">
+          ⚠ ${f.unmatchedImages.length} תמונות לא שויכו לוודאות מספיקה למוצר - יוצגו בנפרד לסניפים:
+          <div class="nos-grid" style="margin-top:8px;">
+            ${f.unmatchedImages.map(u => `<img class="nos-card-img" style="border-radius:8px;" src="${u.url}">`).join('')}
+          </div>
+        </div>` : ''}
+    </div>
+  `).join('');
+}
+
+function nosPublish(){
+  if(!nosUploadState.previewSummary){
+    toast('יש להריץ קודם "בדוק ותצוגה מקדימה"');
+    return;
+  }
+  document.getElementById('nosPublishBtn').disabled = true;
+  nosSetStatus('busy', 'מפרסם לסניפים...');
+  firebase.auth().currentUser.getIdToken()
+    .then(idToken => fetch(NOS_CLOUD_FUNCTION_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+      body: JSON.stringify({mode:'publish', files: nosUploadState.previewSummary.sourceFiles})
+    }))
+    .then(r => r.json())
+    .then(result => {
+      if(result.error){
+        nosSetStatus('error', 'שגיאה: ' + result.error);
+        document.getElementById('nosPublishBtn').disabled = false;
+        return;
+      }
+      nosSetStatus('success', `פורסם בהצלחה! ${result.totalProducts} מוצרים נכתבו ל-Firestore.`);
+      nosUploadState = { files:[], previewSummary:null };
+      nosRenderFileList();
+      document.getElementById('nosPreviewRoot').innerHTML = '';
+    })
+    .catch(err => {
+      nosSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' - אם זה קרה אחרי המתנה ארוכה, ייתכן שהפרסום בכל זאת הצליח; בדקו את הפיד לפני שמנסים שוב.');
+      document.getElementById('nosPublishBtn').disabled = false;
+    });
+}

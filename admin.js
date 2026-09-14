@@ -21,6 +21,7 @@ const DEPARTMENT_ADMIN_TILES = {
     {tab:'instructions', icon:'📋', title:'עדכונים', sub:'פרסום עדכונים לרשת'},
     {tab:'promoUpload', icon:'📊', title:'מכר מבצעים', sub:'מעקב מכירות מבצעים'},
     {view:'purchasingPromoUpload', icon:'📥', title:'העלאת חוברת מבצעים', sub:'אוטומטי מ-PDF'},
+    {view:'newOnShelfUpload', icon:'🆕', title:'העלאת חדש על המדף', sub:'אוטומטי מ-Word'},
     {tab:'events', icon:'🗓', title:'יומן אירועים', sub:'אירועים רשתיים'}
   ]
 };

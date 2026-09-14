@@ -19,7 +19,8 @@ const DEPARTMENT_SCREENS = {
   operations: [],
   purchasing: [
     {id:'promoSales', label:'מכר מבצעים', icon:icon('chart')},
-    {id:'promoBoard', label:'חוברת מבצעים', icon:icon('clipboard')}
+    {id:'promoBoard', label:'חוברת מבצעים', icon:icon('clipboard')},
+    {id:'newOnShelf', label:'חדש על המדף', icon:icon('box')}
   ],
   hr: []
 };
@@ -324,6 +325,8 @@ function renderContent(){
   else if(ui.view==='promoSales') el.innerHTML = viewPromoSales();
   else if(ui.view==='promoBoard') el.innerHTML = viewPurchasingPromoBoard();
   else if(ui.view==='purchasingPromoUpload') el.innerHTML = viewPurchasingPromoUpload();
+  else if(ui.view==='newOnShelf') el.innerHTML = viewNewOnShelf();
+  else if(ui.view==='newOnShelfUpload') el.innerHTML = viewNewOnShelfUpload();
   else if(ui.view==='sendAreaConversations') el.innerHTML = viewAreaManagerConversations();
   else if(ui.view==='areaConversations') el.innerHTML = viewBranchConversations();
   else if(ui.view==='myCalendar') el.innerHTML = viewMyCalendar();
