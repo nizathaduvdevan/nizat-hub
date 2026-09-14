@@ -331,4 +331,5 @@ function renderContent(){
   else if(ui.view==='admin') el.innerHTML = viewAdmin();
   else if(ui.view==='digitalForms') el.innerHTML = viewDigitalForms();
   else if(ui.view==='giftCardForm') el.innerHTML = viewGiftCardForm();
+  else if(ui.view==='managerCardForm') el.innerHTML = viewManagerCardForm();
 }
