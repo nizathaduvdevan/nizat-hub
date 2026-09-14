@@ -96,3 +96,72 @@ function gcfToggleCardNumber(show){
   const wrap = document.getElementById('gcf-cardNumber-wrap');
   if(wrap) wrap.style.display = show ? 'block' : 'none';
 }
+
+function gcfShowError(msg){
+  const el = document.getElementById('gcf-error');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function gcfClearError(){
+  const el = document.getElementById('gcf-error');
+  if(el) el.style.display = 'none';
+}
+
+async function submitGiftCardForm(){
+  gcfClearError();
+
+  const val = id => (document.getElementById(id)||{}).value?.trim() || '';
+  const ordererName = val('gcf-ordererName');
+  const ordererPhone = val('gcf-ordererPhone');
+  const recipientName = val('gcf-recipientName');
+  const recipientPhone = val('gcf-recipientPhone');
+  const amount = val('gcf-amount');
+  const message = val('gcf-message');
+  const receiptNumber = val('gcf-receiptNumber');
+  const cashierNumber = val('gcf-cashierNumber');
+  const branchNumber = val('gcf-branchNumber');
+  const hasCardEl = document.querySelector('input[name="gcf-hasCard"]:checked');
+  const hasCard = hasCardEl ? hasCardEl.value : 'לא';
+  const cardNumber = hasCard === 'כן' ? val('gcf-cardNumber') : '';
+
+  if(!ordererName || !ordererPhone || !recipientName || !recipientPhone || !amount){
+    gcfShowError('נא למלא את כל שדות החובה (מזמין/ה, מקבל/ת, סכום הטעינה).');
+    return;
+  }
+  if(hasCard === 'כן' && !cardNumber){
+    gcfShowError('נא להזין את מספר הכרטיס הקיים, או לבחור "יש להפיק כרטיס חדש".');
+    return;
+  }
+
+  const branch = session.branchName || '';
+  const senderEmail = (session.branchInfo && session.branchInfo.email) || '';
+
+  const params = {
+    branch, senderEmail, sellerName: '',
+    ordererName, ordererPhone, recipientName, recipientPhone,
+    hasCard, cardNumber, amount, message,
+    receiptNumber, cashierNumber, branchNumber
+  };
+  const query = Object.entries(params)
+    .map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v))
+    .join('&');
+
+  const btn = document.getElementById('gcf-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'שולח...';
+
+  try{
+    // no-cors: הבקשה נשלחת בפועל, אבל לא ניתן לקרוא את התגובה או לדעת
+    // אם היא התקבלה/עברה אימות בצד גוגל — רק שהיא יצאה מהדפדפן בהצלחה.
+    await fetch(GIFT_CARD_FORM_URL + '?' + query, {mode:'no-cors'});
+    toast('הטופס נשלח בהצלחה');
+    goTo('digitalForms');
+  }catch(err){
+    // זה תופס רק כשל רשת אמיתי (אין אינטרנט/DNS) — לא כשל אימות בצד גוגל.
+    gcfShowError('לא הצלחנו לשלוח את הטופס. בדקו את החיבור לאינטרנט ונסו שוב.');
+    btn.disabled = false;
+    btn.textContent = 'שלח/י טופס להטענה';
+  }
+}
