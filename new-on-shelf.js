@@ -80,6 +80,8 @@ function nosInjectStyleOnce(){
     .nos-card-del{position:absolute; top:4px; left:4px; background:rgba(255,255,255,.9); border:1px solid var(--gridline,#ddd); border-radius:50%; width:22px; height:22px; line-height:20px; text-align:center; cursor:pointer; font-size:12px; color:#B4611E; z-index:2;}
     .nos-img-actions{display:flex; gap:4px; padding:5px 10px 0;}
     .nos-img-actions button{flex:1; font-size:11px; padding:3px 4px; border:1px solid var(--gridline,#ddd); background:var(--card,#fff); border-radius:6px; cursor:pointer; color:var(--muted,#777);}
+    .nos-img-wrap{position:relative;}
+    .nos-zoom-btn{position:absolute; bottom:6px; left:6px; width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,.9); border:1px solid var(--gridline,#ddd); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted,#666); z-index:2;}
   `;
   document.head.appendChild(style);
 }
@@ -154,9 +156,21 @@ function nosRenderFeed(){
   `).join('')}`;
 }
 
+function nosOpenImageModal(url){
+  document.getElementById('modal-body').innerHTML = `
+    <div style="text-align:center;">
+      <img src="${url}" style="max-width:100%; max-height:80vh; border-radius:8px;">
+    </div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
 function nosProductCard(p, isAdmin){
   const img = p.imageUrl
-    ? `<img class="nos-card-img" src="${p.imageUrl}" alt="${p.name||''}">`
+    ? `<div class="nos-img-wrap">
+         <img class="nos-card-img" src="${p.imageUrl}" alt="${p.name||''}">
+         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${p.imageUrl}')">${icon('search')}</div>
+       </div>`
     : `<div class="nos-card-img-placeholder">אין תמונה</div>`;
   const extraFields = Object.keys(p.fields||{})
     .filter(k => ['קוד','שם המוצר'].indexOf(k) === -1)
@@ -361,7 +375,7 @@ function nosRenderPreview(summary){
         <div class="nos-unmatched">
           ⚠ ${f.unmatchedImages.length} תמונות לא שויכו לוודאות מספיקה למוצר - גררו כל אחת למוצר הנכון:
           <div class="nos-unmatched-strip" id="nos-unmatched-${fi}">
-            ${f.unmatchedImages.map((u, ui) => `<img src="${u.url}" draggable="true" ondragstart="nosDragStart(event, ${fi}, 'unmatched', ${ui})">`).join('')}
+            ${f.unmatchedImages.map((u, ui) => `<img src="${u.url}" draggable="true" ondragstart="nosDragStart(event, ${fi}, 'unmatched', ${ui})" ondblclick="nosOpenImageModal('${u.url}')" title="גררו למוצר, או לחצו פעמיים להגדלה">`).join('')}
           </div>
         </div>` : ''}
     </div>
@@ -371,7 +385,10 @@ function nosRenderPreview(summary){
 
 function nosPreviewProductCard(fi, pi, p){
   const img = p.imageUrl
-    ? `<img class="nos-card-img nos-dropzone" draggable="true" src="${p.imageUrl}" alt="${p.name||''}" ondragstart="nosDragStart(event, ${fi}, 'product', ${pi})" ondragover="event.preventDefault()" ondrop="nosDrop(event, ${fi}, ${pi})">`
+    ? `<div class="nos-img-wrap">
+         <img class="nos-card-img nos-dropzone" draggable="true" src="${p.imageUrl}" alt="${p.name||''}" ondragstart="nosDragStart(event, ${fi}, 'product', ${pi})" ondragover="event.preventDefault()" ondrop="nosDrop(event, ${fi}, ${pi})">
+         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${p.imageUrl}')">${icon('search')}</div>
+       </div>`
     : `<div class="nos-card-img-placeholder nos-dropzone" ondragover="event.preventDefault()" ondrop="nosDrop(event, ${fi}, ${pi})">גררו תמונה לכאן</div>`;
   const extraFields = Object.keys(p.fields||{})
     .filter(k => ['קוד','שם המוצר'].indexOf(k) === -1)
