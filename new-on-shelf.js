@@ -67,6 +67,11 @@ function nosInjectStyleOnce(){
     .nos-preview-batch{border:1px solid var(--gridline,#ddd); border-radius:10px; padding:14px 16px; margin-bottom:14px;}
     .nos-flag-row{color:#B4611E; font-size:12.5px; margin-top:4px;}
     .nos-unmatched{border:1px dashed #B4611E; border-radius:8px; padding:10px; margin-top:10px; background:#FBECDD;}
+    .nos-drag-hint{font-size:12px; color:var(--muted,#888); margin-bottom:10px;}
+    .nos-dropzone{cursor:grab;}
+    .nos-dropzone.drag-over{outline:2px dashed var(--brand,#4E7A3A); outline-offset:-2px;}
+    .nos-unmatched-strip{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+    .nos-unmatched-strip img{width:70px; height:70px; object-fit:contain; border-radius:8px; background:#fff; border:1px solid var(--gridline,#ddd); cursor:grab;}
   `;
   document.head.appendChild(style);
 }
@@ -276,25 +281,81 @@ function nosRunPreview(){
 
 function nosRenderPreview(summary){
   const root = document.getElementById('nosPreviewRoot');
-  root.innerHTML = summary.files.map(f => `
+  root.innerHTML = `
+    <div class="nos-drag-hint">💡 אפשר לגרור תמונה בין מוצרים (גם מתוך "לא משויך") כדי לתקן שיוך שגוי, לפני הפרסום.</div>
+    ${summary.files.map((f, fi) => `
     <div class="nos-preview-batch">
       <div class="nos-batch-head">
         <span class="nos-supplier">${f.supplier||'(ספק לא זוהה)'}</span>
         <span class="nos-date">${f.dateText||''}</span>
       </div>
       <div class="nos-grid">
-        ${f.products.map(nosProductCard).join('')}
+        ${f.products.map((p, pi) => nosPreviewProductCard(fi, pi, p)).join('')}
       </div>
       ${!f.supplier ? `<div class="nos-flag-row">⚠ לא זוהה שם ספק בקובץ ${f.fileName} - כדאי לבדוק ידנית לפני הפרסום</div>` : ''}
       ${f.unmatchedImages && f.unmatchedImages.length ? `
         <div class="nos-unmatched">
-          ⚠ ${f.unmatchedImages.length} תמונות לא שויכו לוודאות מספיקה למוצר - יוצגו בנפרד לסניפים:
-          <div class="nos-grid" style="margin-top:8px;">
-            ${f.unmatchedImages.map(u => `<img class="nos-card-img" style="border-radius:8px;" src="${u.url}">`).join('')}
+          ⚠ ${f.unmatchedImages.length} תמונות לא שויכו לוודאות מספיקה למוצר - גררו כל אחת למוצר הנכון:
+          <div class="nos-unmatched-strip" id="nos-unmatched-${fi}">
+            ${f.unmatchedImages.map((u, ui) => `<img src="${u.url}" draggable="true" ondragstart="nosDragStart(event, ${fi}, 'unmatched', ${ui})">`).join('')}
           </div>
         </div>` : ''}
     </div>
-  `).join('');
+    `).join('')}
+  `;
+}
+
+function nosPreviewProductCard(fi, pi, p){
+  const img = p.imageUrl
+    ? `<img class="nos-card-img nos-dropzone" draggable="true" src="${p.imageUrl}" alt="${p.name||''}" ondragstart="nosDragStart(event, ${fi}, 'product', ${pi})" ondragover="event.preventDefault()" ondrop="nosDrop(event, ${fi}, ${pi})">`
+    : `<div class="nos-card-img-placeholder nos-dropzone" ondragover="event.preventDefault()" ondrop="nosDrop(event, ${fi}, ${pi})">גררו תמונה לכאן</div>`;
+  const extraFields = Object.keys(p.fields||{})
+    .filter(k => ['קוד','שם המוצר'].indexOf(k) === -1)
+    .map(k => `<span>${k}: ${p.fields[k]}</span>`)
+    .join('');
+  return `
+    <div class="nos-card">
+      ${img}
+      <div class="nos-card-body">
+        <div class="nos-card-name">${p.name||'(ללא שם)'}</div>
+        <div class="nos-card-meta">
+          ${p.code ? `<span>קוד: ${p.code}</span>` : ''}
+          ${extraFields}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+let nosDragSource = null; // {fileIdx, kind:'product'|'unmatched', index}
+
+function nosDragStart(ev, fileIdx, kind, index){
+  nosDragSource = {fileIdx, kind, index};
+  ev.dataTransfer.effectAllowed = 'move';
+}
+
+function nosDrop(ev, targetFileIdx, targetProductIdx){
+  ev.preventDefault();
+  if(!nosDragSource) return;
+  const files = nosUploadState.previewSummary.files;
+  const targetProduct = files[targetFileIdx].products[targetProductIdx];
+  const oldTargetUrl = targetProduct.imageUrl || null;
+
+  let sourceUrl = null;
+  if(nosDragSource.kind === 'product'){
+    const sourceProduct = files[nosDragSource.fileIdx].products[nosDragSource.index];
+    sourceUrl = sourceProduct.imageUrl;
+    sourceProduct.imageUrl = oldTargetUrl; // swap — the displaced image goes where the dragged one came from
+  } else {
+    const list = files[nosDragSource.fileIdx].unmatchedImages;
+    sourceUrl = list[nosDragSource.index].url;
+    list.splice(nosDragSource.index, 1); // consumed — no longer "unmatched"
+    if(oldTargetUrl) list.push({url: oldTargetUrl}); // displaced image becomes unmatched instead of vanishing
+  }
+  targetProduct.imageUrl = sourceUrl;
+
+  nosDragSource = null;
+  nosRenderPreview(nosUploadState.previewSummary);
 }
 
 function nosPublish(){
@@ -308,7 +369,7 @@ function nosPublish(){
     .then(idToken => fetch(NOS_CLOUD_FUNCTION_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
-      body: JSON.stringify({mode:'publish', files: nosUploadState.previewSummary.sourceFiles})
+      body: JSON.stringify({mode:'publish', files: nosUploadState.previewSummary.files})
     }))
     .then(r => r.json())
     .then(result => {
