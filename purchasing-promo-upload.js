@@ -7,12 +7,19 @@
    על "פרסם לסניפים" כותב בפועל ל-promoBooklet/promoProducts.
 
    דורש: firebase-init.js כבר טעון (משתנה גלובלי db, ו-firebase.auth()
-   פעיל), וכן firebase-storage-compat.js בתגית <script> ב-index.html
-   (עדיין לא קיים שם — יש להוסיף לפני שקובץ זה ייטען, ראו הערה בתחתית).
+   פעיל), וכן firebase-storage-compat.js בתגית <script> ב-index.html.
 
    נטען כמו שאר קבצי המודולים: <script src="purchasing-promo-upload.js"></script>
    אחרי firebase-init.js, ולפני navigation.js אם navigation.js קורא לפונקציה
    viewPurchasingPromoUpload בזמן טעינה (בדרך כלל לא, כי היא רק על goTo).
+
+   ------------------------------------------------------------
+   קיבעון קבצים: כל 4 השקעים (ספקים / תצוגה / קטלוג / תמונות) נשמרים
+   ב-Firestore (siteTexts/purchasingPromoNotice) עם URL + שם קובץ +
+   תאריך עדכון נפרד לכל שקע. בכניסה למסך נטען המצב הזה ומוצג בכל שקע.
+   בלחיצה על "בדוק ותצוגה מקדימה" מועלה מחדש רק קובץ שנבחר בפועל באותה
+   פעימה - שקע שלא נגעת בו ממשיך להשתמש ב-URL השמור, כך שאפשר לרענן
+   קובץ בודד בלי להחליף את כל השאר.
 ============================================================ */
 
 const CLOUD_FUNCTION_URL = "https://us-central1-nizat-hub.cloudfunctions.net/parse_promo_booklet";
@@ -26,6 +33,10 @@ let purchasingUploadState = {
   displayFileUrl: null,
   catalogFileUrl: null,
   imagesFileUrl: null,
+  supplierFileName: null,
+  displayFileName: null,
+  catalogFileName: null,
+  imagesFileName: null,
   previewSummary: null,
 };
 
@@ -88,10 +99,10 @@ function renderPurchasingUploadUI(){
 
     <div class="ppu-card">
       <h2>העלאת קבצים</h2>
-      <div class="ppu-hint">שני קבצי החוברת מתעדכנים כל סבב מבצעים. קובץ הקטלוג נשאר קבוע לאורך זמן.</div>
+      <div class="ppu-hint">שני קבצי החוברת מתעדכנים כל סבב מבצעים. קובץ הקטלוג נשאר קבוע לאורך זמן. כל שקע נשמר בנפרד - אפשר לרענן קובץ אחד בלבד בלי לגעת בשאר.</div>
 
       <div class="ppu-slot" id="ppuSlot_supplier">
-        <div><div class="ppu-slot-title">קובץ מבצעים 1 (ספקים)</div><div class="ppu-slot-meta">PDF · מסודר לפי ספק</div></div>
+        <div><div class="ppu-slot-title">קובץ מבצעים 1 (ספקים)</div><div class="ppu-slot-meta" data-orig="PDF · מסודר לפי ספק">PDF · מסודר לפי ספק</div></div>
         <div>
           <input type="file" accept="application/pdf" id="ppuFile_supplier" style="display:none" onchange="ppuFileSelected('supplier', this.files[0])">
           <button class="ppu-btn" onclick="document.getElementById('ppuFile_supplier').click()">בחר קובץ</button>
@@ -99,7 +110,7 @@ function renderPurchasingUploadUI(){
       </div>
 
       <div class="ppu-slot" id="ppuSlot_display">
-        <div><div class="ppu-slot-title">קובץ מבצעים 2 (תצוגה)</div><div class="ppu-slot-meta">PDF · מסודר לפי הנחיות תצוגה</div></div>
+        <div><div class="ppu-slot-title">קובץ מבצעים 2 (תצוגה)</div><div class="ppu-slot-meta" data-orig="PDF · מסודר לפי הנחיות תצוגה">PDF · מסודר לפי הנחיות תצוגה</div></div>
         <div>
           <input type="file" accept="application/pdf" id="ppuFile_display" style="display:none" onchange="ppuFileSelected('display', this.files[0])">
           <button class="ppu-btn" onclick="document.getElementById('ppuFile_display').click()">בחר קובץ</button>
@@ -107,7 +118,7 @@ function renderPurchasingUploadUI(){
       </div>
 
       <div class="ppu-slot" id="ppuSlot_catalog">
-        <div><div class="ppu-slot-title">קובץ מוצרים כללי (קטלוג)</div><div class="ppu-slot-meta">Excel · נשאר קבוע, מעלים רק כשיש שינוי אמיתי</div></div>
+        <div><div class="ppu-slot-title">קובץ מוצרים כללי (קטלוג)</div><div class="ppu-slot-meta" data-orig="Excel · נשאר קבוע, מעלים רק כשיש שינוי אמיתי">Excel · נשאר קבוע, מעלים רק כשיש שינוי אמיתי</div></div>
         <div>
           <input type="file" accept=".xlsx,.xls" id="ppuFile_catalog" style="display:none" onchange="ppuFileSelected('catalog', this.files[0])">
           <button class="ppu-btn" onclick="document.getElementById('ppuFile_catalog').click()">בחר קובץ (אופציונלי)</button>
@@ -115,7 +126,7 @@ function renderPurchasingUploadUI(){
       </div>
 
       <div class="ppu-slot" id="ppuSlot_images">
-        <div><div class="ppu-slot-title">קובץ תמונות מוצרים (קישורים)</div><div class="ppu-slot-meta">Excel · מהאתר · המגוון גדל, מומלץ לרענן מדי פעם</div></div>
+        <div><div class="ppu-slot-title">קובץ תמונות מוצרים (קישורים)</div><div class="ppu-slot-meta" data-orig="Excel · מהאתר · המגוון גדל, מומלץ לרענן מדי פעם">Excel · מהאתר · המגוון גדל, מומלץ לרענן מדי פעם</div></div>
         <div>
           <input type="file" accept=".xlsx,.xls" id="ppuFile_images" style="display:none" onchange="ppuFileSelected('images', this.files[0])">
           <button class="ppu-btn" onclick="document.getElementById('ppuFile_images').click()">בחר קובץ (אופציונלי)</button>
@@ -131,6 +142,46 @@ function renderPurchasingUploadUI(){
     <div class="ppu-status" id="ppuStatus"></div>
     <div class="ppu-preview" id="ppuPreviewBox"></div>
   `;
+  ppuLoadPersistedState();
+}
+
+/* ---------- Load whatever is currently saved (per-slot URL/name/date + title/notes) from Firestore ---------- */
+function ppuLoadPersistedState(){
+  db.collection('siteTexts').doc('purchasingPromoNotice').get().then(doc => {
+    if(!doc.exists) return;
+    const d = doc.data();
+    const st = purchasingUploadState;
+    st.supplierFileUrl = d.supplierFileUrl || null;
+    st.supplierFileName = d.supplierFileName || null;
+    st.displayFileUrl = d.displayFileUrl || null;
+    st.displayFileName = d.displayFileName || null;
+    st.catalogFileUrl = d.catalogFileUrl || null;
+    st.catalogFileName = d.catalogFileName || null;
+    st.imagesFileUrl = d.imagesFileUrl || null;
+    st.imagesFileName = d.imagesFileName || null;
+
+    const titleEl = document.getElementById('ppuTitle');
+    const notesEl = document.getElementById('ppuNotes');
+    if(titleEl) titleEl.value = d.title || '';
+    if(notesEl) notesEl.value = d.notes || '';
+
+    ppuMarkPersistedSlot('supplier', st.supplierFileName, d.supplierUpdatedAt);
+    ppuMarkPersistedSlot('display', st.displayFileName, d.displayUpdatedAt);
+    ppuMarkPersistedSlot('catalog', st.catalogFileName, d.catalogUpdatedAt);
+    ppuMarkPersistedSlot('images', st.imagesFileName, d.imagesUpdatedAt);
+  }).catch(err => console.error('ppuLoadPersistedState failed', err));
+}
+
+/* ---------- Show, in a given slot, which file is already saved and when it was last updated ---------- */
+function ppuMarkPersistedSlot(kind, name, updatedAt){
+  if(!name) return; // nothing saved yet for this slot - leave the default hint text as-is
+  const slot = document.getElementById('ppuSlot_' + kind);
+  if(!slot) return;
+  slot.classList.add('filled');
+  const meta = slot.querySelector('.ppu-slot-meta');
+  const orig = meta.dataset.orig || meta.textContent;
+  const dateStr = (updatedAt && updatedAt.toDate) ? updatedAt.toDate().toLocaleDateString('he-IL') : '';
+  meta.textContent = orig + ' · שמור כרגע: ' + name + (dateStr ? ' (עודכן ' + dateStr + ')' : '');
 }
 
 /* מציג שורת סטטוס עם ספינר + טיימר שנספר בזמן אמת, כדי שיהיה ברור
@@ -177,28 +228,43 @@ function ppuUploadToStorage(file, path){
   return ref.put(file).then(snap => snap.ref.getDownloadURL());
 }
 
-/* ---------- Preview: upload files (if changed), call the Cloud Function in "preview" mode ---------- */
+/* ---------- Preview: upload only files chosen this session; reuse saved URLs for the rest ---------- */
 function ppuRunPreview(){
-  const { supplierFile, displayFile, catalogFile, imagesFile } = purchasingUploadState;
-  if(!supplierFile || !displayFile){
-    toast('חובה לבחור את שני קבצי המבצעים (ספקים + תצוגה) לפני הבדיקה');
+  const st = purchasingUploadState;
+  if(!st.supplierFile && !st.supplierFileUrl){
+    toast('לא נבחר קובץ ספקים, ואין קובץ שמור מקודם - יש לבחור קובץ.');
+    return;
+  }
+  if(!st.displayFile && !st.displayFileUrl){
+    toast('לא נבחר קובץ תצוגה, ואין קובץ שמור מקודם - יש לבחור קובץ.');
     return;
   }
   ppuSetStatus('busy', 'מעלה קבצים...');
 
   const stamp = Date.now();
-  const uploads = [
-    ppuUploadToStorage(supplierFile, `purchasing/${stamp}_supplier.pdf`).then(url => purchasingUploadState.supplierFileUrl = url),
-    ppuUploadToStorage(displayFile,  `purchasing/${stamp}_display.pdf`).then(url => purchasingUploadState.displayFileUrl = url),
-  ];
-  if(catalogFile){
+  const uploads = [];
+  if(st.supplierFile){
     uploads.push(
-      ppuUploadToStorage(catalogFile, `purchasing/latest_catalog.xlsx`).then(url => purchasingUploadState.catalogFileUrl = url)
+      ppuUploadToStorage(st.supplierFile, `purchasing/${stamp}_supplier.pdf`)
+        .then(url => { st.supplierFileUrl = url; })
     );
   }
-  if(imagesFile){
+  if(st.displayFile){
     uploads.push(
-      ppuUploadToStorage(imagesFile, `purchasing/latest_images.xlsx`).then(url => purchasingUploadState.imagesFileUrl = url)
+      ppuUploadToStorage(st.displayFile, `purchasing/${stamp}_display.pdf`)
+        .then(url => { st.displayFileUrl = url; })
+    );
+  }
+  if(st.catalogFile){
+    uploads.push(
+      ppuUploadToStorage(st.catalogFile, `purchasing/latest_catalog.xlsx`)
+        .then(url => { st.catalogFileUrl = url; })
+    );
+  }
+  if(st.imagesFile){
+    uploads.push(
+      ppuUploadToStorage(st.imagesFile, `purchasing/latest_images.xlsx`)
+        .then(url => { st.imagesFileUrl = url; })
     );
   }
 
@@ -210,11 +276,11 @@ function ppuRunPreview(){
     .then(idToken => {
       const payload = {
         mode: 'preview',
-        supplierFileUrl: purchasingUploadState.supplierFileUrl,
-        displayFileUrl: purchasingUploadState.displayFileUrl,
+        supplierFileUrl: st.supplierFileUrl,
+        displayFileUrl: st.displayFileUrl,
       };
-      if(purchasingUploadState.catalogFileUrl) payload.catalogFileUrl = purchasingUploadState.catalogFileUrl;
-      if(purchasingUploadState.imagesFileUrl) payload.imagesFileUrl = purchasingUploadState.imagesFileUrl;
+      if(st.catalogFileUrl) payload.catalogFileUrl = st.catalogFileUrl;
+      if(st.imagesFileUrl) payload.imagesFileUrl = st.imagesFileUrl;
       return fetch(CLOUD_FUNCTION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
@@ -224,7 +290,7 @@ function ppuRunPreview(){
     .then(r => r.json())
     .then(summary => {
       if(summary.error){ ppuSetStatus('error', 'שגיאה: ' + summary.error); return; }
-      purchasingUploadState.previewSummary = summary;
+      st.previewSummary = summary;
       ppuClearStatus();
       ppuRenderPreview(summary);
       document.getElementById('ppuPublishBtn').disabled = false;
@@ -247,9 +313,13 @@ function ppuRenderPreview(summary){
   `;
 }
 
-/* ---------- Publish: same call, mode "publish" — writes to promoBooklet/promoProducts ---------- */
+/* ---------- Publish: same call, mode "publish" — writes to promoBooklet/promoProducts,
+   then persists title/notes + every file's URL/name/date to siteTexts/purchasingPromoNotice.
+   Only the slots that were actually replaced this session get a new "updated" timestamp -
+   unchanged slots keep their previous date. ---------- */
 function ppuPublish(){
-  if(!purchasingUploadState.previewSummary){
+  const st = purchasingUploadState;
+  if(!st.previewSummary){
     toast('יש להריץ קודם "בדוק ותצוגה מקדימה"');
     return;
   }
@@ -258,11 +328,11 @@ function ppuPublish(){
   firebase.auth().currentUser.getIdToken().then(idToken => {
     const payload = {
       mode: 'publish',
-      supplierFileUrl: purchasingUploadState.supplierFileUrl,
-      displayFileUrl: purchasingUploadState.displayFileUrl,
+      supplierFileUrl: st.supplierFileUrl,
+      displayFileUrl: st.displayFileUrl,
     };
-    if(purchasingUploadState.catalogFileUrl) payload.catalogFileUrl = purchasingUploadState.catalogFileUrl;
-    if(purchasingUploadState.imagesFileUrl) payload.imagesFileUrl = purchasingUploadState.imagesFileUrl;
+    if(st.catalogFileUrl) payload.catalogFileUrl = st.catalogFileUrl;
+    if(st.imagesFileUrl) payload.imagesFileUrl = st.imagesFileUrl;
     return fetch(CLOUD_FUNCTION_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
@@ -276,13 +346,25 @@ function ppuPublish(){
       document.getElementById('ppuPublishBtn').disabled = false;
       return;
     }
-    // Save the title/notes text alongside the campaign metadata.
-    db.collection('siteTexts').doc('purchasingPromoNotice').set({
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+    const docPayload = {
       title: val('ppuTitle'),
       notes: val('ppuNotes'),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      supplierFileUrl: st.supplierFileUrl,
+      displayFileUrl: st.displayFileUrl,
+      catalogFileUrl: st.catalogFileUrl || null,
+      imagesFileUrl: st.imagesFileUrl || null,
+      updatedAt: now,
       updatedBy: firebase.auth().currentUser.email,
-    }, {merge:true}).catch(err => console.error('siteTexts write failed', err));
+    };
+    // רק שקע שהוחלף בפועל בפעימה הזו מקבל שם/תאריך חדשים - שקע שלא נגעת בו שומר את הישן.
+    if(st.supplierFile){ docPayload.supplierFileName = st.supplierFile.name; docPayload.supplierUpdatedAt = now; }
+    if(st.displayFile){ docPayload.displayFileName = st.displayFile.name; docPayload.displayUpdatedAt = now; }
+    if(st.catalogFile){ docPayload.catalogFileName = st.catalogFile.name; docPayload.catalogUpdatedAt = now; }
+    if(st.imagesFile){ docPayload.imagesFileName = st.imagesFile.name; docPayload.imagesUpdatedAt = now; }
+
+    db.collection('siteTexts').doc('purchasingPromoNotice').set(docPayload, {merge:true})
+      .catch(err => console.error('siteTexts write failed', err));
     ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore. אפשר לבדוק עכשיו במסך "לוח מבצעים".`);
   })
   .catch(err => {
