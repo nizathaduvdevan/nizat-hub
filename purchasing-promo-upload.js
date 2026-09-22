@@ -302,8 +302,10 @@ function ppuRenderPreview(summary){
   const box = document.getElementById('ppuPreviewBox');
   box.classList.add('open');
   const flagged = summary.flagged_for_review || [];
+  const detectedLen = summary.promo_code_digit_length_detected;
   box.innerHTML = `
     <div class="ppu-row ok">✓ ${summary.total_promos} מבצעים זוהו</div>
+    ${detectedLen ? `<div class="ppu-row ok">✓ אורך מספר מבצע שזוהה החודש: ${detectedLen} ספרות</div>` : ''}
     <div class="ppu-row ok">✓ ${summary.barcode_catalog_matches}/${summary.barcode_catalog_total} ברקודים תואמו לקטלוג</div>
     <div class="ppu-row ok">✓ ${summary.barcode_image_matches||0}/${summary.barcode_catalog_total} ברקודים עם תמונה</div>
     ${flagged.length ? `<div class="ppu-row warn">⚠ ${flagged.length} שורות מסומנות לבדיקה ידנית:</div>
