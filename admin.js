@@ -243,19 +243,15 @@ function adminPromoUpload(){
       <div id="promo-unresolved-area"></div>
     </div>
     <div class="card">
-      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 16px;">
-        קובץ חוברת המבצעים החודשית (JSON מוכן, מופק מהחוברת המקורית) — מוסיף
-        לכל קוד מבצע את התבנית, המחיר, ההערות, הגבלות סניף וקודים מאוחדים.
-        בלי זה, מסך "דוח פעולה" לא יוכל להציג ניתוח. גם כאן — קובץ חדש מחליף
-        את הישן במלואו.
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 10px;">
+        חוברת המבצעים נכנסת למערכת אוטומטית כשמחלקת הרכש מפרסמת את קבצי ה-PDF
+        במסך "חוברת מבצעים" שלה — אין צורך להעלות כאן שום קובץ. כל חוברת נשמרת
+        גם בארכיון לפי חודש, ו"דוח פעולה" בוחר לבד את החוברת שמתאימה לקובץ המכר
+        שהועלה למעלה.
       </p>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
-        כרגע במערכת: <b>${bookletCount}</b> קודי מבצע מהחוברת.
+      <div style="font-size:13px;color:var(--text-secondary);">
+        החוברת הפעילה של רכש כרגע: <b>${bookletCount}</b> קודי מבצע.
       </div>
-      <input type="file" id="promo-booklet-input" accept=".json" style="display:none;" onchange="handlePromoBookletUpload(event)">
-      <button class="btn-import" onclick="document.getElementById('promo-booklet-input').click()">📥 העלאת קובץ חוברת מבצעים (JSON)</button>
-      <button class="icon-btn" style="width:auto;padding:8px 14px;font-size:12.5px;margin-inline-start:8px;color:var(--critical,#d03b3b);" onclick="resetPromoBooklet()">🗑️ איפוס חוברת מבצעים (מחיקת הכל)</button>
-      <div id="promo-booklet-status" style="margin-top:12px;font-size:13px;"></div>
     </div>
   `;
 }
@@ -390,55 +386,41 @@ function handlePromoExcelUpload(evt){
       .filter(h=>h!=null && String(h).trim()!=='' && !isTotalsColumnHeader(h))
       .map(String))];
     const savedMapping = fullPromoColumnMapping();
-    /* שלב 1: קיצורים שכבר מוכרים מהטבלה השמורה - מהיר, בלי לחכות לרשת. */
-    const stillUnresolved = branchCols.filter(col=>!savedMapping[col]);
-    if(!stillUnresolved.length){
-      if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית (מיפוי שמור).`;
-      finalizePromoImport(savedMapping);
-      return;
-    }
-    /* שלב 2: מה שלא נמצא בטבלה השמורה - ננסה התאמה ישירה מול רשימת הסניפים
-       החיה (BRANCH_DIRECTORY), באותו מנגנון סלחני (normalizeBranchName +
-       branchMatchScore) שכבר משמש בתחרויות ובהתאמת סניף במכר מבצעים. זה בדיוק
-       פותר את המקרה שבו כותרת העמודה היא כבר שם הסניף המלא (למשל
-       "01-ניצת תל-אביב") ולא קיצור - אין שום סיבה לשאול על זה ידנית. */
-    if(statusEl) statusEl.textContent = 'מנסה להתאים עמודות אוטומטית מול רשימת הסניפים...';
+    /* כל עמודה חייבת להיות ממופה לשם סניף שקיים *כרגע* ב-BRANCH_DIRECTORY,
+       אחרת המכר נשמר תחת שם שאף סניף לא מזהה ("אין נתונים זמינים" אצל
+       הסניף, ודוח הפעולה יוצא ריק). זה בדיוק מה שקרה כשהמיפוי השמור הצביע
+       על שמות ישנים (למשל 'ניצת ביו מרקט כפ"ס') בזמן שהסניף רשום היום בשם
+       אחר ('כפר סבא ביו מרקט'). לכן:
+       שלב 1 - מיפוי שמור שהיעד שלו קיים ברשימת הסניפים הנוכחית: עובר ישר.
+       שלב 2 - כל השאר (קיצור חדש, או מיפוי שמור שהיעד שלו כבר לא קיים):
+               ננחש התאמה (findBranchDirectoryEntry), אבל לא נשמור לבד -
+               מציגים לאישור עם הניחוש מסומן מראש, כך שטעות בניחוש לא
+               תשבץ מכר של סניף אחד אצל סניף אחר. אחרי אישור אחד הכול נשמר
+               ב-Firestore ובחודשים הבאים שלב 1 מכסה הכול. */
+    if(statusEl) statusEl.textContent = 'מתאים עמודות מול רשימת הסניפים...';
     loadBranchDirectory().then(function(){
-      const autoMatched = {};
-      const trulyUnresolved = [];
-      stillUnresolved.forEach(col=>{
-        const entry = findBranchDirectoryEntry(col);
-        if(entry) autoMatched[col] = entry.name;
-        else trulyUnresolved.push(col);
+      const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
+      const mapping = {};
+      const needsReview = [];
+      const guesses = {};
+      branchCols.forEach(col=>{
+        const saved = savedMapping[col];
+        if(saved && dirNames.has(saved)){ mapping[col] = saved; return; }
+        let entry = null;
+        if(saved) entry = findBranchDirectoryEntry(saved);
+        if(!entry) entry = findBranchDirectoryEntry(col);
+        guesses[col] = entry ? entry.name : '';
+        needsReview.push(col);
       });
-      const mapping = Object.assign({}, savedMapping, autoMatched);
-      const matchedNowCount = Object.keys(autoMatched).length;
-      const finishAuto = function(){
-        if(!trulyUnresolved.length){
-          const msg = matchedNowCount
-            ? `${branchCols.length-stillUnresolved.length} עמודות זוהו ממיפוי שמור, ועוד ${matchedNowCount} זוהו אוטומטית מול רשימת הסניפים.`
-            : `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
-          if(statusEl) statusEl.textContent = msg;
-          finalizePromoImport(mapping);
-        } else {
-          if(statusEl) statusEl.textContent = `${branchCols.length-trulyUnresolved.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. נותרו ${trulyUnresolved.length} לפתרון ידני למטה.`;
-          renderPromoUnresolvedForm(trulyUnresolved);
-        }
-      };
-      /* התאמות אוטומטיות חדשות (autoMatched) נשמרות ל-Firestore מיד, כדי
-         שגם הן "ייחסכו" בחודש הבא בלי לעבור שוב דרך findBranchDirectoryEntry. */
-      if(matchedNowCount){
-        const merged = Object.assign({}, appData.promoColumnMappingExtra||{}, autoMatched);
-        db.collection('config').doc('promoColumnMapping').set({ mapping: merged }, {merge:true}).then(function(){
-          appData.promoColumnMappingExtra = merged;
-          finishAuto();
-        }).catch(function(err){
-          console.error('שמירת מיפוי אוטומטי נכשלה (לא קריטי, ממשיכים בכל זאת):', err);
-          finishAuto();
-        });
-      } else {
-        finishAuto();
+      if(!needsReview.length){
+        if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
+        finalizePromoImport(mapping);
+        return;
       }
+      const guessed = needsReview.filter(c=>guesses[c]).length;
+      if(statusEl) statusEl.textContent = `${branchCols.length-needsReview.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. `
+        + `נותרו ${needsReview.length} לאישור למטה (${guessed} עם הצעה מסומנת מראש) — בדיקה חד-פעמית.`;
+      renderPromoUnresolvedForm(needsReview, guesses);
     });
   };
   reader.readAsArrayBuffer(file);
@@ -449,7 +431,8 @@ function handlePromoExcelUpload(evt){
 }
 /* מציגה טופס קטן לפתרון קיצורי עמודות שאינם מוכרים - בחירת סניף מרשימה
    מלאה, פעם אחת לכל קיצור. הבחירה נשמרת ב-Firestore לתמיד. */
-function renderPromoUnresolvedForm(unresolvedCols){
+function renderPromoUnresolvedForm(unresolvedCols, guesses){
+  guesses = guesses || {};
   const areaEl = document.getElementById('promo-unresolved-area');
   if(!areaEl) return;
   areaEl.innerHTML = '<div style="margin-top:10px;font-size:13px;color:var(--text-secondary);">טוען רשימת סניפים...</div>';
@@ -457,13 +440,14 @@ function renderPromoUnresolvedForm(unresolvedCols){
     const sortedBranches = [...BRANCH_DIRECTORY].sort((a,b)=>a.name.localeCompare(b.name,'he'));
     areaEl.innerHTML = `
       <div style="border-top:1px solid var(--gridline);margin-top:14px;padding-top:14px;">
-        <div style="font-weight:500;font-size:14px;margin-bottom:10px;">קיצורים לא מוכרים — בחרו סניף לכל אחד:</div>
+        <div style="font-weight:500;font-size:14px;margin-bottom:4px;">עמודות לאישור — איזה סניף זה?</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:10px;">כשיש הצעה היא כבר מסומנת. בדקו ותקנו רק מה שלא נכון, ולחצו "שמירה והמשך ייבוא". הבחירה נשמרת, ובחודשים הבאים זה לא יופיע שוב.</div>
         ${unresolvedCols.map((col,idx)=>`
           <div class="field" style="margin-bottom:10px;">
-            <label>"${col}"</label>
+            <label>"${col}"${guesses[col]?'':' <span style="color:var(--critical,#d03b3b);font-weight:400;">— לא נמצאה הצעה</span>'}</label>
             <select id="promo-resolve-${idx}">
               <option value="">— בחרו סניף —</option>
-              ${sortedBranches.map(b=>`<option value="${b.name.replace(/"/g,'&quot;')}">${b.name}</option>`).join('')}
+              ${sortedBranches.map(b=>`<option value="${b.name.replace(/"/g,'&quot;')}" ${guesses[col]===b.name?'selected':''}>${b.name}</option>`).join('')}
             </select>
           </div>
         `).join('')}
@@ -485,7 +469,12 @@ function savePromoUnresolvedAndImport(unresolvedCols){
   db.collection('config').doc('promoColumnMapping').set({ mapping: merged }, {merge:true}).then(function(){
     appData.promoColumnMappingExtra = merged;
     document.getElementById('promo-unresolved-area').innerHTML = '';
-    finalizePromoImport(fullPromoColumnMapping());
+    /* מיפוי סופי: רק יעדים שקיימים ברשימת הסניפים הנוכחית. */
+    const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
+    const full = fullPromoColumnMapping();
+    const valid = {};
+    Object.keys(full).forEach(k=>{ if(dirNames.has(full[k])) valid[k] = full[k]; });
+    finalizePromoImport(valid);
   }).catch(function(err){
     if(statusEl) statusEl.textContent = 'שגיאה בשמירת המיפוי: ' + err.message;
   });
