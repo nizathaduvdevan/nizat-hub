@@ -6,7 +6,8 @@
    ל"בדיקת חריגה" (אפס מקומי מול פעילות רשתית), "בירור פער" (מתחת
    לחציון) או "לשמר חוזקה" (מעל החציון). בנוי מעל promoProducts (מכר בפועל)
    + promoBooklet (מטא-דאטה מהחוברת: תבנית/מחיר/הערות/הגבלות/איחודים),
-   כך שאם promoBooklet ריק (עוד לא הועלה החודש) המסך פשוט לא מציג ניתוח,
+   (כיום: החוברת מהארכיון החודשי promoBookletArchive שתואמת לקובץ המכר —
+   ראו activePromoBooklet), כך שאם אין חוברת בכלל המסך פשוט לא מציג ניתוח,
    בלי לשבור את שאר האתר. */
 function median(arr){
   if(!arr.length) return null;
@@ -24,10 +25,110 @@ function promoMultiplier(template){
 }
 /* בנייה חד-פעמית (פר-רינדור) של: (1) מוצרים ממוזגים לפי קוד מאוחד
    (mergedInto מסוכם לתוך קוד ההורה), (2) מפת branchName -> sales לכל קוד. */
+/* ============================================================
+   חוברת לפי חודש (promoBookletArchive)
+   ------------------------------------------------------------
+   רכש מעלה את חוברת החודש הבא לפני שהחודש הנוכחי נגמר, והפרסום מחליף את
+   promoBooklet "החי". מכר המבצעים שמנותח כאן שייך בדרך כלל לחודש הקודם —
+   לכן ה-Cloud Function שומרת גם עותק לכל חודש ב-promoBookletArchive/{YYYY-MM},
+   וכאן בוחרים אוטומטית את החוברת שהקודים שלה תואמים הכי טוב לקודים שבקובץ
+   המכר (promoProducts). אפשר לשנות ידנית מהרשימה שבראש המסך.
+   אם אין עדיין ארכיון (או שהטעינה נכשלה) — חוזרים ל-promoBooklet כמו קודם. */
+let _promoArchiveState = 'idle'; /* idle | loading | ready | error */
+function ensurePromoBookletArchive(){
+  if(_promoArchiveState!=='idle') return;
+  _promoArchiveState = 'loading';
+  db.collection('promoBookletArchive').get().then(function(snap){
+    const arch = {};
+    snap.forEach(function(doc){
+      const v = doc.data() || {};
+      if(v.codes && typeof v.codes==='object') arch[doc.id] = {key:doc.id, label:v.label||doc.id, codes:v.codes};
+    });
+    appData.promoBookletArchive = arch;
+    _promoArchiveState = 'ready';
+    _promoAnalysisCache = null;
+    renderContent();
+  }).catch(function(err){
+    console.warn('promoBookletArchive load failed:', err);
+    appData.promoBookletArchive = {};
+    _promoArchiveState = 'error';
+    renderContent();
+  });
+}
+function promoSalesCodeSet(){
+  const set = {};
+  (appData.promoProducts||[]).forEach(p=>{ if(p.code!=null) set[String(p.code)] = true; });
+  return set;
+}
+/* כל החוברות שאפשר לבחור: החודשים מהארכיון (מהחדש לישן) + החוברת החיה. */
+function promoBookletOptions(){
+  const salesCodes = promoSalesCodeSet();
+  const salesCount = Object.keys(salesCodes).length;
+  const overlapOf = codes => Object.keys(codes||{}).filter(c=>salesCodes[c]).length;
+  const arch = appData.promoBookletArchive || {};
+  const opts = Object.keys(arch).sort().reverse().map(k=>({
+    key:k, label:arch[k].label, codes:arch[k].codes, overlap:overlapOf(arch[k].codes), salesCount
+  }));
+  const live = appData.promoBooklet || {};
+  if(Object.keys(live).length){
+    opts.push({key:'live', label:'החוברת הנוכחית של רכש', codes:live, overlap:overlapOf(live), salesCount});
+  }
+  return opts;
+}
+/* הבחירה האוטומטית: החוברת עם הכי הרבה קודים משותפים לקובץ המכר. בשוויון
+   מנצח החודש החדש יותר (הרשימה כבר ממוינת כך). */
+function autoPromoBookletKey(opts){
+  let best = null;
+  opts.forEach(o=>{ if(!best || o.overlap>best.overlap) best = o; });
+  return best ? best.key : null;
+}
+function activePromoBookletOption(){
+  const opts = promoBookletOptions();
+  const chosen = ui.promoBookletKey && opts.find(o=>o.key===ui.promoBookletKey);
+  if(chosen) return {opt:chosen, opts, auto:false};
+  const autoKey = autoPromoBookletKey(opts);
+  return {opt:opts.find(o=>o.key===autoKey)||null, opts, auto:true};
+}
+function activePromoBooklet(){
+  const a = activePromoBookletOption();
+  return a.opt ? (a.opt.codes||{}) : (appData.promoBooklet||{});
+}
+function setPromoBookletKey(key){
+  ui.promoBookletKey = key || null;
+  _promoAnalysisCache = null;
+  renderContent();
+}
+function promoBookletPickerHtml(){
+  const a = activePromoBookletOption();
+  if(!a.opt) return '';
+  const o = a.opt;
+  const matchTxt = o.salesCount ? `${o.overlap} מתוך ${o.salesCount} קודי המכר נמצאו בחוברת זו` : '';
+  const warn = (o.salesCount && o.overlap < o.salesCount*0.5)
+    ? `<div style="font-size:12px;color:var(--warning,#c9962f);margin-top:4px;">⚠ פחות ממחצית קודי המכר נמצאו בחוברת — ייתכן שחסרה חוברת של החודש המתאים. איחודים והגבלות (למשל ביו מרקט) לא יחושבו לקודים החסרים.</div>`
+    : '';
+  const select = a.opts.length>1 ? `
+    <select onchange="setPromoBookletKey(this.value)" style="font-size:13px;padding:4px 8px;border-radius:8px;">
+      <option value="" ${a.auto?'selected':''}>אוטומטי (${a.auto?o.label:'לפי התאמה לקובץ המכר'})</option>
+      ${a.opts.map(x=>`<option value="${x.key}" ${!a.auto&&x.key===o.key?'selected':''}>${x.label} (${x.overlap} קודים תואמים)</option>`).join('')}
+    </select>` : '';
+  return `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--text-secondary);">
+      <span>חוברת: <b style="color:var(--text-primary,inherit);">${o.label}</b>${a.auto?' (נבחרה אוטומטית)':''}</span>
+      ${select}
+      ${matchTxt?`<span>· ${matchTxt}</span>`:''}
+    </div>
+    ${warn}
+  `;
+}
+
 let _promoAnalysisCache = null;
+let _promoAnalysisCacheKey = null;
 function buildPromoAnalysisBase(){
-  if(_promoAnalysisCache) return _promoAnalysisCache;
-  const booklet = appData.promoBooklet || {};
+  const a = activePromoBookletOption();
+  const cacheKey = (a.opt?a.opt.key:'none') + '|' + (appData.promoProducts||[]).length;
+  if(_promoAnalysisCache && _promoAnalysisCacheKey===cacheKey) return _promoAnalysisCache;
+  _promoAnalysisCacheKey = cacheKey;
+  const booklet = activePromoBooklet();
   const byCode = {}; /* code -> {title, salesByBranch:{branch:num}} */
   (appData.promoProducts||[]).forEach(p=>{
     const code = p.code!=null ? String(p.code) : null;
@@ -72,7 +173,7 @@ function classifyPromoValue(selfVal, comparisonVals){
 /* דוח מלא לסניף בודד: שלוש קבוצות + ממצאים שסויגו החוצה. */
 function buildPromoBranchReport(branchName){
   const {byCode} = buildPromoAnalysisBase();
-  const booklet = appData.promoBooklet || {};
+  const booklet = activePromoBooklet();
   const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
   Object.keys(byCode).forEach(code=>{
     const meta = booklet[code] || {};
@@ -93,7 +194,7 @@ function buildPromoBranchReport(branchName){
    למנהל האזור לראות בדיוק אילו סניפים ספציפיים לא מימשו, לא רק את הסכום. */
 function buildPromoAreaReport(areaBranchNames){
   const {byCode} = buildPromoAnalysisBase();
-  const booklet = appData.promoBooklet || {};
+  const booklet = activePromoBooklet();
   const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
   Object.keys(byCode).forEach(code=>{
     const meta = booklet[code] || {};
@@ -239,7 +340,7 @@ function promoNationalSectionHtml(title, group, rows, emptyMsg, capPerArea){
    באופן מלאכותי רק כי יש בו יותר סניפים). */
 function buildPromoNationalReport(){
   const {byCode} = buildPromoAnalysisBase();
-  const booklet = appData.promoBooklet || {};
+  const booklet = activePromoBooklet();
   const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
   const areaBranchMap = {};
   areaLabels.forEach(a=>{ areaBranchMap[a] = BRANCH_DIRECTORY.filter(b=>b.area===a).map(b=>b.name); });
@@ -313,8 +414,12 @@ function promoNationalSummaryTableHtml(report){
 }
 /* המסך הראשי לניתוח מכר מבצעים (סניף/אזור) - מוצג מעל עיון-לפי-מוצר. */
 function viewPromoAnalysis(){
-  const bookletCount = Object.keys(appData.promoBooklet||{}).length;
+  ensurePromoBookletArchive();
+  const bookletCount = Object.keys(activePromoBooklet()).length;
   if(!bookletCount){
+    if(_promoArchiveState==='loading'){
+      return `<div class="card"><div class="empty-state">טוען את חוברות המבצעים...</div></div>`;
+    }
     return `<div class="card"><div class="empty-state">עדיין לא הועלתה חוברת המבצעים החודשית — הניתוח יופיע כאן ברגע שרכש יעלה אותה ב"ניהול תוכן".</div></div>`;
   }
   if(hasPromoNationalAccess()){
@@ -323,6 +428,7 @@ function viewPromoAnalysis(){
       <div class="card" style="margin-bottom:16px;">
         <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — תצוגה ארצית לפי מנהלי אזור</div>
         <div style="font-size:12.5px;color:var(--text-secondary);">כל אזור מושווה מול שאר האזורים (ממוצע לסניף, מנורמל למספר הסניפים באזור). אין כאן פירוט ברמת סניף בודד.</div>
+        ${promoBookletPickerHtml()}
       </div>
       ${promoNationalSummaryTableHtml(report)}
       ${promoNationalSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, 'אין ממצאי חריגת אפס כרגע.', 5)}
@@ -346,6 +452,7 @@ function viewPromoAnalysis(){
     <div class="card" style="margin-bottom:16px;">
       <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — ${scopeLabel}</div>
       <div style="font-size:12.5px;color:var(--text-secondary);">השוואה מול חציון ${areaMode?'הרשת (למעט סניפי האזור)':'שאר הסניפים'}. לרוב המבצעים אין רשימת השתתפות רשמית — הזכאות בפועל לא אומתה.</div>
+      ${promoBookletPickerHtml()}
     </div>
     ${promoAnalysisSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, areaMode, 'אין ממצאי חריגת אפס כרגע.')}
     ${promoAnalysisSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, areaMode, 'אין ממצאי פער כרגע.')}
