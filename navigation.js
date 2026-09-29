@@ -6,6 +6,9 @@
    לפרסם, בלי צורך לגעת בניווט שוב). אין ליצור מסכי תוכן חדשים כאן — כל
    פריט מפנה למסכים הקיימים בדיוק כמו היום.
    DEPARTMENT_NAV_ICONS: אייקון לכל כפתור מחלקה בניווט הגלובלי.
+   isVisible (אופציונלי): פונקציה שמחליטה אם להציג את המסך למשתמש הנוכחי.
+   בלי isVisible — המסך גלוי לכולם, כמו קודם. קוראים תמיד דרך
+   visibleDepartmentScreens() ולא ישירות מ-DEPARTMENT_SCREENS.
    ============================================================ */
 const DEPARTMENT_SCREENS = {
   marketing: [
@@ -20,7 +23,12 @@ const DEPARTMENT_SCREENS = {
   purchasing: [
     {id:'promoSales', label:'מכר מבצעים', icon:icon('chart')},
     {id:'promoBoard', label:'חוברת מבצעים', icon:icon('clipboard')},
-    {id:'newOnShelf', label:'חדש על המדף', icon:icon('box')}
+    {id:'newOnShelf', label:'חדש על המדף', icon:icon('box')},
+    /* פלנוגרמות (planograms.js) — גלוי לסניפים רק אחרי "פרסם לסניפים";
+       עד אז רק לצוות הרכש ול-super-admin. הבדיקה עצלה (בזמן רינדור),
+       כי planograms.js נטען אחרי הקובץ הזה. */
+    {id:'planograms', label:'פלנוגרמות', icon:icon('shelf'),
+      isVisible: function(){ return typeof planoIsVisibleToCurrentUser === 'function' && planoIsVisibleToCurrentUser(); }}
   ],
   hr: []
 };
@@ -30,6 +38,12 @@ const DEPARTMENT_NAV_ICONS = {
   purchasing: icon('cart'),
   hr: icon('users')
 };
+/* מסכי המחלקה שגלויים למשתמש הנוכחי (מסנן לפי isVisible אם הוגדר). */
+function visibleDepartmentScreens(deptKey){
+  return (DEPARTMENT_SCREENS[deptKey]||[]).filter(function(s){
+    return typeof s.isVisible !== 'function' || s.isVisible();
+  });
+}
 /* ============================================================
    NAV
 ============================================================ */
@@ -48,7 +62,7 @@ function navItems(){
   function deptScreenItems(deptKey){
     const items = [];
     if(session.role==='area' && deptKey==='marketing') items.push({id:'areaOverview', label:'האזור שלי', icon:icon('map')});
-    items.push(...(DEPARTMENT_SCREENS[deptKey]||[]));
+    items.push(...visibleDepartmentScreens(deptKey));
     items.push({id:'messages', label:'ההודעות שלי', icon:icon('mail')});
     return items;
   }
@@ -189,7 +203,7 @@ function navUnreadCount(navId){
   if(session.role==='marketing') return 0;
   if(navId.indexOf('enterDept:')===0){
     const deptKey = navId.slice('enterDept:'.length);
-    return (DEPARTMENT_SCREENS[deptKey]||[]).reduce((s,scr)=>s+navUnreadCount(scr.id), 0);
+    return visibleDepartmentScreens(deptKey).reduce((s,scr)=>s+navUnreadCount(scr.id), 0);
   }
   const key = NAV_UNREAD_TYPES[navId];
   if(!key || !appData[key]) return 0;
@@ -265,7 +279,11 @@ let suppressHistoryPush = false;
 /* ניווט ל-'dashboard' תמיד מחזיר לרמה הגלובלית (בין המחלקות) — זו ההתנהגות
    שהוגדרה: "דף הבית" בתוך מחלקה פירושו חזרה למסך המאוחד, לא איפוס בתוך
    המחלקה עצמה. opts.keepDepartment משמש רק לניווט פנימי (למשל שחזור היסטוריה,
-   או enterDepartment) שלא אמור לאפס את ui.department. */
+   או enterDepartment) שלא אמור לאפס את ui.department.
+   ui.planoDept: המחלקה הפתוחה בתוך "פלנוגרמות". כניסה רגילה למסך (מהניווט)
+   תמיד מתחילה מרשימת המחלקות; planograms.js ושחזור היסטוריה מעבירים
+   opts.keepPlanoDept כדי לשמור אותה, וכך כפתור "חזרה" במובייל מחזיר
+   ממחלקה לרשימה במקום לצאת מהפלנוגרמות לגמרי. */
 function goTo(view, opts){
   opts = opts || {};
   if(view==='dashboard' && !opts.keepDepartment) ui.department = null;
@@ -273,6 +291,7 @@ function goTo(view, opts){
      לא ממשיכה טאב שנשאר פתוח מביקור קודם — keepAdminTab משמש רק לשחזור
      היסטוריה (popstate) שלא אמור לאפס את זה. */
   if(view==='admin' && !opts.keepAdminTab) ui.adminTab = null;
+  if(view==='planograms' && !opts.keepPlanoDept) ui.planoDept = null;
   ui.view = view;
   renderNav();
   renderContent();
@@ -280,7 +299,7 @@ function goTo(view, opts){
   if(!suppressHistoryPush){
     // כל שינוי מסך נרשם כערך היסטוריה אמיתי — כך שכפתור "חזרה" (בדפדפן, במובייל,
     // או במחוות ה-swipe) מנווט בין המסכים בתוך ה-HUB במקום לצאת מהאתר לגמרי.
-    history.pushState({nizatHubView: view, nizatHubDept: ui.department, nizatHubAdminTab: ui.adminTab}, '', '#' + view);
+    history.pushState({nizatHubView: view, nizatHubDept: ui.department, nizatHubAdminTab: ui.adminTab, nizatHubPlanoDept: ui.planoDept || null}, '', '#' + view);
   }
 }
 /* כניסה למחלקה מהמסך הגלובלי (לחיצה על אחד מכפתורי המחלקות). */
@@ -297,10 +316,12 @@ window.addEventListener('popstate', function(e){
   const view = (e.state && e.state.nizatHubView) || 'dashboard';
   const dept = (e.state && ('nizatHubDept' in e.state)) ? e.state.nizatHubDept : null;
   const adminTab = (e.state && ('nizatHubAdminTab' in e.state)) ? e.state.nizatHubAdminTab : null;
+  const planoDept = (e.state && ('nizatHubPlanoDept' in e.state)) ? e.state.nizatHubPlanoDept : null;
   suppressHistoryPush = true;
   ui.department = dept;
   ui.adminTab = adminTab;
-  goTo(view, {keepDepartment:true, keepAdminTab:true});
+  ui.planoDept = planoDept;
+  goTo(view, {keepDepartment:true, keepAdminTab:true, keepPlanoDept:true});
   suppressHistoryPush = false;
 });
 
@@ -312,7 +333,7 @@ function renderContent(){
   if(ui.view==='dashboard'){
     if(ui.department===null) el.innerHTML = viewGlobalHome();
     else if(ui.department==='marketing') el.innerHTML = viewDashboard();
-    else if((DEPARTMENT_SCREENS[ui.department]||[]).length) el.innerHTML = viewDepartmentLanding(ui.department);
+    else if(visibleDepartmentScreens(ui.department).length) el.innerHTML = viewDepartmentLanding(ui.department);
     else el.innerHTML = viewDepartmentEmpty(ui.department);
   }
   else if(ui.view==='competitions') el.innerHTML = viewCompetitions();
@@ -327,6 +348,7 @@ function renderContent(){
   else if(ui.view==='purchasingPromoUpload') el.innerHTML = viewPurchasingPromoUpload();
   else if(ui.view==='newOnShelf') el.innerHTML = viewNewOnShelf();
   else if(ui.view==='newOnShelfUpload') el.innerHTML = viewNewOnShelfUpload();
+  else if(ui.view==='planograms') el.innerHTML = viewPlanograms();
   else if(ui.view==='sendAreaConversations') el.innerHTML = viewAreaManagerConversations();
   else if(ui.view==='areaConversations') el.innerHTML = viewBranchConversations();
   else if(ui.view==='myCalendar') el.innerHTML = viewMyCalendar();

@@ -146,6 +146,7 @@
 <script src="purchasing-promo-upload.js"></script>
 <script src="purchasing-promo-board.js"></script>
 <script src="new-on-shelf.js"></script>
+<script src="planograms.js"></script>
 <script src="digital-forms.js"></script>
 <script src="gift-card-form.js"></script>
 <script src="manager-card-form.js"></script>
@@ -157,7 +158,7 @@
    למחלקה שעדיין לא פרסמה כלום). מציג כרטיסי בחירה לכל מסך במחלקה. */
 function viewDepartmentLanding(deptKey){
   const info = DEPARTMENTS[deptKey] || {label: deptKey};
-  const screens = DEPARTMENT_SCREENS[deptKey] || [];
+  const screens = visibleDepartmentScreens(deptKey);
   return `
     <div class="page-head">
       <h1>${info.label}</h1>
