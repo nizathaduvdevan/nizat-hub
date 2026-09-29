@@ -70,7 +70,11 @@ function promoBookletOptions(){
     key:k, label:arch[k].label, codes:arch[k].codes, overlap:overlapOf(arch[k].codes), salesCount
   }));
   const live = appData.promoBooklet || {};
-  if(Object.keys(live).length){
+  const liveKeys = Object.keys(live).sort().join(',');
+  /* החוברת החיה של רכש מוצגת כאפשרות נפרדת רק אם היא לא זהה לחוברת
+     שכבר קיימת בארכיון (אחרי כל פרסום היא תמיד גם בארכיון). */
+  const liveDuplicatesArchive = opts.some(o=>Object.keys(o.codes||{}).sort().join(',')===liveKeys);
+  if(Object.keys(live).length && !liveDuplicatesArchive){
     opts.push({key:'live', label:'החוברת הנוכחית של רכש', codes:live, overlap:overlapOf(live), salesCount});
   }
   return opts;
@@ -102,6 +106,11 @@ function promoBookletPickerHtml(){
   const a = activePromoBookletOption();
   if(!a.opt) return '';
   const o = a.opt;
+  /* סניפים ומנהלי אזור רואים רק על איזו חוברת הניתוח מבוסס. בחירה ידנית,
+     מספרי התאמה ואזהרות — רק לצוות המטה (role 'marketing'). */
+  if(session.role!=='marketing'){
+    return `<div style="margin-top:10px;font-size:12.5px;color:var(--text-secondary);">מבוסס על חוברת: <b style="color:var(--text-primary,inherit);">${o.label}</b></div>`;
+  }
   const matchTxt = o.salesCount ? `${o.overlap} מתוך ${o.salesCount} קודי המכר נמצאו בחוברת זו` : '';
   const warn = (o.salesCount && o.overlap < o.salesCount*0.5)
     ? `<div style="font-size:12px;color:var(--warning,#c9962f);margin-top:4px;">⚠ פחות ממחצית קודי המכר נמצאו בחוברת — ייתכן שחסרה חוברת של החודש המתאים. איחודים והגבלות (למשל ביו מרקט) לא יחושבו לקודים החסרים.</div>`
