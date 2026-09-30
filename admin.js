@@ -334,22 +334,60 @@ function normalizePromoBranchText(t){
        .replace(/קריית/g,'קרית').replace(/רענננה/g,'רעננה').replace(/בינימינה/g,'בנימינה');
   return x.replace(/\s+/g,' ').trim();
 }
-function resolvePromoBranchName(name){
+function resolvePromoBranchNameStrict(name){
   if(!name) return null;
   const dir = BRANCH_DIRECTORY || [];
   if(dir.some(b=>b.name===name)) return name;
   const target = normalizePromoBranchText(name);
-  let hits = dir.filter(b=>normalizePromoBranchText(b.name)===target);
-  if(hits.length===1) return hits[0].name;
+  const hits = dir.filter(b=>normalizePromoBranchText(b.name)===target);
+  return hits.length===1 ? hits[0].name : null;
+}
+/* excluded: שמות סניפים שכבר נתפסו ע"י עמודה אחרת - לא יוצעו שוב. */
+function resolvePromoBranchName(name, excluded){
+  if(!name) return null;
+  const strict = resolvePromoBranchNameStrict(name);
+  if(strict) return strict;
+  const dir = (BRANCH_DIRECTORY || []).filter(b=>!(excluded && excluded.has(b.name)));
+  const target = normalizePromoBranchText(name);
+  let hits;
   /* מילים בלי ה' הידיעה בתחילתן (החשמונאים = חשמונאים). */
   const words = t => t.split(' ').filter(Boolean).map(w=>(w.length>3 && w[0]==='ה') ? w.slice(1) : w);
   const tWords = words(target);
   hits = dir.filter(b=>{
     const bWords = words(normalizePromoBranchText(b.name));
     if(!bWords.length || !tWords.length) return false;
-    return tWords.every(w=>bWords.indexOf(w)>=0) || bWords.every(w=>tWords.indexOf(w)>=0);
+    /* רק בכיוון אחד: כל המילים של השם המאושר מופיעות בשם הסניף. לא להפך -
+       אחרת שם כללי ברשימה ("תל אביב", "ירושלים") היה תופס כל סניף בעיר. */
+    return tWords.every(w=>bWords.indexOf(w)>=0);
   });
   return hits.length===1 ? hits[0].name : null;
+}
+/* ממפה עמודות -> שמות סניפים בשני סבבים:
+   סבב 1 (בטוח): בחירה ידנית עכשיו -> בחירה ידנית שנשמרה ב-Firestore
+          (אלה שמות מדויקים מהרשימה) -> המיפוי המאושר / הישן, רק בהתאמה
+          מדויקת או מנורמלת.
+   סבב 2 (לפי מילים): רק לעמודות שנשארו, ורק מול סניפים שעוד לא נתפסו -
+          כך "תל אביב" (שם הסניף של אבן גבירול ברשימה) לא "יבלע" את
+          "שוק הכרמל תל אביב", "דיזנגוף תל אביב" וכו'. */
+function mapPromoColumnsToBranches(cols, manual, extra, dirNames, out){
+  const used = new Set();
+  const pending = [];
+  cols.forEach(col=>{
+    const cands = [manual[col], extra[col], CONFIRMED_PROMO_COLUMN_MAPPING[col], DEFAULT_PROMO_COLUMN_MAPPING[col]];
+    for(let i=0;i<cands.length;i++){
+      const r = resolvePromoBranchNameStrict(cands[i]);
+      if(r && dirNames.has(r)){ out[col] = r; used.add(r); return; }
+    }
+    pending.push(col);
+  });
+  pending.forEach(col=>{
+    const cands = [CONFIRMED_PROMO_COLUMN_MAPPING[col], DEFAULT_PROMO_COLUMN_MAPPING[col]];
+    for(let i=0;i<cands.length;i++){
+      const r = resolvePromoBranchName(cands[i], used);
+      if(r && dirNames.has(r) && !used.has(r)){ out[col] = r; used.add(r); return; }
+    }
+  });
+  return out;
 }
 let pendingPromoImportRows = null; /* שורות הגיליון הגולמיות, ממתינות לפתרון קיצורים לא-מוכרים */
 function adminPromoUpload(){
@@ -547,10 +585,13 @@ function handlePromoExcelUpload(evt){
       const needsReview = [];
       const guesses = {};
       /* שלב 1: מיפוי שמור שהיעד שלו קיים ברשימת הסניפים. */
-      branchCols.forEach(col=>{
-        const resolved = resolvePromoBranchName(savedMapping[col]);
-        if(resolved && dirNames.has(resolved)) mapping[col] = resolved;
-      });
+      /* לכל עמודה מנסים לפי הסדר: (1) המיפוי המאושר בקוד, (2) מה שנבחר
+         ידנית ונשמר ב-Firestore, (3) המיפוי הישן. הראשון שמתאים לשם סניף
+         קיים - נבחר. כך בחירה ידנית שנשמרה פעם אחת תמיד נזכרת, גם כשהשם
+         המאושר בקוד כתוב אחרת מהשם ברשימת הסניפים (למשל "אבן גבירול"
+         מול "תל אביב"). */
+      const extra = appData.promoColumnMappingExtra || {};
+      mapPromoColumnsToBranches(branchCols, {}, extra, dirNames, mapping);
       /* כל עמודה באקסל היא סניף אחר. אם שתי עמודות או יותר מצביעות על אותו
          סניף, המכר שלהן היה מתחבר יחד (כך נוצרו 606 יח' במקום 78 בסניף
          אחד) - לכן כל העמודות שחולקות יעד נשלחות לבדיקה, והשמירה לא תאושר
@@ -637,12 +678,15 @@ function savePromoUnresolvedAndImport(unresolvedCols){
   }
   /* בדיקת כפילויות על כל עמודות הקובץ: הבחירות שכאן + מה שכבר זוהה אוטומטית. */
   const dirNamesChk = new Set(BRANCH_DIRECTORY.map(b=>b.name));
-  const fullChk = Object.assign({}, fullPromoColumnMapping(), newEntries);
+  const extraChk = appData.promoColumnMappingExtra || {};
   const fileCols = window._promoFileBranchCols || unresolvedCols;
   const seenT = {};
+  /* בדיקת כפילויות רק על מה שהמשתמש בחר ידנית במסך + מה שכבר ממופה בבטחה. */
+  const chk = mapPromoColumnsToBranches(fileCols.filter(c=>unresolvedCols.indexOf(c)<0), {}, extraChk, dirNamesChk, {});
+  Object.keys(newEntries).forEach(c=>{ chk[c] = newEntries[c]; });
   fileCols.forEach(col=>{
-    const t = resolvePromoBranchName(fullChk[col]);
-    if(t && dirNamesChk.has(t)) (seenT[t] = seenT[t]||[]).push(col);
+    const t = chk[col];
+    if(t) (seenT[t] = seenT[t]||[]).push(col);
   });
   const dups = Object.keys(seenT).filter(t=>seenT[t].length>1);
   if(dups.length){
@@ -658,9 +702,7 @@ function savePromoUnresolvedAndImport(unresolvedCols){
     document.getElementById('promo-unresolved-area').innerHTML = '';
     /* מיפוי סופי: רק יעדים שקיימים ברשימת הסניפים הנוכחית. */
     const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
-    const full = Object.assign({}, fullPromoColumnMapping(), newEntries);
-    const valid = {};
-    Object.keys(full).forEach(k=>{ const r = resolvePromoBranchName(full[k]); if(r && dirNames.has(r)) valid[k] = r; });
+    const valid = mapPromoColumnsToBranches(window._promoFileBranchCols || Object.keys(newEntries), newEntries, merged, dirNames, {});
     finalizePromoImport(valid);
   }).catch(function(err){
     if(statusEl) statusEl.textContent = 'שגיאה בשמירת המיפוי: ' + err.message;
