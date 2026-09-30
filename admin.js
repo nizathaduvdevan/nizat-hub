@@ -404,7 +404,16 @@ function handlePromoExcelUpload(evt){
     if(statusEl) statusEl.textContent = 'מתאים עמודות מול רשימת הסניפים...';
     const reviewAll = !!window._promoReviewAllColumns;
     window._promoReviewAllColumns = false;
+    /* טוענים את המיפוי השמור מ-Firestore בכל העלאה. קודם הוא נשמר אבל אף
+       פעם לא נקרא חזרה אחרי רענון של הדף - ולכן המערכת "שכחה" ושאלה שוב
+       ושוב על אותם סניפים. */
     loadBranchDirectory().then(function(){
+      return db.collection('config').doc('promoColumnMapping').get().then(function(doc){
+        const saved = (doc.exists && doc.data() && doc.data().mapping) || {};
+        appData.promoColumnMappingExtra = Object.assign({}, saved, appData.promoColumnMappingExtra||{});
+      }).catch(function(err){ console.warn('promoColumnMapping load failed:', err); });
+    }).then(function(){
+      const savedMapping = fullPromoColumnMapping();
       const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
       const mapping = {};
       const needsReview = [];
