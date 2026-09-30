@@ -352,6 +352,16 @@ function planoInjectStyleOnce(){
     .gd .pw-tile.fb .pw-fb{height:52px;}
     .gd .pw-name{max-width:100%;font-size:12px;}
     .gd-dir{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--text-secondary);margin-top:5px;}
+    .pw-dt, .pw-dt *{font-size:15.5px;line-height:1.55;}
+    .pw-dt-top{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 0 12px;clear:both;}
+    .pw-dt-top img{max-width:160px;max-height:80px;object-fit:contain;}
+    .pw-dt-name{font-weight:500;text-align:center;}
+    .pw-dt-warn{display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);border-radius:10px;padding:9px 11px;margin-bottom:10px;}
+    .pw-dt-rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;margin:0;}
+    .pw-dt-rows dt{color:var(--text-secondary);white-space:nowrap;margin:0;}
+    .pw-dt-rows dd{margin:0;}
+    .pw-dt-also{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;color:var(--text-secondary);}
+    .pw-also-btn{border:1px solid var(--gridline);background:var(--surface-1);border-radius:99px;padding:4px 12px;color:var(--blue);}
     .gd-x{position:sticky;top:0;float:left;margin:-8px -10px 0 0;width:40px;height:40px;border:none;background:var(--page);border-radius:99px;font-size:24px;line-height:1;color:var(--text-secondary);z-index:2;}
     .gd-alerts{display:flex;flex-direction:column;gap:8px;clear:both;}
     .gd-alert{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gridline);border-radius:10px;padding:10px 12px;font-size:15px;line-height:1.55;}
@@ -1131,7 +1141,7 @@ function planoImgFail(img){
     box.outerHTML = planoFallbackHtml(img.getAttribute('data-name') || '');
   }
 }
-function planoTileHtml(d, s, e, it){
+function planoTileHtml(d, s, e, it, idx){
   const vis = planoVisualFor(it.name);
   const isNew = !!it.newOrMoved;
   const warn = !!e.placementOverride;
@@ -1140,7 +1150,7 @@ function planoTileHtml(d, s, e, it){
     : planoFallbackHtml(it.name);
   const badge = vis && vis.logo ? `<span class="pw-badge"><img src="${planoEsc(vis.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></span>` : '';
   const label = it.name + (isNew ? ' - ' + planoNewLabel() : '') + (warn ? ' - יש הנחיה חשובה' : '') + ', עדיפות ' + e.priority;
-  return `<button class="pw-tile${isNew ? ' new' : ''}${vis ? '' : ' fb'}" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}')" aria-label="${planoEsc(label)}">
+  return `<button class="pw-tile${isNew ? ' new' : ''}${vis ? '' : ' fb'}" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}',${idx|0})" aria-label="${planoEsc(label)}">
     <span class="pw-p" aria-hidden="true">${planoEsc(e.priority)}</span>
     ${warn ? '<span class="pw-warn" aria-hidden="true">⚠️</span>' : ''}
     ${media}${badge}
@@ -1156,37 +1166,56 @@ function planoTileHtml(d, s, e, it){
    לבא, כדי שהגונדולה תישאר מאוזנת. מוצגים רק מדפים שיש עליהם משהו.
    כשהמותגים לא נכנסים ברוחב - כל הגונדולה נגללת הצידה ביחד (המדפים לא
    זזים זה מול זה), והגלילה מתחילה מימין = מהעדיפות הגבוהה. */
+/* שיבוץ מוצרים למדפים (1-5 מלמעלה) - משותף לגונדולה ולחלונית הפרטים.
+   ברירת מחדל: עדיפות 1 = מדף 2 (גובה העיניים), עדיפות 2 = מדף 3,
+   3 ומטה = מדפים 4 -> 5 -> 1 לפי הסדר.
+   הנחיה חשובה במשבצת גוברת: אם כתוב בה "מעל גובה העיניים" או "מדף עליון"
+   (למשל מיונז וחרדל, סרדינים וטונות) - המשבצת עולה למדף העליון. */
+const PLANO_UP_RE = /מעל\s+(ל)?גובה\s+העיניים|מדף\s+עליון|במדף\s+העליון/;
+function planoShelfLayout(d, s){
+  const ranked = (s.entries||[]).filter(function(e){ return typeof e.priority === 'number'; });
+  const up = function(e){ return !!(e.placementOverride && PLANO_UP_RE.test(e.placementOverride)); };
+  const flat = function(list){ const o=[]; list.forEach(function(e){ (e.items||[]).forEach(function(it,i){ o.push({e:e, it:it, i:i}); }); }); return o; };
+  const forced = flat(ranked.filter(up));
+  const normal = ranked.filter(function(e){ return !up(e); });
+  const p1 = flat(normal.filter(function(e){ return e.priority === 1; }));
+  const p2 = flat(normal.filter(function(e){ return e.priority === 2; }));
+  const rest = flat(normal.filter(function(e){ return e.priority >= 3; }));
+  const cap = Math.max(4, p1.length, p2.length);
+  const shelves = {1: forced.concat(rest.slice(cap*2)), 2: p1, 3: p2, 4: rest.slice(0, cap), 5: rest.slice(cap, cap*2)};
+  /* מדף עליון: קודם לפי עדיפות (המשבצות שהועלו + ההמשך של 3+) */
+  shelves[1].sort(function(a,b){ return a.e.priority - b.e.priority; });
+  const where = {};
+  Object.keys(shelves).forEach(function(n){ shelves[n].forEach(function(x){ where[x.e.id + '#' + x.i] = +n; }); });
+  return {shelves: shelves, where: where};
+}
+function planoShelfOf(d, s, entryId, idx){
+  return planoShelfLayout(d, s).where[entryId + '#' + idx] || 0;
+}
+const PLANO_SHELF_NAMES = {1:'עליון', 2:"גובה העיניים (1.65 מ')", 3:'מתחת לגובה העיניים', 4:'', 5:'תחתון'};
+
 /* כיתוב קצר לפס המחיר: בלי המילה "מדף" בהתחלה (כבר כתוב "מדף 2"). */
 function planoRailText(t){
   return String(t||'').replace(/^\s*מדף\s+/, '').trim();
 }
 function planoGondolaHtml(d, s, ranked, isAdmin){
-  const flat = function(list){
-    const out = [];
-    list.forEach(function(e){ (e.items||[]).forEach(function(it){ out.push({e:e, it:it}); }); });
-    return out;
-  };
-  const p1 = flat(ranked.filter(function(e){ return e.priority === 1; }));
-  const p2 = flat(ranked.filter(function(e){ return e.priority === 2; }));
-  const rest = flat(ranked.filter(function(e){ return e.priority >= 3; }));
-  const cap = Math.max(4, p1.length, p2.length);
-  const s4 = rest.slice(0, cap), s5 = rest.slice(cap, cap*2), s1 = rest.slice(cap*2);
+  const L = planoShelfLayout(d, s).shelves;
   const custom = d.shelfRules && d.shelfRules.length;
   /* תמיד 5 מדפים פיזיים, ממוספרים מלמעלה - כדי שהעובד יראה איפה כל מדף
      נמצא בגונדולה. מדף ריק מוצג נמוך וריק. */
   const shelves = [
-    {n:1, list:s1, tag:'עליון'},
-    {n:2, list:p1, tag: custom ? planoRailText(planoShelfText(d,1)) : "גובה העיניים · 1.65 מ'", eye:true},
-    {n:3, list:p2, tag: custom ? planoRailText(planoShelfText(d,2)) : 'מתחת לגובה העיניים'},
-    {n:4, list:s4, tag:''},
-    {n:5, list:s5, tag:'תחתון'}
+    {n:1, list:L[1], tag:'עליון'},
+    {n:2, list:L[2], tag: custom ? planoRailText(planoShelfText(d,1)) : "גובה העיניים · 1.65 מ'", eye:true},
+    {n:3, list:L[3], tag: custom ? planoRailText(planoShelfText(d,2)) : 'מתחת לגובה העיניים'},
+    {n:4, list:L[4], tag:''},
+    {n:5, list:L[5], tag:'תחתון'}
   ];
   let total = 0, withLogo = 0;
   const body = shelves.map(function(sh){
     const tiles = sh.list.map(function(x){
       total++;
       if(planoVisualFor(x.it.name)) withLogo++;
-      return planoTileHtml(d, s, x.e, x.it);
+      return planoTileHtml(d, s, x.e, x.it, x.i);
     }).join('');
     const pr = sh.list.length ? Array.from(new Set(sh.list.map(function(x){ return x.e.priority; }))) : [];
     const prTxt = !pr.length ? '' : (pr.length === 1 ? 'עדיפות ' + pr[0] : 'עדיפות ' + Math.min.apply(null, pr) + '–' + Math.max.apply(null, pr));
@@ -1262,29 +1291,63 @@ function planoToggleFull(deptId, subId){
   planoRerender();
 }
 /* חלונית פרטים לאריח: כל המשבצת (כל המוצרים באותה עדיפות), הערות, "גם ב". */
-function planoOpenTile(deptId, subId, entryId){
+/* חלונית פרטים למותג אחד: הלוגו שלו בלבד, ושורות קצרות באותו גודל:
+   מחלקה / תת מחלקה (התווית של המשבצת + פירוט המוצר) / מיקום (מדף ועדיפות),
+   ואחריהן כמות, הערות, הנחיה חשובה ו"גם ב" - רק אם קיימים. */
+function planoOpenTile(deptId, subId, entryId, idx){
   const d = planoData.byId[deptId]; if(!d) return;
   const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0]; if(!s) return;
   const e = (s.entries||[]).filter(function(x){ return x.id === entryId; })[0]; if(!e) return;
-  const shelf = typeof e.priority === 'number' ? planoShelfText(d, e.priority) : '';
-  const seenLogo = {};
-  const pics = (e.items||[]).map(function(it){
-    const v = planoVisualFor(it.name);
-    if(v && seenLogo[v.img]) return '';
-    if(v) seenLogo[v.img] = true;
-    return v ? `<img src="${planoEsc(v.img)}" alt="${planoEsc(it.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
-  }).join('');
+  const items = e.items || [];
+  const one = (typeof idx === 'number' && items[idx]) ? items[idx] : null;
+  const it = one || items[0] || {name:''};
+  const v = one ? planoVisualFor(it.name) : null;
+
+  let subLine = e.label || s.name || '';
+  if(one && it.detail){
+    const det = String(it.detail).replace(/^\s*\(|\)\s*$/g, '');
+    subLine += (subLine ? ' - ' : '') + det;
+  }
+  if(!e.label && s.name && e.group) subLine = e.group + ' · ' + subLine;
+
+  const rows = [];
+  rows.push(['מחלקה', d.name]);
+  if(subLine) rows.push(['תת מחלקה', subLine]);
+  if(typeof e.priority === 'number'){
+    const n = planoShelfOf(d, s, e.id, one ? idx : 0);
+    const custom = d.shelfRules && d.shelfRules.length;
+    const sname = n === 2 || n === 3 ? (custom ? planoRailText(planoShelfText(d, n === 2 ? 1 : 2)) : PLANO_SHELF_NAMES[n]) : PLANO_SHELF_NAMES[n];
+    rows.push(['מיקום', (n ? 'מדף ' + n + (sname ? ' · ' + sname : '') + ' · ' : '') + 'עדיפות ' + e.priority]);
+  } else {
+    rows.push(['מיקום', 'מיקום מיוחד']);
+  }
+  if(!one && items.length) rows.push(['מותגים', items.map(function(x){ return x.name; }).join(', ')]);
+  const facings = (one && it.facings) || e.facings;
+  if(facings) rows.push(['כמות על המדף', facings]);
+  const cond = (one && it.condition) || e.condition;
+  if(cond) rows.push(['תנאי', cond]);
+  if(one && it.newOrMoved) rows.push(['שים לב', planoNewLabel()]);
+  if(e.note) rows.push(['הערה', e.note + (e.optional && !/חובה/.test(e.note) ? ' · לא חובה' : '')]);
+  else if(e.optional) rows.push(['הערה', 'לא חובה']);
+
+  const also = (e.alsoAt||[]).map(function(a){
+    const name = planoLocName(a.departmentId, a.subcategoryId);
+    if(!name) return '';
+    return `<button class="pw-also-btn" onclick="planoOpenDept('${planoEsc(a.departmentId)}','${planoEsc(a.subcategoryId)}')">${planoEsc(name)}${a.condition ? ' (' + planoEsc(a.condition) + ')' : ''}</button>`;
+  }).filter(Boolean).join('');
+
   document.getElementById('modal-body').innerHTML = `
     ${planoModalX()}
-    <div class="pw-modal-head">
-      <span class="plano-p-pill">${typeof e.priority === 'number' ? 'עדיפות ' + planoEsc(e.priority) : 'מיקום מיוחד'}</span>
-      ${shelf ? `<span class="pw-modal-shelf">${planoEsc(shelf)}</span>` : ''}
-    </div>
-    ${pics ? `<div class="pw-modal-pics">${pics}</div>` : ''}
-    ${e.label ? `<div class="plano-label">${planoEsc(e.label)}</div>` : ''}
-    <div class="plano-items" style="font-size:17px;">${planoItemsHtml(e.items)}</div>
-    ${planoEntryExtras(d, s, e, planoCanManage())}
-    <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">${planoEsc(d.name)}${s.name ? ' · ' + planoEsc(s.name) : ''}</div>`;
+    <div class="pw-dt">
+      <div class="pw-dt-top">
+        ${v ? `<img src="${planoEsc(v.img)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+        <div class="pw-dt-name">${planoEsc(one ? it.name : (e.label || it.name))}</div>
+      </div>
+      ${e.placementOverride ? `<div class="pw-dt-warn"><span aria-hidden="true">⚠️</span><span>${planoEsc(e.placementOverride)}</span></div>` : ''}
+      <dl class="pw-dt-rows">${rows.map(function(r){ return `<dt>${planoEsc(r[0])}:</dt><dd>${planoEsc(r[1])}</dd>`; }).join('')}</dl>
+      ${also ? `<div class="pw-dt-also"><span>מוצג גם ב:</span>${also}</div>` : ''}
+      ${planoCanManage() && e.sourceIssue ? `<div class="plano-issue">הערת המרה (לצוות בלבד): ${planoEsc(e.sourceIssue)}</div>` : ''}
+    </div>`;
   document.getElementById('modal-overlay').classList.add('open');
 }
 
