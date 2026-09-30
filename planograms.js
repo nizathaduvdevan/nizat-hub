@@ -42,7 +42,7 @@ const PLANO_LEGEND_ROWS_DEFAULT = [
   {style:'plain', key:'תת-מחלקה', text:'הלשוניות בראש המחלקה הן תתי-המחלקות. עוברים ביניהן בלחיצה.'},
   {style:'p1', key:'1', text:'המספר הוא סדר העדיפות על המדף. 1 = המקום הכי טוב, בגובה העיניים. אחריו 2, 3 וכן הלאה.'},
   {style:'plain', key:'סדר', text:'הפירוט הוא לפי עדיפויות בלבד: מלמעלה למטה ומימין לשמאל.'},
-  {style:'shelf', key:'קיר המדפים', text:'בראש כל מחלקה מופיע קיר המדפים: כל שורה היא מדף, והשורה הירוקה היא גובה העיניים. כל אריח מציג את הלוגו של המותג. לחיצה על אריח פותחת את הפרטים שלו.'},
+  {style:'shelf', key:'גונדולה', text:'בראש כל מחלקה מופיעה הגונדולה. המדף הירוק הוא גובה העיניים (עדיפות 1), מתחתיו עדיפות 2, ואחריהם השאר. לחיצה על לוגו פותחת את הפרטים.'},
   {style:'new', key:'', text:'מוצר חדש, או מוצר שהמיקום שלו השתנה לאחרונה. שימו לב במיוחד.'},
   {style:'alert', key:'חשוב', text:'הערה שחייבים לקרוא. היא גוברת על סדר העדיפויות.'},
   {style:'plain', key:'גם ב', text:'מוצרי ניצת ויבוא מוצגים לפעמים גם במחלקות מתאימות נוספות, בנוסף למחלקה הראשית. זה מכוון.'},
@@ -329,6 +329,32 @@ function planoInjectStyleOnce(){
     .pw-foot{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:5px;}
     .pw-alerts{display:flex;flex-direction:column;gap:6px;margin:0 0 12px;}
     .pw-alert{display:flex;gap:8px;align-items:flex-start;text-align:right;width:100%;border:1px solid rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);color:var(--text-primary);border-radius:10px;padding:9px 11px;font-size:14px;line-height:1.5;}
+    .gd-actions{display:flex;gap:8px;margin:10px 0 12px;flex-wrap:wrap;}
+    .gd-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);border-radius:99px;padding:8px 14px;font-size:14.5px;font-weight:500;min-height:40px;}
+    .gd-pill.warn{border-color:rgba(214,120,30,0.5);background:rgba(214,120,30,0.1);color:#8a4a0c;}
+    .gd{position:relative;margin:6px 0 12px;}
+    .gd-count{position:absolute;top:-4px;left:0;font-size:11.5px;background:var(--page);border-radius:99px;padding:2px 8px;z-index:2;}
+    .gd-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-top:12px;scrollbar-width:thin;}
+    .gd-unit{display:inline-block;min-width:100%;box-sizing:border-box;background:linear-gradient(#ecebe6,#e2e0d8);border:6px solid #5f5e5a;border-top-width:0;border-radius:8px 8px 3px 3px;}
+    .gd-head{background:#5f5e5a;color:#fff;font-size:13px;font-weight:500;text-align:center;padding:5px 8px 7px;margin:0 -6px;border-radius:6px 6px 0 0;position:sticky;right:0;}
+    .gd-shelf{padding:14px 8px 0;min-height:92px;display:flex;align-items:flex-end;box-sizing:border-box;}
+    .gd-shelf.eye{background:rgba(151,196,89,0.28);}
+    .gd-items{display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap;}
+    .gd-rail{height:16px;background:#f7f5ef;border-top:3px solid #888780;border-bottom:1px solid #b4b2a9;box-shadow:0 2px 3px rgba(0,0,0,0.18);display:flex;align-items:center;gap:5px;padding:0 8px;font-size:11px;color:#3B6D11;font-weight:500;white-space:nowrap;position:relative;z-index:1;}
+    .gd-base{height:14px;background:#5f5e5a;margin:0 -6px -6px;}
+    .gd .pw-tile{width:86px;border-radius:6px 6px 2px 2px;box-shadow:0 1px 2px rgba(0,0,0,0.2);border-color:#dcdad2;}
+    .gd .gd-shelf.eye .pw-tile{width:96px;}
+    .gd .gd-shelf.eye .pw-img{height:66px;}
+    .gd-more{display:none;font-size:12px;color:var(--text-secondary);text-align:left;margin-top:4px;}
+    .gd.has-more .gd-more{display:block;}
+    .gd.has-more.at-end .gd-more{visibility:hidden;}
+    .gd.has-more .gd-scroll{-webkit-mask-image:linear-gradient(to left, transparent 0, #000 36px);mask-image:linear-gradient(to left, transparent 0, #000 36px);}
+    .gd.has-more.at-end .gd-scroll{-webkit-mask-image:none;mask-image:none;}
+    .gd-x{position:sticky;top:0;float:left;margin:-8px -10px 0 0;width:40px;height:40px;border:none;background:var(--page);border-radius:99px;font-size:24px;line-height:1;color:var(--text-secondary);z-index:2;}
+    .gd-alerts{display:flex;flex-direction:column;gap:8px;clear:both;}
+    .gd-alert{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gridline);border-radius:10px;padding:10px 12px;font-size:15px;line-height:1.55;}
+    .gd-alert.crit{border-color:rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);}
+    .gd-alert[role="button"]{cursor:pointer;}
     .pw-toggle{display:block;width:100%;border:1px dashed var(--gridline);background:none;border-radius:10px;padding:11px;font-size:14.5px;font-weight:500;color:var(--blue);margin:2px 0 14px;}
     .pw-toggle-sub{display:block;font-size:12px;font-weight:400;color:var(--text-secondary);margin-top:2px;}
     .pw-modal-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;}
@@ -555,6 +581,7 @@ function viewPlanograms(){
 
 function planoAfterRender(){
   planoMaybeAutoOpenLegend();
+  planoMarkGondolaOverflow();
   const input = document.getElementById('plano-search');
   if(input && planoState.focusSearch){
     input.focus();
@@ -824,16 +851,10 @@ function planoViewDept(d){
       <h1 class="plano-dept-title">${planoEsc(d.name)}</h1>
       <div class="plano-dept-meta">
         <span>מחלקה ${planoEsc(d.number)}</span>
-        ${d.lastUpdated ? `<span>עודכן לאחרונה: ${planoEsc(d.lastUpdated)}</span>` : ''}
+        ${d.lastUpdated ? `<span>עודכן: ${planoEsc(d.lastUpdated)}</span>` : ''}
       </div>
-      <button class="plano-reminder" onclick="planoOpenLegend()">
-        <span class="plano-reminder-ic" aria-hidden="true">📖</span>
-        <span>${planoEsc(planoLegendReminder())} <b>למקרא המלא ›</b></span>
-      </button>
+      ${planoDeptActionsHtml(d, sub)}
       ${planoImagesHtml(d.referenceImages, 'כך המחלקה צריכה להיראות')}
-      ${crit.length ? planoAlertBox(crit, 'critical') : ''}
-      ${info.length ? planoAlertBox(info, 'info') : ''}
-      ${d.shelfRules && d.shelfRules.length ? planoRulesBox(d) : ''}
       ${namedSubs.length > 1 ? `<div class="plano-chips" role="tablist">${subs.map(function(s){
         const on = s.id === subId;
         return `<button class="plano-chip${on ? ' active' : ''}" role="tab" aria-selected="${on}" onclick="planoSelectSub('${planoEsc(d.id)}','${planoEsc(s.id)}')">${planoEsc(s.name || d.name)}</button>`;
@@ -874,11 +895,8 @@ function planoSubHtml(d, s, showTitle){
   let html = '';
   if(showTitle && s.parent) html += `<div class="plano-sub-parent">חלק מ${planoEsc(s.parent)}</div>`;
   html += planoImagesHtml(s.referenceImages, 'כך זה צריך להיראות');
-  if(crit.length) html += planoAlertBox(crit, 'critical');
-  if(info.length) html += planoAlertBox(info, 'info');
 
-  if(ranked.length) html += planoWallHtml(d, s, ranked, isAdmin);
-  html += planoWallAlertsHtml(d, s, entries);
+  if(ranked.length) html += planoGondolaHtml(d, s, ranked, isAdmin);
 
   const fullKey = d.id + '/' + s.id;
   const fullOpen = !ranked.length || !!planoState.fullBySub[fullKey];
@@ -890,6 +908,13 @@ function planoSubHtml(d, s, showTitle){
     </button>`;
   }
   if(!fullOpen) return html;
+  if(ranked.length){
+    if(crit.length) html += planoAlertBox(crit, 'critical');
+    if(info.length) html += planoAlertBox(info, 'info');
+  } else {
+    if(crit.length) html += planoAlertBox(crit, 'critical');
+    if(info.length) html += planoAlertBox(info, 'info');
+  }
 
   /* עדיפויות 1-2 ככרטיסים, 3 ומטה כשורות ברשימה אחת. קבוצה (למשל
      "להכנה מהירה") פותחת כותרת משלה בנקודה שבה היא מתחילה. */
@@ -1095,49 +1120,119 @@ function planoTileHtml(d, s, e, it){
     ${warn ? '<span class="pw-warn" aria-hidden="true">⚠️</span>' : ''}
     ${media}${badge}
     <span class="pw-name">${planoEsc(it.name)}</span>
-    ${isNew ? `<span class="pw-new">${planoEsc(planoNewLabel())}</span>` : ''}
   </button>`;
 }
-function planoWallHtml(d, s, ranked, isAdmin){
-  const rows = [
-    {eye:true, lbl: planoShelfText(d,1) || 'גובה העיניים', list: ranked.filter(function(e){ return e.priority === 1; })},
-    {lbl: planoShelfText(d,2) || 'מדף צמוד לגובה העיניים', list: ranked.filter(function(e){ return e.priority === 2; })},
-    {lbl: 'שאר המדפים, לפי המספרים', list: ranked.filter(function(e){ return e.priority >= 3; })}
-  ].filter(function(r){ return r.list.length; });
-  if(!rows.length) return '';
-  let total = 0, withImg = 0;
-  const body = rows.map(function(r){
-    const tiles = [];
-    r.list.forEach(function(e){
-      (e.items||[]).forEach(function(it){
-        total++;
-        if(planoVisualFor(it.name)) withImg++;
-        tiles.push(planoTileHtml(d, s, e, it));
-      });
-    });
-    return `<div class="pw-row${r.eye ? ' eye' : ''}">
-      <div class="pw-lbl">${r.eye ? '<span aria-hidden="true">👁</span>' : ''}${planoEsc(r.lbl)}</div>
-      <div class="pw-tiles">${tiles.join('')}</div>
-    </div>`;
+/* ---------- גונדולה: הדמיית מדף סופר ----------
+   עד 5 מדפים, לפי תעדוף (החלטת אלירן):
+     מדף 2 (גובה העיניים)      = עדיפות 1
+     מדף 3 (מתחת לגובה העיניים) = עדיפות 2
+     מדפים 4 -> 5 -> 1 (עליון)  = עדיפות 3 ומטה, לפי הסדר
+   מדף 3+ מתמלא עד רוחב המדפים של עדיפות 1-2 (לפחות 4 מותגים) ואז עוברים
+   לבא, כדי שהגונדולה תישאר מאוזנת. מוצגים רק מדפים שיש עליהם משהו.
+   כשהמותגים לא נכנסים ברוחב - כל הגונדולה נגללת הצידה ביחד (המדפים לא
+   זזים זה מול זה), והגלילה מתחילה מימין = מהעדיפות הגבוהה. */
+function planoGondolaHtml(d, s, ranked, isAdmin){
+  const flat = function(list){
+    const out = [];
+    list.forEach(function(e){ (e.items||[]).forEach(function(it){ out.push({e:e, it:it}); }); });
+    return out;
+  };
+  const p1 = flat(ranked.filter(function(e){ return e.priority === 1; }));
+  const p2 = flat(ranked.filter(function(e){ return e.priority === 2; }));
+  const rest = flat(ranked.filter(function(e){ return e.priority >= 3; }));
+  const cap = Math.max(4, p1.length, p2.length);
+  const s4 = rest.slice(0, cap), s5 = rest.slice(cap, cap*2), s1 = rest.slice(cap*2);
+  const custom = d.shelfRules && d.shelfRules.length;
+  const shelves = [
+    {key:'top', list:s1, rail:''},
+    {key:'eye', list:p1, rail: custom ? planoShelfText(d,1) : 'גובה העיניים', eye:true},
+    {key:'p2', list:p2, rail: custom ? planoShelfText(d,2) : ''},
+    {key:'s4', list:s4, rail:''},
+    {key:'s5', list:s5, rail:''}
+  ].filter(function(x){ return x.list.length; });
+  if(!shelves.length) return '';
+  let total = 0, withLogo = 0;
+  const body = shelves.map(function(sh){
+    const tiles = sh.list.map(function(x){
+      total++;
+      if(planoVisualFor(x.it.name)) withLogo++;
+      return planoTileHtml(d, s, x.e, x.it);
+    }).join('');
+    return `<div class="gd-shelf${sh.eye ? ' eye' : ''}"><div class="gd-items">${tiles}</div></div>
+      <div class="gd-rail">${sh.eye ? '<span aria-hidden="true">👁</span>' : ''}${sh.rail ? `<span>${planoEsc(sh.rail)}</span>` : ''}</div>`;
   }).join('');
-  const counter = isAdmin
-    ? `<span class="pw-count" title="לצוות הרכש בלבד">🖼 ${withImg} מתוך ${total} עם תמונה</span>` : '';
-  return `<div class="pw">
-    <div class="pw-head"><span>כך זה נראה על המדף</span>${counter}</div>
-    <div class="pw-unit">${body}</div>
-    <div class="pw-foot"><span>לחיצה על מוצר = הפרטים שלו</span><span>מימין לשמאל ←</span></div>
+  const title = s.name || d.name;
+  return `<div class="gd">
+    ${isAdmin ? `<div class="gd-count" title="לצוות הרכש בלבד">🖼 ${withLogo}/${total}</div>` : ''}
+    <div class="gd-scroll" tabindex="0" aria-label="${planoEsc('גונדולה: ' + title)}">
+      <div class="gd-unit">
+        <div class="gd-head">${planoEsc(title)}</div>
+        ${body}
+        <div class="gd-base"></div>
+      </div>
+    </div>
+    <div class="gd-more" aria-hidden="true">החליקו לעוד מותגים ←</div>
   </div>`;
 }
-/* הנחיות ⚠️ ברמת המשבצת - תמיד גלויות מתחת לקיר, גם כשהפירוט המלא סגור. */
-function planoWallAlertsHtml(d, s, entries){
-  const list = (entries||[]).filter(function(e){ return e.placementOverride; });
-  if(!list.length) return '';
-  return `<div class="pw-alerts">${list.map(function(e){
-    const names = (e.items||[]).map(function(it){ return it.name; }).join(', ');
-    return `<button class="pw-alert" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}')">
-      <span aria-hidden="true">⚠️</span><span><b>${planoEsc(e.label || names)}:</b> ${planoEsc(e.placementOverride)}</span>
-    </button>`;
-  }).join('')}</div>`;
+/* סימון גונדולה שיש בה עוד מותגים מעבר לרוחב המסך (אחרי רינדור). */
+function planoMarkGondolaOverflow(){
+  document.querySelectorAll('.gd').forEach(function(g){
+    const sc = g.querySelector('.gd-scroll');
+    if(!sc) return;
+    const more = sc.scrollWidth > sc.clientWidth + 4;
+    g.classList.toggle('has-more', more);
+    if(more && !sc._planoBound){
+      sc._planoBound = true;
+      sc.addEventListener('scroll', function(){
+        const atEnd = Math.abs(sc.scrollLeft) + sc.clientWidth >= sc.scrollWidth - 6;
+        g.classList.toggle('at-end', atEnd);
+      }, {passive:true});
+    }
+  });
+}
+
+/* ---------- הנחיות: כפתור אחד שפותח חלון (במקום מלל על המסך) ---------- */
+function planoCollectAlerts(d, s){
+  const out = [];
+  (d.alerts||[]).forEach(function(a){ out.push({level:a.level, text:a.text}); });
+  if(d.shelfRules && d.shelfRules.length){
+    out.push({level:'info', text:'סדר המדפים במחלקה הזו שונה מהרגיל: ' + d.shelfRules.map(function(r){ return 'עדיפות ' + r.priority + (r.appliesToAllBelow ? ' ומטה' : '') + ' - ' + r.text; }).join(' · ')});
+  }
+  if(s){
+    (s.alerts||[]).forEach(function(a){ out.push({level:a.level, text:a.text}); });
+    (s.entries||[]).forEach(function(e){
+      if(e.placementOverride) out.push({level:'critical', text:e.placementOverride, who:(e.label || (e.items||[]).map(function(it){ return it.name; }).join(', ')), entry:e.id});
+    });
+  }
+  return out;
+}
+function planoDeptActionsHtml(d, s){
+  const alerts = planoCollectAlerts(d, s);
+  const crit = alerts.filter(function(a){ return a.level === 'critical'; }).length;
+  return `<div class="gd-actions">
+    ${alerts.length ? `<button class="gd-pill${crit ? ' warn' : ''}" onclick="planoOpenAlerts('${planoEsc(d.id)}','${planoEsc(s ? s.id : '')}')"><span aria-hidden="true">${crit ? '⚠️' : 'ⓘ'}</span> הנחיות (${alerts.length})</button>` : ''}
+    <button class="gd-pill" onclick="planoOpenLegend()"><span aria-hidden="true">📖</span> מקרא</button>
+  </div>`;
+}
+function planoModalX(){
+  return `<button class="gd-x" onclick="closeModal()" aria-label="סגירה">×</button>`;
+}
+function planoOpenAlerts(deptId, subId){
+  const d = planoData.byId[deptId]; if(!d) return;
+  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0] || null;
+  const alerts = planoCollectAlerts(d, s);
+  alerts.sort(function(a,b){ return (a.level === 'critical' ? 0 : 1) - (b.level === 'critical' ? 0 : 1); });
+  document.getElementById('modal-body').innerHTML = `
+    ${planoModalX()}
+    <h3>הנחיות${s && s.name ? ' · ' + planoEsc(s.name) : ''}</h3>
+    <div class="gd-alerts">${alerts.map(function(a){
+      const open = a.entry ? ` onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(a.entry)}')" role="button" tabindex="0"` : '';
+      return `<div class="gd-alert ${a.level === 'critical' ? 'crit' : ''}"${open}>
+        <span aria-hidden="true">${a.level === 'critical' ? '⚠️' : 'ⓘ'}</span>
+        <span>${a.who ? `<b>${planoEsc(a.who)}:</b> ` : ''}${planoEsc(a.text)}</span>
+      </div>`;
+    }).join('')}</div>`;
+  document.getElementById('modal-overlay').classList.add('open');
 }
 function planoToggleFull(deptId, subId){
   const k = deptId + '/' + subId;
@@ -1158,6 +1253,7 @@ function planoOpenTile(deptId, subId, entryId){
     return v ? `<img src="${planoEsc(v.img)}" alt="${planoEsc(it.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   }).join('');
   document.getElementById('modal-body').innerHTML = `
+    ${planoModalX()}
     <div class="pw-modal-head">
       <span class="plano-p-pill">${typeof e.priority === 'number' ? 'עדיפות ' + planoEsc(e.priority) : 'מיקום מיוחד'}</span>
       ${shelf ? `<span class="pw-modal-shelf">${planoEsc(shelf)}</span>` : ''}
@@ -1166,8 +1262,7 @@ function planoOpenTile(deptId, subId, entryId){
     ${e.label ? `<div class="plano-label">${planoEsc(e.label)}</div>` : ''}
     <div class="plano-items" style="font-size:17px;">${planoItemsHtml(e.items)}</div>
     ${planoEntryExtras(d, s, e, planoCanManage())}
-    <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">${planoEsc(d.name)}${s.name ? ' · ' + planoEsc(s.name) : ''}</div>
-    <div class="modal-actions"><button class="btn-confirm" onclick="closeModal()">סגירה</button></div>`;
+    <div style="font-size:12.5px;color:var(--muted);margin-top:10px;">${planoEsc(d.name)}${s.name ? ' · ' + planoEsc(s.name) : ''}</div>`;
   document.getElementById('modal-overlay').classList.add('open');
 }
 
@@ -1316,9 +1411,7 @@ function planoRenderLegendEditor(){
   const d = planoLegendDraft;
   document.getElementById('modal-body').innerHTML = `
     <h3>עריכת מקרא</h3>
-    <div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:6px;">שורת התזכורת (מופיעה בראש כל מחלקה):</div>
-    <textarea id="plano-leg-reminder" class="plano-leg-reminder-in">${planoEsc(d.reminder)}</textarea>
-    <div style="font-size:13.5px;color:var(--text-secondary);margin:12px 0 4px;">שורות המקרא:</div>
+    <div style="font-size:13.5px;color:var(--text-secondary);margin:4px 0 4px;">שורות המקרא:</div>
     <div class="plano-leg-scroll">${d.rows.map(function(r, i){
       return `<div class="plano-leg-edit-row">
         <div class="plano-leg-top">
