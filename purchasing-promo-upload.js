@@ -291,6 +291,7 @@ function ppuRunPreview(){
     .then(summary => {
       if(summary.error){ ppuSetStatus('error', 'שגיאה: ' + summary.error); return; }
       st.previewSummary = summary;
+      st.bookletMonth = null;
       ppuClearStatus();
       ppuRenderPreview(summary);
       document.getElementById('ppuPublishBtn').disabled = false;
@@ -298,16 +299,79 @@ function ppuRunPreview(){
     .catch(err => ppuSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' — אם זה קרה אחרי המתנה ארוכה, ייתכן שזו בעיית timeout; נסו שוב.'));
 }
 
+/* ---------- חודש החוברת ----------
+   כל פרסום שומר גם עותק של החוברת בארכיון לפי חודש (promoBookletArchive/YYYY-MM).
+   "חוברת מבצעים" של הסניפים מציגה תמיד את החוברת האחרונה שפורסמה, ו"מכר
+   מבצעים" מנתח את מכר החודש הקודם מול החוברת של אותו חודש מהארכיון - שני
+   המסכים עובדים זה לצד זה. לכן חשוב שהחודש שהחוברת נשמרת תחתיו יהיה נכון:
+   פרסום עם חודש שגוי ידרוס בארכיון חוברת של חודש אחר. */
+const PPU_MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+function ppuMonthLabel(key){
+  const m = /^(\d{4})-(\d{2})$/.exec(key||'');
+  return m ? `${PPU_MONTHS_HE[parseInt(m[2],10)-1]} ${m[1]}` : (key||'');
+}
+function ppuMonthOptions(centerKey){
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), 1);
+  const keys = [];
+  for(let d=-3; d<=3; d++){
+    const x = new Date(base.getFullYear(), base.getMonth()+d, 1);
+    keys.push(`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`);
+  }
+  if(centerKey && keys.indexOf(centerKey)<0) keys.push(centerKey);
+  return keys.sort();
+}
+function ppuMonthSourceText(src){
+  return {filename:'זוהה משם הקובץ', pdf:'זוהה מכותרת ה-PDF', fallback:'לא זוהה בקובץ — הונח החודש הבא', override:'נבחר ידנית'}[src] || '';
+}
+function ppuSetBookletMonth(key){
+  const st = purchasingUploadState;
+  st.bookletMonth = key;
+  const lbl = document.getElementById('ppuMonthLabel');
+  if(lbl) lbl.textContent = ppuMonthLabel(key);
+  const warn = document.getElementById('ppuMonthWarn');
+  if(warn){
+    warn.textContent = 'בודק ארכיון...';
+    db.collection('promoBookletArchive').doc(key).get().then(doc=>{
+      if(st.bookletMonth!==key) return;
+      warn.innerHTML = doc.exists
+        ? `⚠ בארכיון כבר קיימת חוברת של ${ppuMonthLabel(key)} (${(doc.data()||{}).promoCount||'?'} מבצעים). הפרסום יחליף אותה. אם זו לא אותה חוברת — בחרו חודש אחר.`
+        : `✓ אין עדיין חוברת של ${ppuMonthLabel(key)} בארכיון.`;
+      warn.style.color = doc.exists ? '#B4611E' : '#3D7A4F';
+    }).catch(()=>{ warn.textContent = ''; });
+  }
+}
+
 function ppuRenderPreview(summary){
   const box = document.getElementById('ppuPreviewBox');
   box.classList.add('open');
   const flagged = summary.flagged_for_review || [];
   const detectedLen = summary.promo_code_digit_length_detected;
+  const monthKey = summary.booklet_month || '';
+  purchasingUploadState.bookletMonth = monthKey;
+  const monthBlock = monthKey ? `
+    <div style="border:2px solid #4E7A3A;border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fff;">
+      <div style="font-size:15px;font-weight:800;">📅 החוברת תישמר כחוברת של: <span id="ppuMonthLabel">${ppuMonthLabel(monthKey)}</span></div>
+      <div style="font-size:12.5px;color:#777;margin:4px 0 8px;">${ppuMonthSourceText(summary.booklet_month_source)}. אם החודש לא נכון — בחרו את החודש הנכון לפני הפרסום:</div>
+      <select class="ppu-input" style="max-width:240px;" onchange="ppuSetBookletMonth(this.value)">
+        ${ppuMonthOptions(monthKey).map(k=>`<option value="${k}" ${k===monthKey?'selected':''}>${ppuMonthLabel(k)}</option>`).join('')}
+      </select>
+      <div id="ppuMonthWarn" style="font-size:12.5px;margin-top:8px;color:${summary.archive_month_exists?'#B4611E':'#3D7A4F'};">
+        ${summary.archive_month_exists
+          ? `⚠ בארכיון כבר קיימת חוברת של ${ppuMonthLabel(monthKey)}. הפרסום יחליף אותה. אם זו לא אותה חוברת — בחרו חודש אחר.`
+          : `✓ אין עדיין חוברת של ${ppuMonthLabel(monthKey)} בארכיון.`}
+      </div>
+    </div>` : '';
   box.innerHTML = `
+    ${monthBlock}
     <div class="ppu-row ok">✓ ${summary.total_promos} מבצעים זוהו</div>
     ${detectedLen ? `<div class="ppu-row ok">✓ אורך מספר מבצע שזוהה החודש: ${detectedLen} ספרות</div>` : ''}
     <div class="ppu-row ok">✓ ${summary.barcode_catalog_matches}/${summary.barcode_catalog_total} ברקודים תואמו לקטלוג</div>
     <div class="ppu-row ok">✓ ${summary.barcode_image_matches||0}/${summary.barcode_catalog_total} ברקודים עם תמונה</div>
+    ${(summary.repaired_codes||[]).length ? `<div class="ppu-row ok">🔧 ${summary.repaired_codes.length} מספרי מבצע ארוכים מדי תוקנו אוטומטית לפי קובץ הספקים:</div>
+      <ul style="font-size:12.5px;color:#3D7A4F;margin:4px 0 0;padding-inline-start:20px;">
+        ${summary.repaired_codes.map(r => `<li>${r}</li>`).join('')}
+      </ul>` : ''}
     ${flagged.length ? `<div class="ppu-row warn">⚠ ${flagged.length} שורות מסומנות לבדיקה ידנית:</div>
       <ul style="font-size:12.5px;color:#B4611E;margin:4px 0 0;padding-inline-start:20px;">
         ${flagged.map(f => `<li>${f.reason} — ${f.desc || ''}</li>`).join('')}
@@ -333,6 +397,8 @@ function ppuPublish(){
       supplierFileUrl: st.supplierFileUrl,
       displayFileUrl: st.displayFileUrl,
     };
+    /* החודש שאושר בתצוגה המקדימה (או תוקן ידנית) - כך הפרסום לא מזהה מחדש. */
+    if(st.bookletMonth) payload.bookletMonth = st.bookletMonth;
     if(st.catalogFileUrl) payload.catalogFileUrl = st.catalogFileUrl;
     if(st.imagesFileUrl) payload.imagesFileUrl = st.imagesFileUrl;
     return fetch(CLOUD_FUNCTION_URL, {
@@ -367,7 +433,7 @@ function ppuPublish(){
 
     db.collection('siteTexts').doc('purchasingPromoNotice').set(docPayload, {merge:true})
       .catch(err => console.error('siteTexts write failed', err));
-    ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore. אפשר לבדוק עכשיו במסך "לוח מבצעים".`);
+    ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore ונשמרו בארכיון כחוברת של ${ppuMonthLabel(result.booklet_month || st.bookletMonth)}. אפשר לבדוק עכשיו במסך "חוברת מבצעים".`);
   })
   .catch(err => {
     ppuSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' — אם זה קרה אחרי המתנה ארוכה (מעל 2-3 דקות), ייתכן שהפרסום בכל זאת הצליח בצד השרת אבל התשובה לא הגיעה בזמן; בדקו את "לוח מבצעים" לפני שמנסים שוב, כדי לא לכתוב פעמיים.');
