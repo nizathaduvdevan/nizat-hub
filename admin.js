@@ -134,6 +134,93 @@ function viewAdmin(){
    אלירן ב-30.08.2026. תוספות עתידיות (קיצורים חדשים שנפתרים ידנית בעת
    העלאה) נשמרות בנפרד ב-Firestore (config/promoColumnMapping) ומתמזגות
    עם המיפוי הזה - כך שאין צורך לגעת בקוד שוב. */
+/* מיפוי מאושר ידנית ע"י אלירן (30.09.2026) לכל 80 העמודות בקובץ המכר.
+   הערכים הם שמות "תיאוריים" כפי שנכתבו בצ'אט; בזמן הייבוא כל שם מותאם
+   לשם המדויק ברשימת הסניפים (BRANCH_DIRECTORY) - התאמה מדויקת, ואם אין,
+   התאמה לפי מילים (למשל "שינקין תל אביב" <-> "ניצת תל אביב שנקין"),
+   רק כשיש בדיוק מועמד אחד. המיפוי הזה גובר על כל מיפוי שמור אחר. */
+const CONFIRMED_PROMO_COLUMN_MAPPING = {
+  'ת"א': 'אבן גבירול',
+  'י-ם': 'כנפי נשרים',
+  'הרצל': 'הרצליה',
+  'רעננ': 'רעננה אוסטרובסקי',
+  'גוש': 'גוש עציון',
+  'זכרון': 'זכרון יעקב',
+  'חיפה': 'חיפה קומוי',
+  'פ"ת': 'פתח תקווה סגולה',
+  'ק. 8': 'קרית שמונה',
+  'עפול': 'עפולה',
+  'אשקל': 'אשקלון',
+  'שמש': 'בית שמש',
+  'שוק': 'שוק הכרמל תל אביב',
+  'נתניה': 'נתניה קרית השרון',
+  'פרדס': 'פרדס חנה',
+  'ישי': 'רמת ישי',
+  'טבר': 'טבריה',
+  'בוג': 'בוגרשוב',
+  'שרון': 'רמת השרון',
+  'בנימינ': 'בנימינה',
+  'חורב': 'חיפה חורב',
+  'כרמי': 'כרמיאל',
+  'באר7': 'מול 7 באר שבע',
+  'אתא': 'קרית אתא',
+  'יוקנ': 'יוקנעם',
+  'רחוב': 'רחובות מוטי קינד',
+  'ראשון': 'ראשון לציון תרמ"ב',
+  'מודיע': 'ביו מרקט מודיעין',
+  'אריאל': 'אריאל',
+  'קסטי': 'קסטינה',
+  'ברוד': 'ברודצקי תל אביב',
+  'סבא': 'כפר סבא הירוקה',
+  'רגבה': 'רגבה',
+  'אשדוד': 'אשדוד',
+  'פינה': 'ראש פינה',
+  'חולון': 'חולון',
+  'ביג7': 'ביג באר שבע',
+  'מונד': 'תל מונד',
+  'טופ': 'טופ דן תל אביב',
+  'ביתר': 'בית"ר עלית',
+  'ר.צפון': 'רעננה צפון',
+  'יכין': 'פתח תקווה יכין',
+  'אילת': 'אילת',
+  'טבעון': 'קרית טבעון',
+  'מוצק': 'קרית מוצקין',
+  'ניות': 'ניות ירושלים',
+  'מכבי': 'יהודה המכבי תל אביב',
+  'דיזנ': 'דיזנגוף תל אביב',
+  'סמילנ': 'נתניה סמילנסקי',
+  'חדרה': 'חדרה',
+  'כרכור': 'כרכור',
+  'יהוד': 'יהוד',
+  'אגריפס': 'אגריפס ירושלים',
+  'גבעת': 'גבעתיים',
+  'מבשרת': 'מבשרת ציון',
+  'פיאנו': 'נתניה פיאנו',
+  'תלפיות': 'תלפיות ירושלים',
+  'הוד': 'הוד השרון',
+  'גן': 'רמת גן',
+  'ר.מערב': 'ראשון לציון מערב',
+  'אפרת': 'אפרת',
+  'פלור': 'פלורנטין תל אביב',
+  'נהריה': 'נהריה',
+  'יבנה': 'יבנה',
+  'ר.הרצל': 'רחובות הרצל',
+  'שינקין': 'שינקין תל אביב',
+  'שרונה': 'שרונה תל אביב',
+  'אונו': 'קרית אונו',
+  'מ.מרכז': 'מודיעין מרכז',
+  'אבן .י.': 'אבן יהודה',
+  'שוהם': 'שוהם',
+  'ביו כפ"ס': 'ביו מרקט כפר סבא',
+  'עקיבא': 'אור עקיבא',
+  'גת': 'כרמי גת',
+  'ויתקין': 'כפר ויתקין',
+  'חשמ': 'חשמונאים תל אביב',
+  'קדי': 'קדימה',
+  'כורזי': 'גבעתיים כורזין',
+  'שוסט': 'שוסטר תל אביב',
+  'עד ה': 'עד הלום'
+};
 const DEFAULT_PROMO_COLUMN_MAPPING = {
   'ת"א': 'ניצת תל אביב אבן גבירול',
   'י-ם': 'ניצת ירושלים כנפי נשרים',
@@ -221,7 +308,48 @@ const DEFAULT_PROMO_COLUMN_MAPPING = {
 };
 /* המיפוי המלא בפועל = ברירת המחדל + תוספות שנלמדו ונשמרו ב-Firestore. */
 function fullPromoColumnMapping(){
-  return Object.assign({}, DEFAULT_PROMO_COLUMN_MAPPING, appData.promoColumnMappingExtra||{});
+  /* סדר עדיפויות: מיפוי ישן כברירת מחדל < מה שנשמר ב-Firestore < המיפוי
+     המאושר ידנית (CONFIRMED) - כדי ששיוכים ישנים/שגויים ששמורים ב-Firestore
+     לא יוכלו לדרוס את מה שאושר. */
+  return Object.assign({}, DEFAULT_PROMO_COLUMN_MAPPING, appData.promoColumnMappingExtra||{}, CONFIRMED_PROMO_COLUMN_MAPPING);
+}
+/* מתאים שם (מהמיפוי) לשם המדויק שקיים ב-BRANCH_DIRECTORY.
+   1) התאמה מדויקת. 2) התאמה אחרי נרמול (בלי "ניצת", גרשיים, מקפים,
+   רווחים כפולים; ת"א/תא -> תל אביב; י-ם -> ירושלים; ב"ש -> באר שבע;
+   ראשל"צ -> ראשון לציון; כפ"ס -> כפר סבא; תקוה -> תקווה; יקנעם -> יוקנעם;
+   שנקין -> שינקין). 3) התאמה לפי מילים: כל המילים של אחד מהשמות מופיעות
+   בשני. מחזיר שם רק אם יש מועמד אחד בלבד - אחרת null (ואז העמודה
+   נשלחת לאישור ידני במקום לנחש). */
+function normalizePromoBranchText(t){
+  let x = ' ' + String(t||'') + ' ';
+  x = x.replace(/(^|[\s(])ת["'׳״]?א(?=[\s\-–,)]|$)/g,'$1 תל אביב ')
+       .replace(/י-ם/g,' ירושלים ')
+       .replace(/ב["'׳״]ש/g,' באר שבע ')
+       .replace(/ראשל["'׳״]?צ/g,' ראשון לציון ')
+       .replace(/כפ["'׳״]?ס/g,' כפר סבא ')
+       .replace(/(^|[\s(])פ["'׳״]?ת(?=[\s\-–,)]|$)/g,'$1 פתח תקווה ');
+  x = x.replace(/["'׳״`().,]/g,' ').replace(/[-–]/g,' ');
+  x = x.replace(/\bניצת\b/g,' ').replace(/(^|\s)ניצת(?=\s)/g,' ');
+  x = x.replace(/תקוה/g,'תקווה').replace(/יקנעם/g,'יוקנעם').replace(/שנקין/g,'שינקין')
+       .replace(/קריית/g,'קרית').replace(/רענננה/g,'רעננה').replace(/בינימינה/g,'בנימינה');
+  return x.replace(/\s+/g,' ').trim();
+}
+function resolvePromoBranchName(name){
+  if(!name) return null;
+  const dir = BRANCH_DIRECTORY || [];
+  if(dir.some(b=>b.name===name)) return name;
+  const target = normalizePromoBranchText(name);
+  let hits = dir.filter(b=>normalizePromoBranchText(b.name)===target);
+  if(hits.length===1) return hits[0].name;
+  /* מילים בלי ה' הידיעה בתחילתן (החשמונאים = חשמונאים). */
+  const words = t => t.split(' ').filter(Boolean).map(w=>(w.length>3 && w[0]==='ה') ? w.slice(1) : w);
+  const tWords = words(target);
+  hits = dir.filter(b=>{
+    const bWords = words(normalizePromoBranchText(b.name));
+    if(!bWords.length || !tWords.length) return false;
+    return tWords.every(w=>bWords.indexOf(w)>=0) || bWords.every(w=>tWords.indexOf(w)>=0);
+  });
+  return hits.length===1 ? hits[0].name : null;
 }
 let pendingPromoImportRows = null; /* שורות הגיליון הגולמיות, ממתינות לפתרון קיצורים לא-מוכרים */
 function adminPromoUpload(){
@@ -420,8 +548,8 @@ function handlePromoExcelUpload(evt){
       const guesses = {};
       /* שלב 1: מיפוי שמור שהיעד שלו קיים ברשימת הסניפים. */
       branchCols.forEach(col=>{
-        const saved = savedMapping[col];
-        if(saved && dirNames.has(saved)) mapping[col] = saved;
+        const resolved = resolvePromoBranchName(savedMapping[col]);
+        if(resolved && dirNames.has(resolved)) mapping[col] = resolved;
       });
       /* כל עמודה באקסל היא סניף אחר. אם שתי עמודות או יותר מצביעות על אותו
          סניף, המכר שלהן היה מתחבר יחד (כך נוצרו 606 יח' במקום 78 בסניף
@@ -513,7 +641,7 @@ function savePromoUnresolvedAndImport(unresolvedCols){
   const fileCols = window._promoFileBranchCols || unresolvedCols;
   const seenT = {};
   fileCols.forEach(col=>{
-    const t = fullChk[col];
+    const t = resolvePromoBranchName(fullChk[col]);
     if(t && dirNamesChk.has(t)) (seenT[t] = seenT[t]||[]).push(col);
   });
   const dups = Object.keys(seenT).filter(t=>seenT[t].length>1);
@@ -530,9 +658,9 @@ function savePromoUnresolvedAndImport(unresolvedCols){
     document.getElementById('promo-unresolved-area').innerHTML = '';
     /* מיפוי סופי: רק יעדים שקיימים ברשימת הסניפים הנוכחית. */
     const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
-    const full = fullPromoColumnMapping();
+    const full = Object.assign({}, fullPromoColumnMapping(), newEntries);
     const valid = {};
-    Object.keys(full).forEach(k=>{ if(dirNames.has(full[k])) valid[k] = full[k]; });
+    Object.keys(full).forEach(k=>{ const r = resolvePromoBranchName(full[k]); if(r && dirNames.has(r)) valid[k] = r; });
     finalizePromoImport(valid);
   }).catch(function(err){
     if(statusEl) statusEl.textContent = 'שגיאה בשמירת המיפוי: ' + err.message;
