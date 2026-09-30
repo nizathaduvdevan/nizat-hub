@@ -42,7 +42,7 @@ const PLANO_LEGEND_ROWS_DEFAULT = [
   {style:'plain', key:'תת-מחלקה', text:'הלשוניות בראש המחלקה הן תתי-המחלקות. עוברים ביניהן בלחיצה.'},
   {style:'p1', key:'1', text:'המספר הוא סדר העדיפות על המדף. 1 = המקום הכי טוב, בגובה העיניים. אחריו 2, 3 וכן הלאה.'},
   {style:'plain', key:'סדר', text:'הפירוט הוא לפי עדיפויות בלבד: מלמעלה למטה ומימין לשמאל.'},
-  {style:'shelf', key:'קיר המדפים', text:'בראש כל מחלקה מופיע קיר המדפים: כל שורה היא מדף, והשורה הירוקה היא גובה העיניים. לחיצה על מוצר פותחת את הפרטים שלו.'},
+  {style:'shelf', key:'קיר המדפים', text:'בראש כל מחלקה מופיע קיר המדפים: כל שורה היא מדף, והשורה הירוקה היא גובה העיניים. כל אריח מציג את הלוגו של המותג. לחיצה על אריח פותחת את הפרטים שלו.'},
   {style:'new', key:'', text:'מוצר חדש, או מוצר שהמיקום שלו השתנה לאחרונה. שימו לב במיוחד.'},
   {style:'alert', key:'חשוב', text:'הערה שחייבים לקרוא. היא גוברת על סדר העדיפויות.'},
   {style:'plain', key:'גם ב', text:'מוצרי ניצת ויבוא מוצגים לפעמים גם במחלקות מתאימות נוספות, בנוסף למחלקה הראשית. זה מכוון.'},
@@ -65,7 +65,7 @@ let planoData = {
   fromCache: false,
   cacheSavedAt: null,
   error: null,
-  visuals: {},          /* שם מוצר/מותג בפלנוגרמה -> {img, logo} (מסמך planograms/_visuals) */
+  visuals: {},          /* שם בפלנוגרמה -> {logo} (מסמך planograms/_visuals) */
   visualsMeta: null
 };
 let planoPublished = (function(){
@@ -310,7 +310,7 @@ function planoInjectStyleOnce(){
     .pw-lbl{font-size:12.5px;color:var(--text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:5px;}
     .pw-row.eye .pw-lbl{color:var(--blue);font-weight:500;}
     .pw-tiles{display:flex;flex-wrap:wrap;gap:10px 8px;}
-    .pw-tile{position:relative;width:84px;flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 4px 6px;border:1px solid var(--gridline);border-radius:10px;background:#fff;color:#2b2b2b;cursor:pointer;text-align:center;}
+    .pw-tile{position:relative;width:88px;flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 4px 6px;border:1px solid var(--gridline);border-radius:10px;background:#fff;color:#2b2b2b;cursor:pointer;text-align:center;}
     .pw-tile:hover{border-color:var(--blue);}
     .pw-tile.new{border-color:#3b82c4;box-shadow:inset 0 0 0 1.5px #3b82c4;}
     .pw-img{display:flex;align-items:center;justify-content:center;width:74px;height:62px;}
@@ -319,7 +319,7 @@ function planoInjectStyleOnce(){
     .pw-fb-generic{background:#f1efe8;color:#5f5e5a;font-weight:400;}
     .pw-badge{position:absolute;top:44px;left:3px;width:30px;height:20px;border-radius:5px;background:#fff;border:1px solid #e3e3e3;display:flex;align-items:center;justify-content:center;overflow:hidden;}
     .pw-badge img{max-width:28px;max-height:18px;object-fit:contain;}
-    .pw-name{font-size:11.5px;line-height:1.25;max-width:78px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+    .pw-name{font-size:13px;font-weight:500;line-height:1.25;max-width:80px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:#222;margin-top:2px;}
     .pw-tile.fb .pw-name{display:none;}
     .pw-tile.fb .pw-fb{height:70px;}
     .pw-new{font-size:10px;color:#2b6cb0;font-weight:500;line-height:1.2;}
@@ -334,7 +334,7 @@ function planoInjectStyleOnce(){
     .pw-modal-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;}
     .pw-modal-shelf{font-size:13.5px;color:var(--text-secondary);}
     .pw-modal-pics{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
-    .pw-modal-pics img{width:96px;height:96px;object-fit:contain;background:#fff;border:1px solid var(--gridline);border-radius:10px;}
+    .pw-modal-pics img{width:110px;height:70px;padding:6px;box-sizing:border-box;object-fit:contain;background:#fff;border:1px solid var(--gridline);border-radius:10px;}
     html[data-theme="dark"] .pw-tile{background:#f7f7f5;}
 
     .plano-legend-chip{display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 9px;border-radius:99px;background:var(--page);font-size:13px;font-weight:500;color:var(--text-primary);}
@@ -1048,12 +1048,11 @@ const PLANO_TILE_COLORS = [
   ['#E6F1FB','#185FA5'],['#EAF3DE','#3B6D11'],['#FAECE7','#993C1D'],['#F1EFE8','#5F5E5A']
 ];
 const PLANO_GENERIC_RE = /השאר|אחרים|שונות/;
+/* אריחים מציגים לוגו בלבד (החלטה: תמונת מוצר אחת לא מייצגת נכון מותג שיש
+   לו הרבה מוצרים). אין לוגו -> אריח צבעוני עם השם. */
 function planoVisualFor(name){
   const v = planoData.visuals && planoData.visuals[name];
-  if(!v) return null;
-  if(v.img) return {img: v.img, logo: v.logo || null};
-  if(v.logo) return {img: v.logo, logo: null};
-  return null;
+  return v && v.logo ? {img: v.logo, logo: null} : null;
 }
 function planoTileColor(name){
   let h = 0; const t = String(name||'');
@@ -1151,8 +1150,11 @@ function planoOpenTile(deptId, subId, entryId){
   const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0]; if(!s) return;
   const e = (s.entries||[]).filter(function(x){ return x.id === entryId; })[0]; if(!e) return;
   const shelf = typeof e.priority === 'number' ? planoShelfText(d, e.priority) : '';
+  const seenLogo = {};
   const pics = (e.items||[]).map(function(it){
     const v = planoVisualFor(it.name);
+    if(v && seenLogo[v.img]) return '';
+    if(v) seenLogo[v.img] = true;
     return v ? `<img src="${planoEsc(v.img)}" alt="${planoEsc(it.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
   }).join('');
   document.getElementById('modal-body').innerHTML = `
@@ -1170,7 +1172,7 @@ function planoOpenTile(deptId, subId, entryId){
 }
 
 /* ---------- ייבוא תמונות מותגים (רכש) ----------
-   קובץ planogram_visuals.json: {kind:"nizat-planogram-visuals", items:{"שם בפלנוגרמה":{img,logo}}}
+   קובץ planogram_visuals.json: {kind:"nizat-planogram-visuals", items:{"שם בפלנוגרמה":{logo}}}
    נשמר במסמך planograms/_visuals (אותן הרשאות כמו הפלנוגרמות, בלי שינוי בחוקים). */
 function planoVisualsFileSelected(file){
   if(!file) return;
@@ -1181,21 +1183,27 @@ function planoVisualsFileSelected(file){
     if(!obj || obj.kind !== 'nizat-planogram-visuals' || !obj.items || typeof obj.items !== 'object'){
       toast('זה לא קובץ תמונות מותגים תקין (planogram_visuals.json)'); return;
     }
+    /* לוגו = קישור https (מאתר ניצת) או לוגו שהועלה ידנית ונשמר בתוך הקובץ (data:image) */
+    const okUrl = function(u){
+      if(typeof u !== 'string') return null;
+      if(/^https:\/\//.test(u)) return u;
+      if(/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(u) && u.length < 200000) return u;
+      return null;
+    };
     const items = {};
-    let n = 0;
     Object.keys(obj.items).forEach(function(k){
-      const v = obj.items[k] || {};
-      const img = typeof v.img === 'string' && /^https:\/\//.test(v.img) ? v.img : null;
-      const logo = typeof v.logo === 'string' && /^https:\/\//.test(v.logo) ? v.logo : null;
-      if(k && (img || logo)){ items[k] = {img: img, logo: logo}; n++; }
+      const logo = okUrl((obj.items[k] || {}).logo);
+      if(k && logo) items[k] = {logo: logo};
     });
-    const used = {};
-    planoData.departments.forEach(function(d){ (d.subcategories||[]).forEach(function(s){ (s.entries||[]).forEach(function(e){ (e.items||[]).forEach(function(it){ used[it.name] = true; }); }); }); });
-    const covered = Object.keys(used).filter(function(k){ return items[k]; }).length;
+    let total = 0, covered = 0;
+    planoData.departments.forEach(function(d){ (d.subcategories||[]).forEach(function(s){ (s.entries||[]).forEach(function(e){
+      if(typeof e.priority !== 'number') return;
+      (e.items||[]).forEach(function(it){ total++; if(items[it.name]) covered++; });
+    }); }); });
     document.getElementById('modal-body').innerHTML = `
       <h3>ייבוא תמונות מותגים</h3>
-      <p style="font-size:14.5px;line-height:1.6;">בקובץ ${n} שמות עם תמונה.<br>
-      מתוך ${Object.keys(used).length} שמות שונים בפלנוגרמות, <b>${covered}</b> יקבלו תמונה. השאר יוצגו כאריח צבעוני עם השם.</p>
+      <p style="font-size:14.5px;line-height:1.6;">מתוך ${total} אריחים בפלנוגרמות:<br>
+      <b>${covered}</b> יקבלו לוגו, ו-${total - covered} יוצגו כאריח צבעוני עם השם.</p>
       <p style="font-size:13px;color:var(--text-secondary);">הייבוא מחליף את כל התמונות הקיימות ומתעדכן לכל הסניפים.</p>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="closeModal()">ביטול</button>
@@ -1212,7 +1220,7 @@ function planoRunVisualsImport(){
   if(!p || !firebaseReady || !db){ closeModal(); return; }
   const btn = document.getElementById('plano-vis-go');
   if(btn){ btn.disabled = true; btn.textContent = 'מייבא…'; }
-  const doc = {items: p.items, generatedAt: p.generatedAt, importedAt: planoToday(), importedBy: currentUserEmail || null};
+  const doc = {items: p.items, version: 3, generatedAt: p.generatedAt, importedAt: planoToday(), importedBy: currentUserEmail || null};
   db.collection('planograms').doc('_visuals').set(doc).then(function(){
     planoData.visuals = p.items;
     planoData.visualsMeta = {importedAt: doc.importedAt, count: Object.keys(p.items).length};
