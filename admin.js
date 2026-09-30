@@ -140,6 +140,8 @@ const DEFAULT_PROMO_COLUMN_MAPPING = {
   'הרצל': 'ניצת הרצליה',
   'רעננה': 'ניצת רעננה אוסטרובסקי',
   'גוש עציון': 'ניצת גוש עציון',
+  'גוש': 'ניצת גוש עציון',
+  'רעננ': 'ניצת רעננה אוסטרובסקי',
   'זכרון': 'ניצת זכרון יעקב',
   'חיפה': 'ניצת חיפה קומוי (נוה שאנן)',
   'פ"ת': 'ניצת פתח תקווה סגולה',
@@ -153,6 +155,7 @@ const DEFAULT_PROMO_COLUMN_MAPPING = {
   'ישי': 'ניצת רמת ישי',
   'טבר': 'ניצת טבריה',
   'בוגרשוב': 'ניצת תל אביב בוגרשוב',
+  'בוג': 'ניצת תל אביב בוגרשוב',
   'שרון': 'ניצת רמת השרון',
   'בנימינ': 'ניצת בינימינה',
   'חורב': 'ניצת חיפה חורב',
@@ -237,7 +240,8 @@ function adminPromoUpload(){
         כרגע במערכת: <b>${count}</b> מוצרים.
       </div>
       <input type="file" id="promo-excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handlePromoExcelUpload(event)">
-      <button class="btn-import" onclick="document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל (מכר מבצעים)</button>
+      <button class="btn-import" onclick="window._promoReviewAllColumns=false;document.getElementById('promo-excel-input').value='';document.getElementById('promo-excel-input').click()">📥 העלאת קובץ אקסל (מכר מבצעים)</button>
+      <button class="icon-btn" style="width:auto;padding:8px 14px;font-size:12.5px;margin-inline-start:8px;" onclick="window._promoReviewAllColumns=true;document.getElementById('promo-excel-input').value='';document.getElementById('promo-excel-input').click()">🔎 העלאה ובדיקת כל העמודות</button>
       <button class="icon-btn" style="width:auto;padding:8px 14px;font-size:12.5px;margin-inline-start:8px;color:var(--critical,#d03b3b);" onclick="resetPromoProducts()">🗑️ איפוס נתוני מכר (מחיקת הכל)</button>
       <div id="promo-upload-status" style="margin-top:12px;font-size:13px;"></div>
       <div id="promo-unresolved-area"></div>
@@ -398,28 +402,58 @@ function handlePromoExcelUpload(evt){
                תשבץ מכר של סניף אחד אצל סניף אחר. אחרי אישור אחד הכול נשמר
                ב-Firestore ובחודשים הבאים שלב 1 מכסה הכול. */
     if(statusEl) statusEl.textContent = 'מתאים עמודות מול רשימת הסניפים...';
+    const reviewAll = !!window._promoReviewAllColumns;
+    window._promoReviewAllColumns = false;
     loadBranchDirectory().then(function(){
       const dirNames = new Set(BRANCH_DIRECTORY.map(b=>b.name));
       const mapping = {};
       const needsReview = [];
       const guesses = {};
+      /* שלב 1: מיפוי שמור שהיעד שלו קיים ברשימת הסניפים. */
       branchCols.forEach(col=>{
         const saved = savedMapping[col];
-        if(saved && dirNames.has(saved)){ mapping[col] = saved; return; }
+        if(saved && dirNames.has(saved)) mapping[col] = saved;
+      });
+      /* כל עמודה באקסל היא סניף אחר. אם שתי עמודות או יותר מצביעות על אותו
+         סניף, המכר שלהן היה מתחבר יחד (כך נוצרו 606 יח' במקום 78 בסניף
+         אחד) - לכן כל העמודות שחולקות יעד נשלחות לבדיקה, והשמירה לא תאושר
+         עד שכל עמודה מצביעה על סניף משלה. */
+      const byTarget = {};
+      Object.keys(mapping).forEach(col=>{ (byTarget[mapping[col]] = byTarget[mapping[col]]||[]).push(col); });
+      Object.keys(byTarget).forEach(t=>{
+        if(byTarget[t].length>1) byTarget[t].forEach(col=>{ delete mapping[col]; });
+      });
+      const usedTargets = new Set(Object.values(mapping));
+      branchCols.forEach(col=>{
+        if(mapping[col] && !reviewAll) return;
+        if(mapping[col] && reviewAll){ guesses[col] = mapping[col]; needsReview.push(col); return; }
+        const saved = savedMapping[col];
         let entry = null;
         if(saved) entry = findBranchDirectoryEntry(saved);
         if(!entry) entry = findBranchDirectoryEntry(col);
-        guesses[col] = entry ? entry.name : '';
+        /* מסמנים הצעה מראש רק אם אף עמודה אחרת לא תופסת כבר את הסניף הזה. */
+        if(entry && !usedTargets.has(entry.name)){
+          guesses[col] = entry.name;
+          usedTargets.add(entry.name);
+        } else {
+          guesses[col] = '';
+        }
         needsReview.push(col);
       });
+      if(reviewAll){
+        Object.keys(mapping).forEach(col=>{ if(needsReview.indexOf(col)<0){ guesses[col]=mapping[col]; needsReview.push(col); } });
+      }
       if(!needsReview.length){
         if(statusEl) statusEl.textContent = `כל ${branchCols.length} העמודות זוהו אוטומטית.`;
         finalizePromoImport(mapping);
         return;
       }
       const guessed = needsReview.filter(c=>guesses[c]).length;
-      if(statusEl) statusEl.textContent = `${branchCols.length-needsReview.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. `
-        + `נותרו ${needsReview.length} לאישור למטה (${guessed} עם הצעה מסומנת מראש) — בדיקה חד-פעמית.`;
+      if(statusEl) statusEl.textContent = reviewAll
+        ? `בדיקת מיפוי מלאה: ${needsReview.length} עמודות. בדקו שכל קיצור מצביע על הסניף הנכון ולחצו שמירה.`
+        : `${branchCols.length-needsReview.length} מתוך ${branchCols.length} עמודות זוהו אוטומטית. `
+          + `נותרו ${needsReview.length} לאישור למטה (${guessed} עם הצעה מסומנת מראש) — בדיקה חד-פעמית.`;
+      window._promoFileBranchCols = branchCols.slice();
       renderPromoUnresolvedForm(needsReview, guesses);
     });
   };
@@ -464,6 +498,22 @@ function savePromoUnresolvedAndImport(unresolvedCols){
     if(!val){ toast('יש לבחור סניף לכל הקיצורים לפני שממשיכים'); return; }
     newEntries[unresolvedCols[i]] = val;
   }
+  /* בדיקת כפילויות על כל עמודות הקובץ: הבחירות שכאן + מה שכבר זוהה אוטומטית. */
+  const dirNamesChk = new Set(BRANCH_DIRECTORY.map(b=>b.name));
+  const fullChk = Object.assign({}, fullPromoColumnMapping(), newEntries);
+  const fileCols = window._promoFileBranchCols || unresolvedCols;
+  const seenT = {};
+  fileCols.forEach(col=>{
+    const t = fullChk[col];
+    if(t && dirNamesChk.has(t)) (seenT[t] = seenT[t]||[]).push(col);
+  });
+  const dups = Object.keys(seenT).filter(t=>seenT[t].length>1);
+  if(dups.length){
+    const msg = dups.map(t=>`"${t}" נבחר עבור: ${seenT[t].map(c=>'"'+c+'"').join(', ')}`).join(' | ');
+    if(statusEl) statusEl.textContent = 'אותו סניף נבחר ליותר מעמודה אחת — כל עמודה באקסל היא סניף אחר. ' + msg;
+    toast('יש סניף שנבחר פעמיים — ראו פירוט מעל הרשימה');
+    return;
+  }
   const merged = Object.assign({}, appData.promoColumnMappingExtra||{}, newEntries);
   if(statusEl) statusEl.textContent = 'שומר מיפוי חדש...';
   db.collection('config').doc('promoColumnMapping').set({ mapping: merged }, {merge:true}).then(function(){
@@ -485,6 +535,18 @@ function finalizePromoImport(mapping){
   const statusEl = document.getElementById('promo-upload-status');
   const rows = pendingPromoImportRows;
   if(!rows){ if(statusEl) statusEl.textContent = 'שגיאה: אין קובץ טעון.'; return; }
+  /* הגנה אחרונה: אם שתי עמודות מצביעות על אותו סניף - לא מייבאים בכלל. */
+  const targetCount = {};
+  (rows[0]||[]).slice(3).forEach(h=>{
+    if(h==null) return;
+    const t = mapping[String(h)];
+    if(t) targetCount[t] = (targetCount[t]||0) + 1;
+  });
+  const dupTargets = Object.keys(targetCount).filter(t=>targetCount[t]>1);
+  if(dupTargets.length){
+    if(statusEl) statusEl.textContent = 'הייבוא נעצר: יותר מעמודה אחת ממופה לאותו סניף (' + dupTargets.join(', ') + '). העלו שוב את הקובץ עם "העלאה ובדיקת כל העמודות".';
+    return;
+  }
   const products = [];
   for(let r=1;r<rows.length;r++){
     const row = rows[r];
@@ -496,7 +558,9 @@ function finalizePromoImport(mapping){
       if(colHeader==null) continue;
       const branchName = mapping[String(colHeader)];
       const val = row[c];
-      if(branchName && val){ seen[branchName] = (seen[branchName]||0) + Number(val); }
+      /* ערך אחד לכל סניף, בדיוק כמו בתא באקסל - בלי חיבור של כמה עמודות.
+         (כפילויות נחסמות כבר לפני כן, ראו הבדיקה בתחילת הפונקציה.) */
+      if(branchName && val!=null && val!=='' && !isNaN(Number(val))){ seen[branchName] = Number(val); }
     }
     const branches = Object.keys(seen).map(name=>({name, sales: seen[name]}));
     products.push({code, title, total, branches});
