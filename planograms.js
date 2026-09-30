@@ -333,23 +333,25 @@ function planoInjectStyleOnce(){
     .gd-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);border-radius:99px;padding:8px 14px;font-size:14.5px;font-weight:500;min-height:40px;}
     .gd-pill.warn{border-color:rgba(214,120,30,0.5);background:rgba(214,120,30,0.1);color:#8a4a0c;}
     .gd{position:relative;margin:6px 0 12px;}
-    .gd-count{position:absolute;top:-4px;left:0;font-size:11.5px;background:var(--page);border-radius:99px;padding:2px 8px;z-index:2;}
-    .gd-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-top:12px;scrollbar-width:thin;}
-    .gd-unit{display:inline-block;min-width:100%;box-sizing:border-box;background:linear-gradient(#ecebe6,#e2e0d8);border:6px solid #5f5e5a;border-top-width:0;border-radius:8px 8px 3px 3px;}
-    .gd-head{background:#5f5e5a;color:#fff;font-size:13px;font-weight:500;text-align:center;padding:5px 8px 7px;margin:0 -6px;border-radius:6px 6px 0 0;position:sticky;right:0;}
-    .gd-shelf{padding:14px 8px 0;min-height:92px;display:flex;align-items:flex-end;box-sizing:border-box;}
-    .gd-shelf.eye{background:rgba(151,196,89,0.28);}
-    .gd-items{display:flex;gap:8px;align-items:flex-end;flex-wrap:nowrap;}
-    .gd-rail{height:16px;background:#f7f5ef;border-top:3px solid #888780;border-bottom:1px solid #b4b2a9;box-shadow:0 2px 3px rgba(0,0,0,0.18);display:flex;align-items:center;gap:5px;padding:0 8px;font-size:11px;color:#3B6D11;font-weight:500;white-space:nowrap;position:relative;z-index:1;}
+    .gd-count{position:absolute;top:-10px;left:0;font-size:11.5px;background:var(--page);border-radius:99px;padding:2px 8px;z-index:3;}
+    .gd-unit{background:linear-gradient(#ecebe6,#e2e0d8);border:6px solid #5f5e5a;border-top-width:0;border-radius:8px 8px 3px 3px;}
+    .gd-head{background:#5f5e5a;color:#fff;font-size:13.5px;font-weight:500;text-align:center;padding:6px 8px 8px;margin:0 -6px;border-radius:6px 6px 0 0;}
+    .gd-shelf{position:relative;padding:14px 8px 8px;box-sizing:border-box;}
+    .gd-shelf.empty{min-height:26px;padding:0;}
+    .gd-shelf.eye{background:rgba(151,196,89,0.35);box-shadow:inset 0 0 0 3px #639922;padding-top:30px;}
+    .gd-eye-flag{position:absolute;top:0;right:0;background:#3B6D11;color:#fff;font-size:12.5px;font-weight:500;padding:3px 10px 4px;border-radius:0 0 0 10px;}
+    .gd-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:12px 8px;align-items:end;}
+    .gd-rail{min-height:20px;background:#f7f5ef;border-top:3px solid #888780;border-bottom:1px solid #b4b2a9;box-shadow:0 2px 3px rgba(0,0,0,0.18);display:flex;align-items:center;gap:8px;padding:1px 8px;font-size:11.5px;color:#444;white-space:nowrap;position:relative;z-index:1;overflow:hidden;}
+    .gd-rail.eye{background:#EAF3DE;border-top-color:#3B6D11;color:#27500A;}
+    .gd-n{font-weight:500;}
+    .gd-tag{overflow:hidden;text-overflow:ellipsis;}
+    .gd-pr{margin-right:auto;color:#666;}
     .gd-base{height:14px;background:#5f5e5a;margin:0 -6px -6px;}
-    .gd .pw-tile{width:86px;border-radius:6px 6px 2px 2px;box-shadow:0 1px 2px rgba(0,0,0,0.2);border-color:#dcdad2;}
-    .gd .gd-shelf.eye .pw-tile{width:96px;}
-    .gd .gd-shelf.eye .pw-img{height:66px;}
-    .gd-more{display:none;font-size:12px;color:var(--text-secondary);text-align:left;margin-top:4px;}
-    .gd.has-more .gd-more{display:block;}
-    .gd.has-more.at-end .gd-more{visibility:hidden;}
-    .gd.has-more .gd-scroll{-webkit-mask-image:linear-gradient(to left, transparent 0, #000 36px);mask-image:linear-gradient(to left, transparent 0, #000 36px);}
-    .gd.has-more.at-end .gd-scroll{-webkit-mask-image:none;mask-image:none;}
+    .gd .pw-tile{width:auto;min-width:0;border-radius:6px 6px 2px 2px;box-shadow:0 1px 2px rgba(0,0,0,0.2);border-color:#dcdad2;padding:5px 3px 5px;}
+    .gd .pw-img, .gd .pw-fb{width:100%;height:52px;}
+    .gd .pw-tile.fb .pw-fb{height:52px;}
+    .gd .pw-name{max-width:100%;font-size:12px;}
+    .gd-dir{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--text-secondary);margin-top:5px;}
     .gd-x{position:sticky;top:0;float:left;margin:-8px -10px 0 0;width:40px;height:40px;border:none;background:var(--page);border-radius:99px;font-size:24px;line-height:1;color:var(--text-secondary);z-index:2;}
     .gd-alerts{display:flex;flex-direction:column;gap:8px;clear:both;}
     .gd-alert{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gridline);border-radius:10px;padding:10px 12px;font-size:15px;line-height:1.55;}
@@ -401,8 +403,26 @@ function planoWriteCache(departments, legend){
     localStorage.setItem(PLANO_CACHE_KEY, JSON.stringify({departments: departments, legend: legend, visuals: planoData.visuals || {}, visualsMeta: planoData.visualsMeta || null, savedAt: Date.now()}));
   } catch(e){ console.warn('planograms: שמירת cache נכשלה (לא קריטי):', e); }
 }
+/* "ניצת" -> "ניצת הדובדבן" בכל טקסט שמוצג (שמות, תוויות, הערות, הנחיות).
+   רק מילה שלמה, ולא כשכבר כתוב "ניצת הדובדבן". מזהים (id) לא משתנים.
+   הלוגו נמצא גם לפי השם המקורי - ראו planoVisualFor. */
+const PLANO_NIZAT_RE = /(^|[\s(\/,.\-–"'׳״])ניצת(?!\s*הדובדבן)(?=$|[\s)\/,.\-–:;"'׳״])/g;
+function planoFullBrandText(t){
+  return typeof t === 'string' ? t.replace(PLANO_NIZAT_RE, '$1ניצת הדובדבן') : t;
+}
+function planoFullBrandDeep(o, key){
+  if(typeof o === 'string') return /(^id$|Id$)/.test(key || '') ? o : planoFullBrandText(o);
+  if(Array.isArray(o)) return o.map(function(x){ return planoFullBrandDeep(x, key); });
+  if(o && typeof o === 'object'){
+    const r = {};
+    Object.keys(o).forEach(function(k){ r[k] = planoFullBrandDeep(o[k], k); });
+    return r;
+  }
+  return o;
+}
 function planoSetData(departments, legend){
-  departments = (departments || []).slice().sort(function(a,b){ return (a.order||999) - (b.order||999) || (a.number||0) - (b.number||0); });
+  departments = (departments || []).map(function(d){ return planoFullBrandDeep(d, ''); });
+  departments = departments.slice().sort(function(a,b){ return (a.order||999) - (b.order||999) || (a.number||0) - (b.number||0); });
   planoData.departments = departments;
   planoData.byId = {};
   departments.forEach(function(d){ planoData.byId[d.id] = d; });
@@ -1076,7 +1096,12 @@ const PLANO_GENERIC_RE = /השאר|אחרים|שונות/;
 /* אריחים מציגים לוגו בלבד (החלטה: תמונת מוצר אחת לא מייצגת נכון מותג שיש
    לו הרבה מוצרים). אין לוגו -> אריח צבעוני עם השם. */
 function planoVisualFor(name){
-  const v = planoData.visuals && planoData.visuals[name];
+  const vs = planoData.visuals || {};
+  let v = vs[name];
+  if(!v && typeof name === 'string' && name.indexOf('ניצת הדובדבן') !== -1){
+    /* השם הוצג כ"ניצת הדובדבן", אבל בקובץ הלוגואים הוא שמור כ"ניצת" */
+    v = vs[name.replace(/ניצת הדובדבן/g, 'ניצת')];
+  }
   return v && v.logo ? {img: v.logo, logo: null} : null;
 }
 function planoTileColor(name){
@@ -1131,6 +1156,10 @@ function planoTileHtml(d, s, e, it){
    לבא, כדי שהגונדולה תישאר מאוזנת. מוצגים רק מדפים שיש עליהם משהו.
    כשהמותגים לא נכנסים ברוחב - כל הגונדולה נגללת הצידה ביחד (המדפים לא
    זזים זה מול זה), והגלילה מתחילה מימין = מהעדיפות הגבוהה. */
+/* כיתוב קצר לפס המחיר: בלי המילה "מדף" בהתחלה (כבר כתוב "מדף 2"). */
+function planoRailText(t){
+  return String(t||'').replace(/^\s*מדף\s+/, '').trim();
+}
 function planoGondolaHtml(d, s, ranked, isAdmin){
   const flat = function(list){
     const out = [];
@@ -1143,14 +1172,15 @@ function planoGondolaHtml(d, s, ranked, isAdmin){
   const cap = Math.max(4, p1.length, p2.length);
   const s4 = rest.slice(0, cap), s5 = rest.slice(cap, cap*2), s1 = rest.slice(cap*2);
   const custom = d.shelfRules && d.shelfRules.length;
+  /* תמיד 5 מדפים פיזיים, ממוספרים מלמעלה - כדי שהעובד יראה איפה כל מדף
+     נמצא בגונדולה. מדף ריק מוצג נמוך וריק. */
   const shelves = [
-    {key:'top', list:s1, rail:''},
-    {key:'eye', list:p1, rail: custom ? planoShelfText(d,1) : 'גובה העיניים', eye:true},
-    {key:'p2', list:p2, rail: custom ? planoShelfText(d,2) : ''},
-    {key:'s4', list:s4, rail:''},
-    {key:'s5', list:s5, rail:''}
-  ].filter(function(x){ return x.list.length; });
-  if(!shelves.length) return '';
+    {n:1, list:s1, tag:'עליון'},
+    {n:2, list:p1, tag: custom ? planoRailText(planoShelfText(d,1)) : "גובה העיניים · 1.65 מ'", eye:true},
+    {n:3, list:p2, tag: custom ? planoRailText(planoShelfText(d,2)) : 'מתחת לגובה העיניים'},
+    {n:4, list:s4, tag:''},
+    {n:5, list:s5, tag:'תחתון'}
+  ];
   let total = 0, withLogo = 0;
   const body = shelves.map(function(sh){
     const tiles = sh.list.map(function(x){
@@ -1158,38 +1188,30 @@ function planoGondolaHtml(d, s, ranked, isAdmin){
       if(planoVisualFor(x.it.name)) withLogo++;
       return planoTileHtml(d, s, x.e, x.it);
     }).join('');
-    return `<div class="gd-shelf${sh.eye ? ' eye' : ''}"><div class="gd-items">${tiles}</div></div>
-      <div class="gd-rail">${sh.eye ? '<span aria-hidden="true">👁</span>' : ''}${sh.rail ? `<span>${planoEsc(sh.rail)}</span>` : ''}</div>`;
+    const pr = sh.list.length ? Array.from(new Set(sh.list.map(function(x){ return x.e.priority; }))) : [];
+    const prTxt = !pr.length ? '' : (pr.length === 1 ? 'עדיפות ' + pr[0] : 'עדיפות ' + Math.min.apply(null, pr) + '–' + Math.max.apply(null, pr));
+    return `<div class="gd-shelf${sh.eye ? ' eye' : ''}${sh.list.length ? '' : ' empty'}">
+        ${sh.eye ? '<div class="gd-eye-flag"><span aria-hidden="true">👁</span> גובה העיניים</div>' : ''}
+        ${sh.list.length ? `<div class="gd-items">${tiles}</div>` : ''}
+      </div>
+      <div class="gd-rail${sh.eye ? ' eye' : ''}">
+        <span class="gd-n">מדף ${sh.n}</span>
+        ${sh.tag ? `<span class="gd-tag">${planoEsc(sh.tag)}</span>` : ''}
+        ${prTxt ? `<span class="gd-pr">${prTxt}</span>` : ''}
+      </div>`;
   }).join('');
   const title = s.name || d.name;
   return `<div class="gd">
     ${isAdmin ? `<div class="gd-count" title="לצוות הרכש בלבד">🖼 ${withLogo}/${total}</div>` : ''}
-    <div class="gd-scroll" tabindex="0" aria-label="${planoEsc('גונדולה: ' + title)}">
-      <div class="gd-unit">
-        <div class="gd-head">${planoEsc(title)}</div>
-        ${body}
-        <div class="gd-base"></div>
-      </div>
+    <div class="gd-unit" role="group" aria-label="${planoEsc('גונדולה: ' + title)}">
+      <div class="gd-head">${planoEsc(title)}</div>
+      ${body}
+      <div class="gd-base"></div>
     </div>
-    <div class="gd-more" aria-hidden="true">החליקו לעוד מותגים ←</div>
+    <div class="gd-dir"><span>מספר על הלוגו = סדר העדיפות</span><span>מציבים מימין לשמאל ←</span></div>
   </div>`;
 }
-/* סימון גונדולה שיש בה עוד מותגים מעבר לרוחב המסך (אחרי רינדור). */
-function planoMarkGondolaOverflow(){
-  document.querySelectorAll('.gd').forEach(function(g){
-    const sc = g.querySelector('.gd-scroll');
-    if(!sc) return;
-    const more = sc.scrollWidth > sc.clientWidth + 4;
-    g.classList.toggle('has-more', more);
-    if(more && !sc._planoBound){
-      sc._planoBound = true;
-      sc.addEventListener('scroll', function(){
-        const atEnd = Math.abs(sc.scrollLeft) + sc.clientWidth >= sc.scrollWidth - 6;
-        g.classList.toggle('at-end', atEnd);
-      }, {passive:true});
-    }
-  });
-}
+function planoMarkGondolaOverflow(){ /* אין גלילה בגונדולה - כל המותגים באותו גודל ועוברים שורה */ }
 
 /* ---------- הנחיות: כפתור אחד שפותח חלון (במקום מלל על המסך) ---------- */
 function planoCollectAlerts(d, s){
