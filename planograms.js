@@ -1458,10 +1458,19 @@ function planoIsTargetEntry(d, s, e){
 function planoIsTargetTile(d, s, e, it){
   if(!planoIsTargetEntry(d, s, e)) return false;
   const t = planoState.target;
-  if(!t.brand) return true;
   const names = (e.items||[]).map(function(x){ return planoNorm(x.name); });
-  const b = planoNorm(t.brand);
-  if(names.indexOf(b) === -1) return true;
+  /* 1) המותג מהקובץ (שדה b) */
+  let b = t.brand ? planoNorm(t.brand) : '';
+  /* 2) גיבוי - קובץ ישן בלי b, או שם שלא תואם: מחפשים איזה מהמותגים
+        במשבצת מופיע כמילים שלמות בשם המוצר (הארוך ביותר קודם). */
+  if(!b || names.indexOf(b) === -1){
+    const prodName = ' ' + planoNorm(t.name) + ' ';
+    const hits = names.filter(function(n){ return n && prodName.indexOf(' ' + n + ' ') !== -1; })
+      .sort(function(a, c){ return c.length - a.length; });
+    b = hits.length ? hits[0] : '';
+  }
+  /* לא זוהה מותג אחד - מסמנים את כל המשבצת */
+  if(!b) return true;
   return planoNorm(it.name) === b;
 }
 function planoTargetBarHtml(d, currentSubId){
