@@ -12,6 +12,13 @@
                               subcategories[] → entries[] → items[]
      config/planogramLegend   המקרא הגלובלי (defaultShelfRules),
                               ודגל published (מתג "פרסם לסניפים").
+     planogramItems/{deptId}  מיקום על המדף לכל פריט פעיל (קוד פריט ->
+                              מחלקה / תת-מחלקה / משבצת עדיפות), מסמך לכל
+                              מחלקה + "none" (מחלקות בלי פלנוגרמה) +
+                              "_meta" (גרסה ומונים). נבנה מחוץ לאפליקציה
+                              ע"י build_planogram_locations.py ונטען דרך
+                              "ייבוא מיקומי מוצרים". משמש את החיפוש
+                              "איפה המוצר הזה הולך?" (שם פריט או קוד פריט).
 
    הרשאות: קריאה — כל משתמש מחובר. כתיבה — isDeptAdmin('purchasing')
    (ראו firestore.rules). עד שהרכש מפעיל "פרסם לסניפים", המסך גלוי
@@ -52,6 +59,9 @@ const PLANO_LEGEND_REMINDER_DEFAULT = 'המספר = סדר עדיפות על ה�
 const PLANO_LEGEND_SEEN_KEY = 'nizatHubPlanoLegendSeen';
 const PLANO_LEGEND_STYLES = {plain:'רגיל', p1:'מספר עדיפות', new:'חדש / שינוי מיקום', alert:'חשוב', shelf:'איור מדף'};
 const PLANO_MAX_RESULTS = 60;
+const PLANO_ITEMS_CACHE_KEY = 'nizatHubPlanoItemsV1';
+const PLANO_ITEMS_KIND = 'nizat-planogram-item-locations';
+const PLANO_MAX_PRODUCT_RESULTS = 15;
 
 /* ---------- מצב ---------- */
 let planoData = {
@@ -67,6 +77,15 @@ let planoData = {
   error: null,
   visuals: {},          /* שם בפלנוגרמה -> {logo} (מסמך planograms/_visuals) */
   visualsMeta: null
+};
+/* מיקומי מוצרים (planogramItems) — נטענים בנפרד ובעצלתיים, כי זה כ-1MB. */
+let planoItems = {
+  loaded: false,
+  loading: false,
+  meta: null,           /* {generatedAt, planogramUpdated, importedAt, total, counts} */
+  list: [],             /* [{code, name, hay, rec}] */
+  byCode: {},
+  error: null
 };
 let planoPublished = (function(){
   try { return localStorage.getItem(PLANO_PUBLISHED_KEY) === '1'; } catch(e){ return false; }
@@ -281,6 +300,7 @@ function planoInjectStyleOnce(){
     .plano-res-pri{display:inline-flex;border-radius:99px;padding:2px 10px;font-size:12.5px;font-weight:500;border:1.5px solid var(--blue);color:var(--blue);}
     .plano-res-pri.p1{background:var(--blue);color:#fff;}
     .plano-res-kind{font-size:12.5px;color:var(--muted);}
+    .plano-res-static{cursor:default;}
     .plano-empty{text-align:center;color:var(--muted);padding:34px 14px;font-size:15px;line-height:1.6;}
 
     .plano-legend-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--gridline);}
@@ -539,6 +559,301 @@ function planoBuildIndex(){
 }
 
 /* ============================================================
+   מיקומי מוצרים — "איפה המוצר הזה הולך?"
+   ------------------------------------------------------------
+   רשומה לכל קוד פריט (JSON מקוצר, ראו build_planogram_locations.py):
+     n   שם הפריט           st  סוג ההתאמה (exact/supplier/multi/
+     d   מזהה מחלקה              catchall/subcat/dept/none)
+     s   מזהה תת-מחלקה      e   מזהה משבצת עדיפות   p  עדיפות
+     alt [[s, e, p], ...]   מקומות אפשריים נוספים
+     ed  שם המחלקה במערכת (רק כשאין לה פלנוגרמה)
+   טעינה: קודם מסמך _meta הקטן. אם הגרסה זהה למה ששמור במכשיר — משתמשים
+   בשמור, אחרת קוראים את כל האוסף פעם אחת ושומרים.
+============================================================ */
+function planoItemsReadCache(){
+  try {
+    const raw = localStorage.getItem(PLANO_ITEMS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
+function planoItemsWriteCache(meta, items){
+  try {
+    localStorage.setItem(PLANO_ITEMS_CACHE_KEY, JSON.stringify({meta: meta, items: items, savedAt: Date.now()}));
+  } catch(e){
+    /* מקום אחסון מלא — לא קריטי, פשוט נטען מהשרת בפעם הבאה. */
+    try { localStorage.removeItem(PLANO_ITEMS_CACHE_KEY); } catch(e2){}
+    console.warn('planograms: שמירת מיקומי מוצרים במכשיר נכשלה (לא קריטי):', e);
+  }
+}
+function planoItemsSet(meta, items){
+  const list = [];
+  const byCode = {};
+  Object.keys(items || {}).forEach(function(code){
+    const rec = items[code];
+    if(!rec || !rec.n) return;
+    /* במערכת כתוב גרש כ-` (למשל ק`ג) — מציגים גרש רגיל. */
+    const name = planoFullBrandText(String(rec.n).replace(/`/g, "'").replace(/\s+/g, ' ').trim());
+    const row = {code: code, name: name, hay: planoNorm(name), rec: rec};
+    list.push(row);
+    byCode[code] = row;
+  });
+  planoItems.meta = meta || null;
+  planoItems.list = list;
+  planoItems.byCode = byCode;
+}
+function planoItemsEnsureLoaded(){
+  if(planoItems.loaded || planoItems.loading) return;
+  if(!planoItems.list.length){
+    const cached = planoItemsReadCache();
+    if(cached && cached.items) planoItemsSet(cached.meta, cached.items);
+  }
+  if(typeof firebaseReady === 'undefined' || !firebaseReady || !db){
+    planoItems.loaded = true;
+    return;
+  }
+  planoItems.loading = true;
+  const col = db.collection('planogramItems');
+  col.doc('_meta').get().then(function(metaDoc){
+    if(!metaDoc.exists){
+      planoItemsSet(null, {});
+      try { localStorage.removeItem(PLANO_ITEMS_CACHE_KEY); } catch(e){}
+      return null;
+    }
+    const meta = metaDoc.data();
+    const cachedVer = planoItems.meta && planoItems.meta.generatedAt;
+    if(cachedVer && cachedVer === meta.generatedAt && planoItems.list.length){
+      planoItems.meta = meta;
+      return null;
+    }
+    return col.get().then(function(snap){
+      const items = {};
+      snap.forEach(function(doc){
+        if(doc.id.charAt(0) === '_') return;
+        Object.assign(items, (doc.data() || {}).items || {});
+      });
+      planoItemsSet(meta, items);
+      planoItemsWriteCache(meta, items);
+    });
+  }).then(function(){
+    planoItems.error = null;
+    planoItems.loaded = true;
+    planoItems.loading = false;
+    planoItemsRefreshResults();
+  }).catch(function(err){
+    console.warn('planograms: טעינת מיקומי מוצרים נכשלה', err);
+    planoItems.error = err;
+    planoItems.loaded = true;
+    planoItems.loading = false;
+    planoItemsRefreshResults();
+  });
+}
+function planoItemsReload(){
+  planoItems.loaded = false;
+  planoItems.loading = false;
+  planoItemsEnsureLoaded();
+}
+/* עדכון רשימת התוצאות בלבד (בלי רינדור מלא) — כדי לא לאבד פוקוס בחיפוש. */
+function planoItemsRefreshResults(){
+  if(typeof ui === 'undefined' || ui.view !== 'planograms') return;
+  const body = document.getElementById('plano-body');
+  if(body && planoState.query.trim()) body.innerHTML = planoResultsHtml();
+  else if(planoCanManage()) planoRerender();
+}
+
+/* חיפוש מוצרים: קוד פריט מדויק, או כל המילים בשם הפריט. */
+function planoSearchItems(nq, tokens, numeric){
+  if(!planoItems.list.length) return [];
+  if(numeric){
+    const hit = planoItems.byCode[numeric];
+    return hit ? [{r: {kind:'product', item: hit}, score: 98}] : [];
+  }
+  if(nq.length < 2) return [];
+  const out = [];
+  for(let i = 0; i < planoItems.list.length; i++){
+    const it = planoItems.list[i];
+    if(!tokens.every(function(t){ return it.hay.indexOf(t) !== -1; })) continue;
+    let score = 62;
+    if(it.hay === nq) score = 78;
+    else if(it.hay.indexOf(nq) === 0) score = 72;
+    else if(it.hay.indexOf(nq) !== -1) score = 66;
+    /* פריט עם מקום מדויק על המדף קודם לפריט שיש לו רק מחלקה. */
+    if(it.rec.e) score += 2;
+    out.push({r: {kind:'product', item: it}, score: score});
+  }
+  out.sort(function(a,b){ return b.score - a.score || a.r.item.name.length - b.r.item.name.length; });
+  return out.slice(0, PLANO_MAX_PRODUCT_RESULTS);
+}
+
+/* תיאור המיקום של פריט במילים, לתוצאת חיפוש. */
+function planoFindEntry(d, subId, entryId){
+  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0] || null;
+  const e = s ? (s.entries||[]).filter(function(x){ return x.id === entryId; })[0] || null : null;
+  return {s: s, e: e};
+}
+function planoPlaceText(d, s, e){
+  if(!e || typeof e.priority !== 'number') return 'מיקום מיוחד';
+  const shelf = e.priority <= 2 ? planoShortShelf(d, e.priority) : '';
+  return 'מקום ' + e.priority + (shelf ? ' · ' + shelf : '');
+}
+function planoProductResultHtml(r, tokens){
+  const it = r.item, rec = it.rec;
+  const d = rec.d ? planoData.byId[rec.d] : null;
+  const codeLine = `<span class="plano-res-kind">קוד פריט ${planoEsc(it.code)}</span>`;
+  /* מחלקה בלי פלנוגרמה, או מחלקה שכבר לא קיימת בפלנוגרמה הנוכחית */
+  if(!d){
+    return `<div class="plano-res plano-res-static">
+      <div class="plano-res-where">מוצר${rec.ed ? ' · מחלקה במערכת: ' + planoEsc(rec.ed) : ''}</div>
+      <div class="plano-res-main">${planoMark(it.name, tokens)}</div>
+      <div class="plano-res-meta">${codeLine}</div>
+      <div class="plano-note">אין פלנוגרמה למחלקה הזו.</div>
+    </div>`;
+  }
+  const found = rec.s ? planoFindEntry(d, rec.s, rec.e) : {s:null, e:null};
+  const s = found.s, e = found.e;
+  const deptLine = `${planoEsc(d.name)} · מחלקה ${planoEsc(d.number)}` + (s && s.name ? ' › ' + planoEsc(s.name) : '');
+  let place, note = '';
+  if(e){
+    place = `<span class="plano-res-pri${e.priority === 1 ? ' p1' : ''}">${planoEsc(planoPlaceText(d, s, e))}</span>`;
+    if(rec.st === 'catchall') note = 'יחד עם שאר המותגים במשבצת הזו.';
+    const alts = (rec.alt || []).map(function(a){
+      const f = planoFindEntry(d, a[0], a[1]);
+      if(!f.e) return null;
+      return (f.s && f.s.name ? f.s.name + ' · ' : '') + 'מקום ' + f.e.priority;
+    }).filter(Boolean);
+    if(rec.st === 'multi' && alts.length) note = 'המותג מופיע גם ב: ' + alts.slice(0, 3).join(', ') + '. בדקו לפי סוג המוצר.';
+  } else if(s){
+    place = `<span class="plano-res-pri">${planoEsc(s.name || 'תת-מחלקה')}</span>`;
+    note = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של תת-המחלקה.';
+  } else {
+    place = `<span class="plano-res-pri">מחלקה ${planoEsc(d.number)}</span>`;
+    note = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של המחלקה.';
+  }
+  const staffNote = planoCanManage() && (rec.st === 'supplier' || rec.st === 'multi')
+    ? `<div class="plano-issue">לצוות בלבד: ${rec.st === 'supplier' ? 'זוהה לפי שם הספק, לא לפי שם הפריט' : 'המותג מופיע בכמה מקומות, נבחר הסביר ביותר'}</div>` : '';
+  const args = `'${planoEsc(d.id)}','${planoEsc(s ? s.id : '')}'${e ? `,'${planoEsc(e.id)}'` : ''}`;
+  return `<button class="plano-res" onclick="planoOpenDept(${args})">
+    <div class="plano-res-where">מוצר · ${deptLine}</div>
+    <div class="plano-res-main">${planoMark(it.name, tokens)}</div>
+    <div class="plano-res-meta">${place} ${codeLine}</div>
+    ${note ? `<div class="plano-note">${planoEsc(note)}</div>` : ''}
+    ${staffNote}
+  </button>`;
+}
+
+/* ---------- ייבוא מיקומי מוצרים (רכש) ----------
+   קובץ planogram-item-locations.json מ-build_planogram_locations.py.
+   נשמר באוסף planogramItems: מסמך לכל מחלקה (d1, d7…), "none" לפריטים
+   במחלקות בלי פלנוגרמה, ו-"_meta". הייבוא מחליף את כל האוסף. */
+let planoPendingItems = null;
+function planoItemsFileSelected(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    let obj = null;
+    try { obj = JSON.parse(String(ev.target.result).replace(/^\uFEFF/, '')); } catch(e){ obj = null; }
+    if(!obj || (obj.kind && obj.kind !== PLANO_ITEMS_KIND) || !obj.items || typeof obj.items !== 'object' || Array.isArray(obj.items)){
+      toast('זה לא קובץ מיקומי מוצרים תקין (planogram-item-locations.json)'); return;
+    }
+    /* חלוקה למסמכים לפי מחלקה + בדיקה מול הפלנוגרמה הנוכחית */
+    const docs = {};
+    const counts = {};
+    let total = 0, unknownDept = 0, unknownEntry = 0, withPlace = 0;
+    Object.keys(obj.items).forEach(function(code){
+      const rec = obj.items[code];
+      if(!/^\d+$/.test(code) || !rec || typeof rec !== 'object' || !rec.n) return;
+      const clean = {n: String(rec.n).slice(0, 200), st: String(rec.st || 'dept')};
+      if(rec.d) clean.d = String(rec.d);
+      if(rec.s) clean.s = String(rec.s);
+      if(rec.e) clean.e = String(rec.e);
+      if(typeof rec.p === 'number') clean.p = rec.p;
+      if(rec.ed) clean.ed = String(rec.ed);
+      if(Array.isArray(rec.alt) && rec.alt.length) clean.alt = rec.alt.slice(0, 4).map(function(a){ return [String(a[0]), String(a[1]), typeof a[2] === 'number' ? a[2] : null]; });
+      let docId = 'none';
+      if(clean.d){
+        const d = planoData.byId[clean.d];
+        if(!d){ unknownDept++; }
+        else {
+          docId = clean.d;
+          if(clean.e){
+            if(planoFindEntry(d, clean.s, clean.e).e) withPlace++;
+            else unknownEntry++;
+          }
+        }
+        if(!d) docId = 'none';
+      }
+      if(!/^[A-Za-z0-9_-]+$/.test(docId)) docId = 'none';
+      (docs[docId] = docs[docId] || {})[code] = clean;
+      counts[clean.st] = (counts[clean.st] || 0) + 1;
+      total++;
+    });
+    if(!total){ toast('לא נמצאו פריטים בקובץ'); return; }
+    const tooBig = Object.keys(docs).filter(function(id){ return JSON.stringify(docs[id]).length > 900000; });
+    if(tooBig.length){ toast('מחלקה גדולה מדי לשמירה: ' + tooBig.join(', ')); return; }
+    const withDept = total - (counts.none || 0) - unknownDept;
+    const warn = (unknownDept || unknownEntry)
+      ? `<p style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;margin:10px 0 0;">⚠️ ${unknownDept ? unknownDept + ' פריטים מפנים למחלקה שלא קיימת בפלנוגרמה הנוכחית' : ''}${unknownDept && unknownEntry ? ', ו-' : ''}${unknownEntry ? unknownEntry + ' למשבצת שלא קיימת' : ''}. כנראה שהקובץ נבנה מ-seed אחר. כדאי להריץ את הסקריפט מחדש מול ה-seed הנוכחי.</p>` : '';
+    document.getElementById('modal-body').innerHTML = `
+      <h3>ייבוא מיקומי מוצרים</h3>
+      <div style="font-size:14.5px;line-height:1.7;color:var(--text-primary);">
+        ${total} פריטים פעילים.<br>
+        <b>${withPlace}</b> עם מקום על המדף, ${Math.max(withDept - withPlace, 0)} עם מחלקה בלבד, ${(counts.none || 0) + unknownDept} במחלקות בלי פלנוגרמה.
+      </div>
+      ${warn}
+      <p style="font-size:13px;color:var(--text-secondary);margin:10px 0 0;">הייבוא מחליף את כל מיקומי המוצרים הקיימים. הסניפים יוכלו לחפש מוצר לפי שם או קוד פריט.</p>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="planoPendingItems=null;closeModal()">ביטול</button>
+        <button class="btn-confirm" id="plano-items-go" onclick="planoRunItemsImport()">ייבוא</button>
+      </div>`;
+    document.getElementById('modal-overlay').classList.add('open');
+    planoPendingItems = {
+      docs: docs,
+      meta: {
+        generatedAt: obj.generatedAt || new Date().toISOString(),
+        planogramUpdated: obj.planogramUpdated || null,
+        total: total,
+        withPlace: withPlace,
+        counts: counts
+      }
+    };
+  };
+  reader.onerror = function(){ toast('קריאת הקובץ נכשלה'); };
+  reader.readAsText(file, 'utf-8');
+}
+function planoRunItemsImport(){
+  const p = planoPendingItems;
+  if(!p || !firebaseReady || !db){ closeModal(); return; }
+  const btn = document.getElementById('plano-items-go');
+  if(btn){ btn.disabled = true; btn.textContent = 'מייבא…'; }
+  const col = db.collection('planogramItems');
+  const meta = Object.assign({}, p.meta, {importedAt: planoToday(), importedBy: currentUserEmail || null, docIds: Object.keys(p.docs)});
+  col.get().then(function(snap){
+    const batch = db.batch();
+    snap.forEach(function(doc){
+      if(doc.id !== '_meta' && !p.docs[doc.id]) batch.delete(col.doc(doc.id));
+    });
+    Object.keys(p.docs).forEach(function(id){
+      batch.set(col.doc(id), {items: p.docs[id], generatedAt: meta.generatedAt});
+    });
+    batch.set(col.doc('_meta'), meta);
+    return batch.commit();
+  }).then(function(){
+    const all = {};
+    Object.keys(p.docs).forEach(function(id){ Object.assign(all, p.docs[id]); });
+    planoItemsSet(meta, all);
+    planoItemsWriteCache(meta, all);
+    planoItems.loaded = true;
+    planoPendingItems = null;
+    closeModal();
+    toast('מיקומי המוצרים יובאו: ' + meta.total + ' פריטים');
+    planoRerender();
+  }).catch(function(err){
+    console.error('planograms: ייבוא מיקומי מוצרים נכשל', err);
+    if(btn){ btn.disabled = false; btn.textContent = 'ייבוא'; }
+    toast('הייבוא נכשל: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
+  });
+}
+
+/* ============================================================
    חיפוש
 ============================================================ */
 function planoSearch(q){
@@ -567,6 +882,7 @@ function planoSearch(q){
     }
     out.push({r:r, score:score});
   });
+  planoSearchItems(nq, tokens, numeric).forEach(function(x){ out.push(x); });
   out.sort(function(a,b){ return b.score - a.score; });
   return out.map(function(x){ return x.r; });
 }
@@ -600,6 +916,7 @@ function viewPlanograms(){
       </div>`;
   }
   planoEnsureLoaded();
+  planoItemsEnsureLoaded();
 
   const deptId = (typeof ui !== 'undefined' && ui.planoDept) ? ui.planoDept : null;
   if(deptId && planoData.byId[deptId]) return planoViewDept(planoData.byId[deptId]);
@@ -651,8 +968,8 @@ function planoSearchBox(compact){
     <div class="plano-search${compact ? ' compact' : ''}">
       <span class="plano-search-ic">${typeof icon === 'function' ? icon('search') : '⌕'}</span>
       <input id="plano-search" type="text" enterkeyhint="search" autocomplete="off"
-        placeholder="חיפוש מוצר, מותג או מחלקה" value="${compact ? '' : planoEsc(planoState.query)}"
-        oninput="planoOnSearchInput(this.value, ${compact ? 'true' : 'false'})" aria-label="חיפוש מוצר, מותג או מחלקה">
+        placeholder="איפה המוצר הזה הולך? שם או קוד פריט" value="${compact ? '' : planoEsc(planoState.query)}"
+        oninput="planoOnSearchInput(this.value, ${compact ? 'true' : 'false'})" aria-label="חיפוש מוצר לפי שם או קוד פריט, מותג או מחלקה">
       ${planoState.query && !compact ? `<button class="plano-search-clear" onclick="planoClearSearch()" aria-label="ניקוי החיפוש">×</button>` : ''}
     </div>`;
 }
@@ -674,7 +991,8 @@ function planoAdminBar(){
     ? `<b>פורסם לסניפים</b>${legend.publishedAt ? ' ב-' + planoEsc(legend.publishedAt) : ''}`
     : '<b>לא פורסם לסניפים</b> · גלוי לצוות בלבד';
   const imported = (legend.importedAt ? `<br>ייבוא אחרון: ${planoEsc(legend.importedAt)}` : '')
-    + (planoData.visualsMeta ? `<br>תמונות מותגים: ${planoEsc(planoData.visualsMeta.count)} שמות${planoData.visualsMeta.importedAt ? ' (' + planoEsc(planoData.visualsMeta.importedAt) + ')' : ''}` : '<br>תמונות מותגים: עדיין לא יובאו');
+    + (planoData.visualsMeta ? `<br>תמונות מותגים: ${planoEsc(planoData.visualsMeta.count)} שמות${planoData.visualsMeta.importedAt ? ' (' + planoEsc(planoData.visualsMeta.importedAt) + ')' : ''}` : '<br>תמונות מותגים: עדיין לא יובאו')
+    + (planoItems.meta ? `<br>מיקומי מוצרים: ${planoEsc(planoItems.meta.total)} פריטים, ${planoEsc(planoItems.meta.withPlace || 0)} עם מקום על המדף${planoItems.meta.importedAt ? ' (' + planoEsc(planoItems.meta.importedAt) + ')' : ''}` : '<br>מיקומי מוצרים: עדיין לא יובאו');
   return `
     <div class="plano-admin">
       <div class="plano-admin-status">${status}${imported}</div>
@@ -682,6 +1000,8 @@ function planoAdminBar(){
       <button onclick="document.getElementById('plano-import-input').click()">ייבוא JSON</button>
       <input type="file" id="plano-visuals-input" accept=".json,application/json" style="display:none" onchange="planoVisualsFileSelected(this.files[0]); this.value='';">
       <button onclick="document.getElementById('plano-visuals-input').click()">ייבוא תמונות מותגים</button>
+      <input type="file" id="plano-items-input" accept=".json,application/json" style="display:none" onchange="planoItemsFileSelected(this.files[0]); this.value='';">
+      <button onclick="document.getElementById('plano-items-input').click()">ייבוא מיקומי מוצרים</button>
       ${planoData.departments.length ? (planoPublished
         ? `<button onclick="planoConfirmPublish(false)">הסתר מהסניפים</button>`
         : `<button class="primary" onclick="planoConfirmPublish(true)">פרסם לסניפים</button>`) : ''}
@@ -770,14 +1090,17 @@ function planoResultsHtml(){
   const q = planoState.query;
   const tokens = planoNorm(q).split(' ').filter(Boolean);
   const all = planoSearch(q);
+  const itemsPending = !planoItems.list.length && planoItems.loading;
   if(!all.length){
-    return `<div class="plano-empty">לא נמצאו תוצאות עבור "${planoEsc(q.trim())}".<br>נסו שם מותג, מוצר או מחלקה אחרים.</div>`;
+    if(itemsPending) return `<div class="plano-empty">מחפש גם בין המוצרים…</div>`;
+    return `<div class="plano-empty">לא נמצאו תוצאות עבור "${planoEsc(q.trim())}".<br>נסו שם מוצר, מותג, מחלקה או קוד פריט.</div>`;
   }
   const shown = all.slice(0, PLANO_MAX_RESULTS);
   const countTxt = all.length > PLANO_MAX_RESULTS ? `מוצגות ${PLANO_MAX_RESULTS} מתוך ${all.length} תוצאות` : (all.length === 1 ? 'תוצאה אחת' : `${all.length} תוצאות`);
   return `<div class="plano-res-count">${countTxt}</div>` + shown.map(function(r){ return planoResultHtml(r, tokens); }).join('');
 }
 function planoResultHtml(r, tokens){
+  if(r.kind === 'product') return planoProductResultHtml(r, tokens);
   const d = r.dept;
   const deptLine = `${planoEsc(d.name)} · מחלקה ${planoEsc(d.number)}`;
   if(r.kind === 'dept'){
