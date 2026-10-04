@@ -565,7 +565,8 @@ function planoBuildIndex(){
      n   שם הפריט           st  סוג ההתאמה (exact/supplier/multi/
      d   מזהה מחלקה              catchall/subcat/dept/none)
      s   מזהה תת-מחלקה      e   מזהה משבצת עדיפות   p  עדיפות
-     alt [[s, e, p], ...]   מקומות אפשריים נוספים
+     alt מקומות אפשריים נוספים. בקובץ: [[s, e, p], ...]; ב-Firestore
+         נשמר כ-[{s, e, p}, ...], כי Firestore לא תומך במערך בתוך מערך.
      ed  שם המחלקה במערכת (רק כשאין לה פלנוגרמה)
    טעינה: קודם מסמך _meta הקטן. אם הגרסה זהה למה ששמור במכשיר — משתמשים
    בשמור, אחרת קוראים את כל האוסף פעם אחת ושומרים.
@@ -684,6 +685,18 @@ function planoSearchItems(nq, tokens, numeric){
   return out.slice(0, PLANO_MAX_PRODUCT_RESULTS);
 }
 
+/* מקום נוסף -> {s, e, p}. מקבל גם את הצורה מהקובץ ([s, e, p]) וגם את
+   הצורה השמורה ב-Firestore ({s, e, p}). */
+function planoAltNorm(a){
+  if(Array.isArray(a)){
+    if(!a[0] || !a[1]) return null;
+    return {s: String(a[0]), e: String(a[1]), p: typeof a[2] === 'number' ? a[2] : null};
+  }
+  if(a && typeof a === 'object' && a.s && a.e){
+    return {s: String(a.s), e: String(a.e), p: typeof a.p === 'number' ? a.p : null};
+  }
+  return null;
+}
 /* תיאור המיקום של פריט במילים, לתוצאת חיפוש. */
 function planoFindEntry(d, subId, entryId){
   const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0] || null;
@@ -715,8 +728,8 @@ function planoProductResultHtml(r, tokens){
   if(e){
     place = `<span class="plano-res-pri${e.priority === 1 ? ' p1' : ''}">${planoEsc(planoPlaceText(d, s, e))}</span>`;
     if(rec.st === 'catchall') note = 'יחד עם שאר המותגים במשבצת הזו.';
-    const alts = (rec.alt || []).map(function(a){
-      const f = planoFindEntry(d, a[0], a[1]);
+    const alts = (rec.alt || []).map(planoAltNorm).filter(Boolean).map(function(a){
+      const f = planoFindEntry(d, a.s, a.e);
       if(!f.e) return null;
       return (f.s && f.s.name ? f.s.name + ' · ' : '') + 'מקום ' + f.e.priority;
     }).filter(Boolean);
@@ -767,7 +780,10 @@ function planoItemsFileSelected(file){
       if(rec.e) clean.e = String(rec.e);
       if(typeof rec.p === 'number') clean.p = rec.p;
       if(rec.ed) clean.ed = String(rec.ed);
-      if(Array.isArray(rec.alt) && rec.alt.length) clean.alt = rec.alt.slice(0, 4).map(function(a){ return [String(a[0]), String(a[1]), typeof a[2] === 'number' ? a[2] : null]; });
+      if(Array.isArray(rec.alt) && rec.alt.length){
+        const alt = rec.alt.slice(0, 4).map(planoAltNorm).filter(Boolean);
+        if(alt.length) clean.alt = alt;
+      }
       let docId = 'none';
       if(clean.d){
         const d = planoData.byId[clean.d];
