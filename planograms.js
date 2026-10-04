@@ -97,7 +97,9 @@ let planoState = {
   cameFromList: false,
   focusSearch: false,
   caret: null,
-  fullBySub: {}         /* "deptId/subId" -> true כשהפירוט המילולי המלא פתוח */
+  fullBySub: {},        /* "deptId/subId" -> true כשהפירוט המילולי המלא פתוח */
+  target: null,         /* מוצר שנבחר בחיפוש: {deptId, subId, entryId, brand, name, code} */
+  scrollToTarget: false
 };
 
 /* ============================================================
@@ -308,6 +310,17 @@ function planoInjectStyleOnce(){
     .plano-legend-key{flex:none;min-width:92px;}
     .plano-legend-text{font-size:14.5px;line-height:1.55;color:var(--text-primary);}
 
+    .plano-target-bar{display:flex;align-items:center;gap:10px;border:2px solid #E8590C;background:rgba(232,89,12,0.08);border-radius:12px;padding:10px 12px;margin:0 0 14px;}
+    .plano-target-pin{font-size:20px;flex:none;}
+    .plano-target-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.5;color:var(--text-secondary);}
+    .plano-target-txt b{font-size:15.5px;font-weight:500;color:var(--text-primary);}
+    .plano-target-go{flex:none;border:none;background:#E8590C;color:#fff;border-radius:9px;padding:8px 12px;font-size:13.5px;font-weight:500;min-height:38px;}
+    .plano-target-x{flex:none;border:none;background:none;color:var(--text-secondary);font-size:22px;width:38px;height:38px;border-radius:50%;}
+    .pw-tile.pw-target, .gd .pw-tile.pw-target{border-color:#E8590C;outline:4px solid #E8590C;outline-offset:2px;z-index:2;animation:plano-target-pulse 1.6s ease-in-out 3;}
+    .pw-pin{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:#E8590C;color:#fff;font-size:11.5px;font-weight:500;line-height:1;padding:3px 8px 4px;border-radius:99px;white-space:nowrap;z-index:3;}
+    .plano-p.plano-target, .plano-rest-row.plano-target{outline:3px solid #E8590C;outline-offset:2px;border-radius:10px;}
+    @keyframes plano-target-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,89,12,0.55);}50%{box-shadow:0 0 0 9px rgba(232,89,12,0);}}
+    @media (prefers-reduced-motion: reduce){ .pw-tile.pw-target, .gd .pw-tile.pw-target{animation:none;} }
     .plano-hl{animation:plano-flash 1.8s ease;}
     @keyframes plano-flash{0%,35%{box-shadow:0 0 0 3px rgba(69,122,31,0.55);}100%{box-shadow:0 0 0 0 rgba(69,122,31,0);}}
     @media (prefers-reduced-motion: reduce){ .plano-hl{animation:none;outline:3px solid rgba(69,122,31,0.55);} }
@@ -565,6 +578,7 @@ function planoBuildIndex(){
      n   שם הפריט           st  סוג ההתאמה (exact/supplier/multi/
      d   מזהה מחלקה              catchall/subcat/dept/none)
      s   מזהה תת-מחלקה      e   מזהה משבצת עדיפות   p  עדיפות
+     b   שם המותג בפלנוגרמה שלפיו נמצא המקום (לסימון האריח הנכון)
      alt מקומות אפשריים נוספים. בקובץ: [[s, e, p], ...]; ב-Firestore
          נשמר כ-[{s, e, p}, ...], כי Firestore לא תומך במערך בתוך מערך.
      ed  שם המחלקה במערכת (רק כשאין לה פלנוגרמה)
@@ -743,8 +757,7 @@ function planoProductResultHtml(r, tokens){
   }
   const staffNote = planoCanManage() && (rec.st === 'supplier' || rec.st === 'multi')
     ? `<div class="plano-issue">לצוות בלבד: ${rec.st === 'supplier' ? 'זוהה לפי שם הספק, לא לפי שם הפריט' : 'המותג מופיע בכמה מקומות, נבחר הסביר ביותר'}</div>` : '';
-  const args = `'${planoEsc(d.id)}','${planoEsc(s ? s.id : '')}'${e ? `,'${planoEsc(e.id)}'` : ''}`;
-  return `<button class="plano-res" onclick="planoOpenDept(${args})">
+  return `<button class="plano-res" onclick="planoOpenProduct('${planoEsc(it.code)}')">
     <div class="plano-res-where">מוצר · ${deptLine}</div>
     <div class="plano-res-main">${planoMark(it.name, tokens)}</div>
     <div class="plano-res-meta">${place} ${codeLine}</div>
@@ -780,6 +793,7 @@ function planoItemsFileSelected(file){
       if(rec.e) clean.e = String(rec.e);
       if(typeof rec.p === 'number') clean.p = rec.p;
       if(rec.ed) clean.ed = String(rec.ed);
+      if(rec.b) clean.b = String(rec.b).slice(0, 120);
       if(Array.isArray(rec.alt) && rec.alt.length){
         const alt = rec.alt.slice(0, 4).map(planoAltNorm).filter(Boolean);
         if(alt.length) clean.alt = alt;
@@ -954,6 +968,15 @@ function planoAfterRender(){
   planoState.focusSearch = false;
   planoState.caret = null;
 
+  if(planoState.scrollToTarget){
+    planoState.scrollToTarget = false;
+    setTimeout(function(){
+      const el = document.querySelector('.pw-target') || document.querySelector('.plano-target') || document.querySelector('.plano-target-bar');
+      if(!el) return;
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({block:'center', inline:'center', behavior: reduce ? 'auto' : 'smooth'});
+    }, 180);
+  }
   if(planoState.highlight){
     const h = planoState.highlight;
     planoState.highlight = null;
@@ -1222,6 +1245,7 @@ function planoViewDept(d){
         <span>מחלקה ${planoEsc(d.number)}</span>
         ${d.lastUpdated ? `<span>עודכן: ${planoEsc(d.lastUpdated)}</span>` : ''}
       </div>
+      ${planoTargetBarHtml(d, subId)}
       ${planoDeptActionsHtml(d, sub)}
       ${planoImagesHtml(d.referenceImages, 'כך המחלקה צריכה להיראות')}
       ${namedSubs.length > 1 ? `<div class="plano-chips" role="tablist">${subs.map(function(s){
@@ -1359,7 +1383,7 @@ function planoEntryExtras(d, s, e, isAdmin){
   return h;
 }
 function planoCardHtml(d, s, e, isAdmin){
-  const cls = e.priority === 1 ? 'plano-p1' : 'plano-p2';
+  const cls = (e.priority === 1 ? 'plano-p1' : 'plano-p2') + (planoIsTargetEntry(d, s, e) ? ' plano-target' : '');
   return `<div class="plano-p ${cls}" id="plano-${planoEsc(d.id)}-${planoEsc(s.id)}-${planoEsc(e.id)}">
     <div class="plano-p-head">
       <span class="plano-p-pill">עדיפות ${e.priority}</span>
@@ -1372,7 +1396,7 @@ function planoCardHtml(d, s, e, isAdmin){
 }
 function planoRowHtml(d, s, e, isAdmin, special){
   const shelf = !special ? planoSpecificShelf(d, e.priority) : '';
-  return `<div class="plano-rest-row" id="plano-${planoEsc(d.id)}-${planoEsc(s.id)}-${planoEsc(e.id)}">
+  return `<div class="plano-rest-row${planoIsTargetEntry(d, s, e) ? ' plano-target' : ''}" id="plano-${planoEsc(d.id)}-${planoEsc(s.id)}-${planoEsc(e.id)}">
     <span class="plano-num">${special ? '!' : planoEsc(e.priority)}</span>
     <div class="plano-rest-body">
       ${shelf ? `<div class="plano-rest-shelf">${planoEsc(shelf)}</div>` : ''}
@@ -1393,7 +1417,72 @@ function planoSpecificShelf(d, p){
 /* ============================================================
    ניווט פנימי (history — ראו goTo/popstate ב-navigation.js)
 ============================================================ */
-function planoOpenDept(deptId, subId, entryId){
+/* פתיחת מוצר מתוצאות החיפוש: עוברים למחלקה ולתת-המחלקה שלו, ומסמנים את
+   המקום שלו בגונדולה במסגרת כתומה בולטת, שנשארת עד שעוזבים את המחלקה
+   או לוחצים "הסתר סימון". */
+function planoOpenProduct(code){
+  const it = planoItems.byCode[code];
+  if(!it || !it.rec.d || !planoData.byId[it.rec.d]) return;
+  const rec = it.rec, d = planoData.byId[rec.d];
+  const found = rec.s ? planoFindEntry(d, rec.s, rec.e) : {s:null, e:null};
+  planoState.target = {
+    deptId: d.id,
+    subId: found.s ? found.s.id : null,
+    entryId: found.e ? found.e.id : null,
+    brand: rec.b ? planoFullBrandText(rec.b) : null,
+    name: it.name,
+    code: it.code
+  };
+  /* מקום במשבצת בלי עדיפות (מיקום מיוחד) מוצג רק בפירוט המלא */
+  if(found.s && found.e && typeof found.e.priority !== 'number') planoState.fullBySub[d.id + '/' + found.s.id] = true;
+  planoState.scrollToTarget = true;
+  planoOpenDept(d.id, found.s ? found.s.id : null, null, true);
+}
+function planoClearTarget(){
+  planoState.target = null;
+  planoRerender();
+}
+function planoShowTarget(){
+  const t = planoState.target;
+  if(!t) return;
+  if(t.subId) planoState.subByDept[t.deptId] = t.subId;
+  planoState.scrollToTarget = true;
+  planoRerender();
+}
+function planoIsTargetEntry(d, s, e){
+  const t = planoState.target;
+  return !!(t && t.entryId && t.deptId === d.id && t.subId === s.id && t.entryId === e.id);
+}
+/* באיזה אריח לסמן: המותג שלפיו נמצא המקום. אם הוא לא מזוהה בין האריחים
+   של המשבצת - מסמנים את כל המשבצת. */
+function planoIsTargetTile(d, s, e, it){
+  if(!planoIsTargetEntry(d, s, e)) return false;
+  const t = planoState.target;
+  if(!t.brand) return true;
+  const names = (e.items||[]).map(function(x){ return planoNorm(x.name); });
+  const b = planoNorm(t.brand);
+  if(names.indexOf(b) === -1) return true;
+  return planoNorm(it.name) === b;
+}
+function planoTargetBarHtml(d, currentSubId){
+  const t = planoState.target;
+  if(!t || t.deptId !== d.id) return '';
+  const s = t.subId ? (d.subcategories||[]).filter(function(x){ return x.id === t.subId; })[0] : null;
+  const e = s && t.entryId ? (s.entries||[]).filter(function(x){ return x.id === t.entryId; })[0] : null;
+  let where;
+  if(e) where = (s && s.name ? s.name + ' · ' : '') + planoPlaceText(d, s, e) + '. מסומן במסגרת כתומה.';
+  else if(s) where = (s.name || 'תת-המחלקה') + ' · אין מקום מוגדר למוצר הזה במדף.';
+  else where = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של המחלקה.';
+  const otherSub = t.subId && currentSubId && t.subId !== currentSubId;
+  return `<div class="plano-target-bar" role="status">
+    <span class="plano-target-pin" aria-hidden="true">📍</span>
+    <div class="plano-target-txt"><b>${planoEsc(t.name)}</b><span>${planoEsc(where)}</span></div>
+    ${otherSub ? `<button class="plano-target-go" onclick="planoShowTarget()">הצג את המיקום</button>` : ''}
+    <button class="plano-target-x" onclick="planoClearTarget()" aria-label="הסתר סימון">×</button>
+  </div>`;
+}
+function planoOpenDept(deptId, subId, entryId, keepTarget){
+  if(!keepTarget) planoState.target = null;
   if(typeof ui === 'undefined') return;
   const ov = document.getElementById('modal-overlay');
   if(ov && ov.classList.contains('open') && typeof closeModal === 'function') closeModal();
@@ -1422,6 +1511,7 @@ function planoBackToList(){
 }
 function planoOpenList(){
   if(typeof ui === 'undefined') return;
+  planoState.target = null;
   ui.department = 'purchasing';
   ui.planoDept = null;
   goTo('planograms', {keepDepartment:true, keepPlanoDept:true});
@@ -1488,8 +1578,10 @@ function planoTileHtml(d, s, e, it, idx){
     ? `<span class="pw-img"><img src="${planoEsc(vis.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-name="${planoEsc(it.name)}" ${vis.logo ? `data-logo="${planoEsc(vis.logo)}"` : ''} onerror="planoImgFail(this)"></span>`
     : planoFallbackHtml(it.name);
   const badge = vis && vis.logo ? `<span class="pw-badge"><img src="${planoEsc(vis.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></span>` : '';
-  const label = it.name + (isNew ? ' - ' + planoNewLabel() : '') + (warn ? ' - יש הנחיה חשובה' : '') + ', עדיפות ' + e.priority;
-  return `<button class="pw-tile${isNew ? ' new' : ''}${vis ? '' : ' fb'}" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}',${idx|0})" aria-label="${planoEsc(label)}">
+  const isTarget = planoIsTargetTile(d, s, e, it);
+  const label = (isTarget ? 'המוצר שחיפשת: ' : '') + it.name + (isNew ? ' - ' + planoNewLabel() : '') + (warn ? ' - יש הנחיה חשובה' : '') + ', עדיפות ' + e.priority;
+  return `<button class="pw-tile${isNew ? ' new' : ''}${vis ? '' : ' fb'}${isTarget ? ' pw-target' : ''}" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}',${idx|0})" aria-label="${planoEsc(label)}">
+    ${isTarget ? '<span class="pw-pin" aria-hidden="true">כאן</span>' : ''}
     <span class="pw-p" aria-hidden="true">${planoEsc(e.priority)}</span>
     ${warn ? '<span class="pw-warn" aria-hidden="true">⚠️</span>' : ''}
     ${media}${badge}
