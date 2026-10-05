@@ -20,6 +20,15 @@
    בלחיצה על "בדוק ותצוגה מקדימה" מועלה מחדש רק קובץ שנבחר בפועל באותה
    פעימה - שקע שלא נגעת בו ממשיך להשתמש ב-URL השמור, כך שאפשר לרענן
    קובץ בודד בלי להחליף את כל השאר.
+
+   תיקון אוקטובר 2026 - קישורים שנמחקו:
+   המסך מתרנדר מחדש בכל פעם שהנתונים ב-Firestore משתנים (למשל באמצע פרסום,
+   כשה-Cloud Function כותבת ל-promoBooklet). כל רינדור קרא מחדש את המסמך
+   השמור ודרס את הקישורים שהועלו זה עתה בערכים הישנים (null) - ואז הפרסום
+   שמר null במקום הקישורים. עכשיו:
+   1) טעינת המצב השמור לא דורסת קובץ/קישור שכבר קיים בזיכרון של המסך.
+   2) הפרסום משתמש בקישורים שנשמרו ברגע שהתצוגה המקדימה הצליחה.
+   3) שקע שיש לו שם קובץ אבל אין לו קישור מסומן "יש לבחור את הקובץ מחדש".
 ============================================================ */
 
 const CLOUD_FUNCTION_URL = "https://us-central1-nizat-hub.cloudfunctions.net/parse_promo_booklet";
@@ -151,35 +160,49 @@ function ppuLoadPersistedState(){
     if(!doc.exists) return;
     const d = doc.data();
     const st = purchasingUploadState;
-    st.supplierFileUrl = d.supplierFileUrl || null;
-    st.supplierFileName = d.supplierFileName || null;
-    st.displayFileUrl = d.displayFileUrl || null;
-    st.displayFileName = d.displayFileName || null;
-    st.catalogFileUrl = d.catalogFileUrl || null;
-    st.catalogFileName = d.catalogFileName || null;
-    st.imagesFileUrl = d.imagesFileUrl || null;
-    st.imagesFileName = d.imagesFileName || null;
+    // לא דורסים ערך שכבר קיים בזיכרון (קובץ שהועלה בפעימה הנוכחית) - ראו
+    // הסבר בראש הקובץ. ממלאים רק שקעים שעדיין ריקים.
+    ['supplier','display','catalog','images'].forEach(function(kind){
+      if(!st[kind + 'FileUrl']) st[kind + 'FileUrl'] = d[kind + 'FileUrl'] || null;
+      if(!st[kind + 'FileName']) st[kind + 'FileName'] = d[kind + 'FileName'] || null;
+    });
 
     const titleEl = document.getElementById('ppuTitle');
     const notesEl = document.getElementById('ppuNotes');
-    if(titleEl) titleEl.value = d.title || '';
-    if(notesEl) notesEl.value = d.notes || '';
+    if(titleEl && !titleEl.value) titleEl.value = d.title || '';
+    if(notesEl && !notesEl.value) notesEl.value = d.notes || '';
 
-    ppuMarkPersistedSlot('supplier', st.supplierFileName, d.supplierUpdatedAt);
-    ppuMarkPersistedSlot('display', st.displayFileName, d.displayUpdatedAt);
-    ppuMarkPersistedSlot('catalog', st.catalogFileName, d.catalogUpdatedAt);
-    ppuMarkPersistedSlot('images', st.imagesFileName, d.imagesUpdatedAt);
+    ['supplier','display','catalog','images'].forEach(function(kind){
+      if(st[kind + 'File']) ppuShowChosenFile(kind, st[kind + 'File']); // נבחר בפעימה הנוכחית - משחזרים אחרי רינדור
+      else ppuMarkPersistedSlot(kind, st[kind + 'FileName'], d[kind + 'UpdatedAt'], st[kind + 'FileUrl']);
+    });
+
+    // אחרי רינדור מחדש: מחזירים את התצוגה המקדימה ואת כפתור הפרסום למצבם
+    if(st.previewSummary){
+      ppuRenderPreview(st.previewSummary);
+      const pubBtn = document.getElementById('ppuPublishBtn');
+      if(pubBtn) pubBtn.disabled = !!st.publishing;
+    }
+    if(st.publishing) ppuSetStatus('busy', 'מפרסם לסניפים - מריץ פענוח שוב וכותב ל-Firestore (הפעולה הארוכה ביותר, אל תסגרו את הדף)...');
   }).catch(err => console.error('ppuLoadPersistedState failed', err));
 }
 
 /* ---------- Show, in a given slot, which file is already saved and when it was last updated ---------- */
-function ppuMarkPersistedSlot(kind, name, updatedAt){
+function ppuMarkPersistedSlot(kind, name, updatedAt, url){
   if(!name) return; // nothing saved yet for this slot - leave the default hint text as-is
   const slot = document.getElementById('ppuSlot_' + kind);
   if(!slot) return;
-  slot.classList.add('filled');
   const meta = slot.querySelector('.ppu-slot-meta');
-  const orig = meta.dataset.orig || meta.textContent;
+  if(!meta.dataset.orig) meta.dataset.orig = meta.textContent;
+  const orig = meta.dataset.orig;
+  // קובץ PDF בלי קישור שמור לא באמת זמין - צריך לבחור אותו מחדש.
+  // (קטלוג/תמונות בלי קישור עדיין עובדים: הפונקציה משתמשת בעותק האחרון שב-Storage.)
+  if(!url && (kind === 'supplier' || kind === 'display')){
+    slot.classList.remove('filled');
+    meta.textContent = orig + ' · ⚠️ הקובץ ' + name + ' לא זמין - יש לבחור את הקובץ מחדש';
+    return;
+  }
+  slot.classList.add('filled');
   const dateStr = (updatedAt && updatedAt.toDate) ? updatedAt.toDate().toLocaleDateString('he-IL') : '';
   meta.textContent = orig + ' · שמור כרגע: ' + name + (dateStr ? ' (עודכן ' + dateStr + ')' : '');
 }
@@ -214,12 +237,23 @@ function ppuClearStatus(){
 /* ---------- File selection: just remember it locally, upload happens on "בדוק" ---------- */
 function ppuFileSelected(kind, file){
   if(!file) return;
-  purchasingUploadState[kind + 'File'] = file;
+  const st = purchasingUploadState;
+  st[kind + 'File'] = file;
+  st[kind + 'FileUrl'] = null;   // קובץ חדש - הקישור ייקבע בהעלאה שבתצוגה המקדימה
+  st.previewSummary = null;      // חייבים להריץ תצוגה מקדימה מחדש לפני פרסום
+  const pubBtn = document.getElementById('ppuPublishBtn');
+  if(pubBtn) pubBtn.disabled = true;
+  ppuShowChosenFile(kind, file);
+}
+function ppuShowChosenFile(kind, file){
   const slot = document.getElementById('ppuSlot_' + kind);
+  if(!slot) return;
   slot.classList.add('filled');
   const btn = slot.querySelector('.ppu-btn');
-  btn.classList.add('filled');
-  btn.textContent = 'הוחלף: ' + file.name;
+  if(btn){
+    btn.classList.add('filled');
+    btn.textContent = 'הוחלף: ' + file.name;
+  }
 }
 
 /* ---------- Upload one file to Storage, return its download URL ---------- */
@@ -291,6 +325,11 @@ function ppuRunPreview(){
     .then(summary => {
       if(summary.error){ ppuSetStatus('error', 'שגיאה: ' + summary.error); return; }
       st.previewSummary = summary;
+      // הקישורים שבהם התצוגה המקדימה הצליחה - הפרסום ישתמש בהם בדיוק
+      st.confirmedUrls = {
+        supplier: st.supplierFileUrl, display: st.displayFileUrl,
+        catalog: st.catalogFileUrl || null, images: st.imagesFileUrl || null,
+      };
       st.bookletMonth = null;
       ppuClearStatus();
       ppuRenderPreview(summary);
@@ -390,17 +429,34 @@ function ppuPublish(){
     return;
   }
   document.getElementById('ppuPublishBtn').disabled = true; // מונע לחיצה כפולה בזמן שזה רץ
+  st.publishing = true;
+  // מקבעים את הקישורים עכשיו, לפני כל המתנה - רינדור מחדש של המסך באמצע
+  // הפרסום לא ישנה אותם יותר.
+  const urls = Object.assign({
+    supplier: st.supplierFileUrl, display: st.displayFileUrl,
+    catalog: st.catalogFileUrl || null, images: st.imagesFileUrl || null,
+  }, st.confirmedUrls || {});
+  if(!urls.supplier || !urls.display){
+    toast('חסר קישור לאחד מקובצי ה-PDF - יש לבחור את הקבצים מחדש ולהריץ תצוגה מקדימה');
+    st.publishing = false;
+    document.getElementById('ppuPublishBtn').disabled = false;
+    return;
+  }
+  const chosen = {
+    supplier: st.supplierFile, display: st.displayFile,
+    catalog: st.catalogFile, images: st.imagesFile,
+  };
   ppuSetStatus('busy', 'מפרסם לסניפים - מריץ פענוח שוב וכותב ל-Firestore (הפעולה הארוכה ביותר, אל תסגרו את הדף)...');
   firebase.auth().currentUser.getIdToken().then(idToken => {
     const payload = {
       mode: 'publish',
-      supplierFileUrl: st.supplierFileUrl,
-      displayFileUrl: st.displayFileUrl,
+      supplierFileUrl: urls.supplier,
+      displayFileUrl: urls.display,
     };
     /* החודש שאושר בתצוגה המקדימה (או תוקן ידנית) - כך הפרסום לא מזהה מחדש. */
     if(st.bookletMonth) payload.bookletMonth = st.bookletMonth;
-    if(st.catalogFileUrl) payload.catalogFileUrl = st.catalogFileUrl;
-    if(st.imagesFileUrl) payload.imagesFileUrl = st.imagesFileUrl;
+    if(urls.catalog) payload.catalogFileUrl = urls.catalog;
+    if(urls.images) payload.imagesFileUrl = urls.images;
     return fetch(CLOUD_FUNCTION_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
@@ -409,6 +465,7 @@ function ppuPublish(){
   })
   .then(r => r.json())
   .then(result => {
+    st.publishing = false;
     if(result.error){
       ppuSetStatus('error', 'שגיאה: ' + result.error);
       document.getElementById('ppuPublishBtn').disabled = false;
@@ -418,24 +475,26 @@ function ppuPublish(){
     const docPayload = {
       title: val('ppuTitle'),
       notes: val('ppuNotes'),
-      supplierFileUrl: st.supplierFileUrl,
-      displayFileUrl: st.displayFileUrl,
-      catalogFileUrl: st.catalogFileUrl || null,
-      imagesFileUrl: st.imagesFileUrl || null,
+      supplierFileUrl: urls.supplier,
+      displayFileUrl: urls.display,
       updatedAt: now,
       updatedBy: firebase.auth().currentUser.email,
     };
     // רק שקע שהוחלף בפועל בפעימה הזו מקבל שם/תאריך חדשים - שקע שלא נגעת בו שומר את הישן.
-    if(st.supplierFile){ docPayload.supplierFileName = st.supplierFile.name; docPayload.supplierUpdatedAt = now; }
-    if(st.displayFile){ docPayload.displayFileName = st.displayFile.name; docPayload.displayUpdatedAt = now; }
-    if(st.catalogFile){ docPayload.catalogFileName = st.catalogFile.name; docPayload.catalogUpdatedAt = now; }
-    if(st.imagesFile){ docPayload.imagesFileName = st.imagesFile.name; docPayload.imagesUpdatedAt = now; }
+    // קישור לקטלוג/תמונות נכתב רק אם יש כזה - כדי לא למחוק קישור קיים ב-null
+    if(urls.catalog) docPayload.catalogFileUrl = urls.catalog;
+    if(urls.images) docPayload.imagesFileUrl = urls.images;
+    if(chosen.supplier){ docPayload.supplierFileName = chosen.supplier.name; docPayload.supplierUpdatedAt = now; }
+    if(chosen.display){ docPayload.displayFileName = chosen.display.name; docPayload.displayUpdatedAt = now; }
+    if(chosen.catalog){ docPayload.catalogFileName = chosen.catalog.name; docPayload.catalogUpdatedAt = now; }
+    if(chosen.images){ docPayload.imagesFileName = chosen.images.name; docPayload.imagesUpdatedAt = now; }
 
     db.collection('siteTexts').doc('purchasingPromoNotice').set(docPayload, {merge:true})
-      .catch(err => console.error('siteTexts write failed', err));
+      .catch(err => { console.error('siteTexts write failed', err); toast('הפרסום הצליח, אבל שמירת הקישורים לקבצים נכשלה: ' + err.message); });
     ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore ונשמרו בארכיון כחוברת של ${ppuMonthLabel(result.booklet_month || st.bookletMonth)}. אפשר לבדוק עכשיו במסך "חוברת מבצעים".`);
   })
   .catch(err => {
+    st.publishing = false;
     ppuSetStatus('error', 'שגיאה בתקשורת עם השרת: ' + err.message + ' — אם זה קרה אחרי המתנה ארוכה (מעל 2-3 דקות), ייתכן שהפרסום בכל זאת הצליח בצד השרת אבל התשובה לא הגיעה בזמן; בדקו את "לוח מבצעים" לפני שמנסים שוב, כדי לא לכתוב פעמיים.');
     document.getElementById('ppuPublishBtn').disabled = false;
   });
