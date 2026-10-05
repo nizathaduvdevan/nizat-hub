@@ -7,6 +7,18 @@
    קורא מ-appData.promoBooklet (מסונכרן כבר ע"י firebase-init.js
    לצורך promo-sales.js) + purchasingPromoItems + purchasingPromoChecklist
    (טעינה חד-פעמית כשנכנסים למסך).
+
+   אוקטובר 2026:
+   - שם המבצע נלקח מ-promoBooklet.title (עמודת "תאור מבצע" בחוברת, נכתב
+     ע"י ה-Cloud Function). אם אין עדיין title (חוברת שפורסמה לפני התיקון),
+     נופלים לשם המוצר הראשון כמו קודם.
+   - בכל שלב מוצגים רק המבצעים שעוד לא טופלו: מה שסומן "הוזמן" נעלם משלב
+     ההזמנה, ומה ששולט במלואו (מדף + חוץ מדף כשנדרש) נעלם משלב השילוט.
+     אחרי כל סימון מופיעה הודעה עם "בטל", ובנוסף כפתור "הצג מה שכבר סומן"
+     מאפשר לבטל סימון גם מאוחר יותר.
+   - ה-PDF שמופק כולל רק מבצעים שלא הוזמנו ו/או לא שולטו.
+   - כפתורים לפתיחת קבצי ה-PDF המקוריים (לפי ספק / לפי תצוגה), מתוך
+     siteTexts/purchasingPromoNotice שמסך ההעלאה של רכש כבר שומר בכל פרסום.
 ============================================================ */
 
 const PROMO_BOARD_OFFSHELF_SECTIONS = [
@@ -24,6 +36,9 @@ let promoBoardLoaded = false;
 let pbPanelSearch = {supplier:'', section:'', dept:'', group:''};
 let pbFocusRestore = null; // {id, selStart, selEnd} to restore focus/cursor after a full re-render
 let promoBoardExpanded = {};
+let pbShowDone = false;          // false = רק מה שעוד לא טופל; true = רק מה שכבר סומן (לביטול)
+let pbOriginalFiles = null;      // {supplierUrl, displayUrl} מתוך siteTexts/purchasingPromoNotice
+let pbUndoTimer = null;
 
 const PB_FILTER_DEFS = [
   {key:'supplier', label:'ספקים'},
@@ -100,6 +115,15 @@ function pbInjectStyleOnce(){
     .pb-export-menu.open{display:block;}
     .pb-export-option{display:flex; align-items:center; gap:10px; width:100%; text-align:right; background:none; border:none; border-radius:7px; padding:10px 12px; font-family:inherit; font-size:14px; cursor:pointer;}
     .pb-export-option:hover{background:var(--bg,#f7f7f5);}
+    .pb-orig-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:13px; color:var(--muted,#666);}
+    .pb-orig-btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--brand,#4E7A3A); color:var(--brand,#4E7A3A); background:var(--card,#fff); border-radius:8px; padding:7px 12px; font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;}
+    .pb-orig-btn:hover{background:rgba(78,122,58,.08);}
+    .pb-done-toggle{border:1px dashed var(--gridline,#bbb); background:var(--card,#fff); border-radius:8px; padding:6px 12px; font-family:inherit; font-size:12.5px; cursor:pointer; color:var(--text,#333);}
+    .pb-done-toggle.on{border-style:solid; border-color:#3D7A4F; background:#E7F2E9; color:#3D7A4F; font-weight:700;}
+    .pb-done-banner{background:#E7F2E9; color:#3D7A4F; border:1px solid #3D7A4F; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:12px;}
+    .pb-undo{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:9999; display:none; align-items:center; gap:14px; background:#1B221E; color:#fff; border-radius:12px; padding:12px 16px; font-size:14px; box-shadow:0 8px 24px rgba(0,0,0,.3); max-width:92vw;}
+    .pb-undo.open{display:flex;}
+    .pb-undo button{background:none; border:none; color:#9FD38A; font-family:inherit; font-size:14px; font-weight:800; cursor:pointer; padding:4px 6px; white-space:nowrap;}
     .pb-empty{padding:40px; text-align:center; color:var(--muted,#888); font-size:14px; background:var(--card,#fff); border-radius:10px; border:1px solid var(--gridline,#ddd);}
 
     /* מובייל: כרטיס מבצע נערם לעמודה אחת, הצ'ק-ליסט נפרש לרוחב מתחת לטקסט
@@ -156,6 +180,38 @@ function loadPromoBoardData(){
     promoBoardLoaded = true;
     renderPromoBoard();
   }).catch(function(err){ toast('שגיאה בטעינת נתוני לוח המבצעים: ' + err.message); });
+  pbLoadOriginalFiles();
+}
+
+/* קישורים לקבצי ה-PDF המקוריים של החוברת. מסך ההעלאה של רכש שומר אותם
+   בכל פרסום ב-siteTexts/purchasingPromoNotice. אם הקריאה נכשלת (למשל
+   הרשאות) - פשוט לא מוצגים הכפתורים, בלי לשבור את המסך. */
+function pbLoadOriginalFiles(){
+  db.collection('siteTexts').doc('purchasingPromoNotice').get().then(function(doc){
+    const d = doc.exists ? (doc.data() || {}) : {};
+    pbOriginalFiles = {supplierUrl: d.supplierFileUrl || null, displayUrl: d.displayFileUrl || null};
+    if(promoBoardLoaded) renderPromoBoard();
+  }).catch(function(err){
+    console.warn('purchasingPromoNotice load failed:', err);
+    pbOriginalFiles = {supplierUrl:null, displayUrl:null};
+  });
+}
+function pbOpenOriginal(kind){
+  const f = pbOriginalFiles || {};
+  const url = kind === 'supplier' ? f.supplierUrl : f.displayUrl;
+  if(!url){ toast('הקובץ המקורי עדיין לא זמין'); return; }
+  window.open(url, '_blank');
+}
+function pbOriginalFilesHtml(){
+  const f = pbOriginalFiles || {};
+  if(!f.supplierUrl && !f.displayUrl) return '';
+  return `
+    <div class="pb-orig-row">
+      <span>📖 החוברת המקורית:</span>
+      ${f.supplierUrl ? `<button type="button" class="pb-orig-btn" onclick="pbOpenOriginal('supplier')">📄 הצגה לפי ספק</button>` : ''}
+      ${f.displayUrl ? `<button type="button" class="pb-orig-btn" onclick="pbOpenOriginal('display')">📄 הצגה לפי תצוגה</button>` : ''}
+    </div>
+  `;
 }
 
 function promoBoardBuildRows(){
@@ -179,7 +235,7 @@ function promoBoardBuildRows(){
     const items = byCode[code] || [];
     return {
       id: code, displayId: code, needsCheck:false,
-      title: items[0] ? items[0].name : null,
+      title: b.title || (items[0] ? items[0].name : null),
       items: items,
       price: b.price, template: b.template, notes: b.note||'', section: b.section,
       dept: mostCommon(items.map(i=>i.dept)),
@@ -219,6 +275,7 @@ function pbSearchSuggestionOptions(allRows){
   const set = new Set();
   allRows.forEach(function(row){
     if(row.supplier) set.add(row.supplier);
+    if(row.title) set.add(row.title);
     set.add('מבצע ' + row.displayId);
     (row.items||[]).forEach(function(i){
       if(i.name) set.add(i.name);
@@ -318,11 +375,15 @@ function renderPromoBoard(){
     focusInfo = {id: active.id, selStart: active.selectionStart, selEnd: active.selectionEnd};
   }
   const allRows = promoBoardBuildRows();
-  const rows = allRows.filter(pbMatchesFilters);
-  const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
-  const orderedCount = rows.filter(r=>st(r.id).ordered).length;
-  const signageDone = function(row){ const s = st(row.id); return s.shelf && (!row.showOffShelf || s.offshelf); };
-  const signageCount = rows.filter(signageDone).length;
+  const filteredRows = allRows.filter(pbMatchesFilters);
+  const st = pbStatus;
+  const orderedCount = filteredRows.filter(r=>st(r.id).ordered).length;
+  const signageCount = filteredRows.filter(pbSignageDone).length;
+  const doneInTab = function(row){ return pbActiveTab==='order' ? st(row.id).ordered : pbSignageDone(row); };
+  const doneCountInTab = pbActiveTab==='order' ? orderedCount : signageCount;
+  // ברירת מחדל: רק מה שעוד לא טופל בשלב הנוכחי. "הצג מה שכבר סומן" מציג
+  // את המסומנים בלבד, כדי שאפשר יהיה לבטל סימון שנעשה בטעות.
+  const rows = filteredRows.filter(r => pbShowDone ? doneInTab(r) : !doneInTab(r));
 
   let html = `
     <div class="pb-toolbar">
@@ -331,26 +392,34 @@ function renderPromoBoard(){
         <datalist id="pbSearchSuggestions">${pbSearchSuggestionOptions(allRows)}</datalist>
       </div>
       ${pbRenderFilterGroups(allRows)}
+      ${pbOriginalFilesHtml()}
     </div>
     <div class="pb-tabs">
-      <button type="button" class="pb-tab-btn ${pbActiveTab==='order'?'pb-tab-active':''}" onclick="pbActiveTab='order';renderPromoBoard();">📦 שלב 1 · הזמנה</button>
-      <button type="button" class="pb-tab-btn ${pbActiveTab==='signage'?'pb-tab-active':''}" onclick="pbActiveTab='signage';renderPromoBoard();">🏷️ שלב 2 · שילוט</button>
+      <button type="button" class="pb-tab-btn ${pbActiveTab==='order'?'pb-tab-active':''}" onclick="pbActiveTab='order';pbShowDone=false;renderPromoBoard();">📦 שלב 1 · הזמנה</button>
+      <button type="button" class="pb-tab-btn ${pbActiveTab==='signage'?'pb-tab-active':''}" onclick="pbActiveTab='signage';pbShowDone=false;renderPromoBoard();">🏷️ שלב 2 · שילוט</button>
     </div>
     <div class="pb-summary">
-      מוצגים <b>${rows.length}</b> מתוך <b>${allRows.length}</b> מבצעים
       ${pbActiveTab==='order' ? `
-        <span class="pb-pill done">✓ הוזמנו: ${orderedCount}/${rows.length}</span>
-        <span class="pb-pill pending">⏳ ממתינים: ${rows.length-orderedCount}/${rows.length}</span>
+        <span class="pb-pill pending">⏳ ממתינים להזמנה: ${filteredRows.length-orderedCount}/${filteredRows.length}</span>
+        <span class="pb-pill done">✓ הוזמנו: ${orderedCount}/${filteredRows.length}</span>
       ` : `
-        <span class="pb-pill done">✓ שולט במלואו: ${signageCount}/${rows.length}</span>
-        <span class="pb-pill pending">⏳ ממתין לשילוט: ${rows.length-signageCount}/${rows.length}</span>
+        <span class="pb-pill pending">⏳ ממתינים לשילוט: ${filteredRows.length-signageCount}/${filteredRows.length}</span>
+        <span class="pb-pill done">✓ שולטו במלואם: ${signageCount}/${filteredRows.length}</span>
       `}
+      <button type="button" class="pb-done-toggle ${pbShowDone?'on':''}" onclick="pbShowDone=!pbShowDone;renderPromoBoard();">
+        ${pbShowDone ? '↩ חזרה לממתינים' : `👁 הצג מה שכבר סומן (${doneCountInTab})`}
+      </button>
     </div>
+    ${pbShowDone ? `<div class="pb-done-banner">מוצגים מבצעים שכבר סומנו. הסרת הסימון מחזירה את המבצע לרשימת הממתינים.</div>` : ''}
   `;
 
 
   if(!rows.length){
-    html += '<div class="pb-empty">אין מבצעים התואמים את הסינון הנוכחי.</div>';
+    let emptyMsg;
+    if(!filteredRows.length) emptyMsg = 'אין מבצעים התואמים את הסינון הנוכחי.';
+    else if(pbShowDone) emptyMsg = 'עדיין לא סומן אף מבצע בשלב הזה.';
+    else emptyMsg = pbActiveTab==='order' ? '🎉 כל המבצעים הוזמנו.' : '🎉 כל המבצעים שולטו.';
+    html += `<div class="pb-empty">${emptyMsg}</div>`;
   } else {
     html += '<div class="pb-list">';
     rows.forEach(function(row){
@@ -447,51 +516,97 @@ function pbToggleItems(code, count){
   btn.textContent = promoBoardExpanded[code] ? 'הסתר מוצרים' : `הצג מוצרים נוספים (${count})`;
 }
 
-function promoBoardToggle(code, field, checked){
+function pbStatus(code){
+  return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false};
+}
+function pbSignageDone(row){
+  const s = pbStatus(row.id);
+  return s.shelf && (!row.showOffShelf || s.offshelf);
+}
+const PB_FIELD_LABELS = {ordered:'הוזמן', shelf:'שילוט מדף', offshelf:'שילוט חוץ מדף'};
+
+/* הודעה תחתונה עם כפתור "בטל" אחרי כל סימון. היא חיה מחוץ ל-pb-root כדי
+   שרינדור מחדש של הרשימה לא ימחק אותה. */
+function pbShowUndo(code, field){
+  let bar = document.getElementById('pbUndoBar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'pbUndoBar';
+    bar.className = 'pb-undo';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `<span>סומן "${PB_FIELD_LABELS[field]||''}" · מבצע ${code}</span>
+    <button type="button" onclick="pbUndo('${code}','${field}')">בטל</button>`;
+  bar.classList.add('open');
+  clearTimeout(pbUndoTimer);
+  pbUndoTimer = setTimeout(pbHideUndo, 7000);
+}
+function pbHideUndo(){
+  const bar = document.getElementById('pbUndoBar');
+  if(bar) bar.classList.remove('open');
+  clearTimeout(pbUndoTimer);
+}
+function pbUndo(code, field){
+  pbHideUndo();
+  promoBoardToggle(code, field, false, true);
+  toast('הסימון בוטל - המבצע חזר לרשימה');
+}
+
+function promoBoardToggle(code, field, checked, fromUndo){
   const branchEmail = (session.branchInfo && session.branchInfo.email) || currentUserEmail;
   const docId = (code + '__' + branchEmail).replace(/[\/\s]/g,'_');
   const st = promoBoardChecklist[code] = promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false};
   st[field] = checked;
-  const expireAt = new Date(Date.now() + 24*60*60*1000);
+  // הסימון חייב להחזיק לאורך כל החודש: מבצע שסומן נעלם מהרשימה, ואם הרשומה
+  // הייתה נמחקת אחרי 24 שעות (כמו קודם) הוא היה חוזר לרשימה כאילו לא טופל.
+  // 45 יום מכסים חודש מבצעים מלא עם מרווח.
+  const expireAt = new Date(Date.now() + 45*24*60*60*1000);
   db.collection('purchasingPromoChecklist').doc(docId).set({
     branchEmail: branchEmail, promoCode: code,
     ordered: st.ordered, shelf: st.shelf, offshelf: st.offshelf,
     expireAt: expireAt,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }, {merge:true}).catch(function(err){ toast('שגיאה בשמירה: ' + err.message); });
+  if(checked && !fromUndo) pbShowUndo(code, field);
+  else if(!fromUndo) pbHideUndo();
   renderPromoBoard();
 }
 
 /* ---------- ייצוא: הדפסה (HTML מעוצב) / WhatsApp / מייל (טקסט נקי) ---------- */
 function pbReportRows(){
   const allRows = promoBoardBuildRows();
-  const st = function(code){ return promoBoardChecklist[code] || {ordered:false, shelf:false, offshelf:false}; };
-  // בדוח הסופי: כל המבצעים המסוננים מוצגים, גם מה שלא סומן בכלל — ומה
-  // שחסר (לא הוזמן / לא שולט) מודגש בבירור, לפי מה שביקשת אחרי ההדמיה.
-  const rows = allRows.filter(pbMatchesFilters);
+  const st = pbStatus;
+  // בדוח: רק מבצעים פתוחים (בתוך הסינון הנוכחי) - שלא הוזמנו ו/או שלא
+  // שולטו במלואם. מבצע שהוזמן ושולט לא מופיע בדוח בכלל.
+  const filtered = allRows.filter(pbMatchesFilters);
+  const rows = filtered.filter(r => !st(r.id).ordered || !pbSignageDone(r));
   const bySection = {};
   rows.forEach(function(r){ (bySection[r.section||'ללא שיוך']=bySection[r.section||'ללא שיוך']||[]).push(r); });
-  return {rows, st, bySection, ordered: rows.filter(r=>st(r.id).ordered).length};
+  return {rows, st, bySection,
+    notOrdered: rows.filter(r=>!st(r.id).ordered).length,
+    notSigned: rows.filter(r=>!pbSignageDone(r)).length};
 }
 
 /* טקסט פשוט (ל-WhatsApp/מייל, שלא תומכים ב-HTML מעוצב) — עדיין קריא ומסודר:
    כותרות סקשן עם קו מפריד, שורה לכל מבצע עם ✅/❌ ברור לכל צ'ק-בוקס. */
 function pbBuildReportText(){
-  const {rows, st, bySection, ordered} = pbReportRows();
+  const {rows, st, bySection, notOrdered, notSigned} = pbReportRows();
   const today = new Date().toLocaleDateString('he-IL');
-  const mark = function(v){ return v ? '✅' : '❌'; };
   let lines = [
-    `📋 *דוח מבצעים — ${session.branchName||''}*`,
-    `📅 ${today}   |   הוזמנו ${ordered}/${rows.length}`,
+    `📋 *מבצעים פתוחים — ${session.branchName||''}*`,
+    `📅 ${today}   |   לא הוזמנו: ${notOrdered}   |   לא שולטו: ${notSigned}`,
     '━━━━━━━━━━━━━━━━━━',
   ];
+  if(!rows.length) lines.push('', '✅ כל המבצעים הוזמנו ושולטו');
   Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
     lines.push('', `📍 *${sec}*`);
     bySection[sec].forEach(function(row){
       const s = st(row.id);
-      const parts = [`${mark(s.ordered)} הוזמן`, `${mark(s.shelf)} מדף`];
-      if(row.showOffShelf) parts.push(`${mark(s.offshelf)} חוץ מדף`);
-      lines.push(`• #${row.id} ${row.title||''} (${row.supplier||''})`, `   ${parts.join('   ')}`);
+      const missing = [];
+      if(!s.ordered) missing.push('❌ לא הוזמן');
+      if(!s.shelf) missing.push('❌ לא שולט מדף');
+      if(row.showOffShelf && !s.offshelf) missing.push('❌ לא שולט חוץ מדף');
+      lines.push(`• #${row.id} ${row.title||''} (${row.supplier||''})`, `   ${missing.join('   ')}`);
     });
   });
   return lines.join('\n');
@@ -501,28 +616,26 @@ function pbBuildReportText(){
    אדומה בולטת ("✗ לא X"), כדי שאפשר לזהות מיד מה עוד צריך לטפל בו,
    בדיוק לפי ההדמיה שאושרה. */
 function pbBuildReportHTML(){
-  const {rows, st, bySection, ordered} = pbReportRows();
+  const {rows, st, bySection, notOrdered, notSigned} = pbReportRows();
   const today = new Date().toLocaleDateString('he-IL');
+  // בדוח מופיעים רק החוסרים - תגית אדומה לכל מה שעוד לא בוצע.
   const chip = function(ok, doneLabel, missingLabel){
-    return ok
-      ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:600;background:#E7F2E9;color:#3D7A4F;border:1px solid #3D7A4F;">✓ ${doneLabel}</span>`
+    return ok ? ''
       : `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:12.5px;font-weight:800;background:#FDEAEA;color:#C0392B;border:1px solid #C0392B;">✗ ${missingLabel}</span>`;
   };
   let sectionsHtml = '';
   Object.keys(bySection).sort((a,b)=>a.localeCompare(b,'he')).forEach(function(sec){
     const secRows = bySection[sec];
-    const secDone = secRows.filter(r=>st(r.id).ordered).length;
     sectionsHtml += `
       <div style="margin-bottom:22px;">
         <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #1B221E;padding-bottom:6px;margin-bottom:10px;">
           <h2 style="font-size:16px;margin:0;">📍 ${sec}</h2>
-          <span style="font-size:12.5px;color:#666;">${secDone}/${secRows.length} הוזמנו</span>
+          <span style="font-size:12.5px;color:#666;">${secRows.length} פתוחים</span>
         </div>
         ${secRows.map(function(row){
           const s = st(row.id);
-          const incomplete = !s.ordered || !s.shelf || (row.showOffShelf && !s.offshelf);
           return `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px ${incomplete?'10px':'0'};border-bottom:1px solid ${incomplete?'#FBECDD':'#eee'};${incomplete?'background:#FFF8F5;margin:0 -10px;border-radius:6px;':''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #eee;">
             <div>
               <div style="font-weight:700;font-size:14px;">${row.title||''} <span style="font-weight:400;color:#888;font-size:12px;">· ${row.supplier||''} · מבצע ${row.id}</span></div>
             </div>
@@ -540,10 +653,10 @@ function pbBuildReportHTML(){
     <html dir="rtl" lang="he"><head><meta charset="UTF-8"><title>דוח מבצעים</title></head>
     <body style="font-family:Arial,Helvetica,sans-serif;color:#1B221E;padding:28px;max-width:800px;margin:0 auto;">
       <div style="border-bottom:3px solid #1B221E;padding-bottom:14px;margin-bottom:20px;">
-        <h1 style="margin:0 0 4px;font-size:22px;">📋 דוח מבצעים</h1>
-        <div style="color:#666;font-size:13.5px;">${session.branchName||''} · ${today} · הוזמנו ${ordered}/${rows.length}</div>
+        <h1 style="margin:0 0 4px;font-size:22px;">📋 מבצעים פתוחים - לא הוזמנו / לא שולטו</h1>
+        <div style="color:#666;font-size:13.5px;">${session.branchName||''} · ${today} · לא הוזמנו: ${notOrdered} · לא שולטו: ${notSigned}</div>
       </div>
-      ${sectionsHtml}
+      ${rows.length ? sectionsHtml : '<div style="padding:30px;text-align:center;font-size:16px;color:#3D7A4F;font-weight:700;">✅ כל המבצעים הוזמנו ושולטו</div>'}
     </body></html>
   `;
 }
