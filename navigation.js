@@ -171,9 +171,17 @@ if(messaging){
      לגמרי מטופלות ב-service-worker.js (onBackgroundMessage). */
   messaging.onMessage(function(payload){
     console.log('🔔 [NIZAT-DEBUG] onMessage (foreground) הופעל בפועל! payload:', payload);
-    const title = (payload.notification && payload.notification.title) || 'עדכון חדש';
-    const body = (payload.notification && payload.notification.body) || '';
-    toast(`${title}${body ? ' — ' + body : ''}`);
+    /* שידורים רגילים מגיעים עם notification; עדכוני מערכת (appUpdates)
+       מגיעים כ-data בלבד, עם link למסך שעודכן. */
+    const n = payload.notification || {};
+    const d = payload.data || {};
+    const title = n.title || d.title || 'עדכון חדש';
+    const body = n.body || d.body || '';
+    if(d.link && typeof showDeepLinkToast==='function'){
+      showDeepLinkToast(title, body, d.link);
+    } else {
+      toast(`${title}${body ? ' — ' + body : ''}`);
+    }
     /* לא מוסיפים כאן ל-appData.notifications — מאזין ה-Firestore על קולקציית
        broadcasts (initBroadcastNotifSync) עושה את זה בצורה אמינה יותר, כי
        הוא עובד גם כשההודעה מגיעה ברקע/כשהאתר סגור (מצב שבו onMessage הזה
@@ -205,9 +213,12 @@ function navUnreadCount(navId){
     const deptKey = navId.slice('enterDept:'.length);
     return visibleDepartmentScreens(deptKey).reduce((s,scr)=>s+navUnreadCount(scr.id), 0);
   }
+  /* עדכוני מערכת (appUpdates, ראו app-updates.js) שמכוונים למסך הזה —
+     למשל "מכר מבצעים עודכן" מסמן נקודה על "מכר מבצעים" ועל מחלקת הרכש. */
+  const updatesUnread = typeof appUpdatesUnreadForView==='function' ? appUpdatesUnreadForView(navId) : 0;
   const key = NAV_UNREAD_TYPES[navId];
-  if(!key || !appData[key]) return 0;
-  return appData[key].filter(x=>!isItemRead(key, x.id)).length;
+  if(!key || !appData[key]) return updatesUnread;
+  return appData[key].filter(x=>!isItemRead(key, x.id)).length + updatesUnread;
 }
 function renderNav(){
   renderPreviewBanner();
@@ -293,6 +304,9 @@ function goTo(view, opts){
   if(view==='admin' && !opts.keepAdminTab) ui.adminTab = null;
   if(view==='planograms' && !opts.keepPlanoDept) ui.planoDept = null;
   ui.view = view;
+  /* כניסה למסך = הסניף ראה את העדכונים האוטומטיים שבוצעו בו (תגית "חדש"
+     בפיד הופכת ל"נקרא" והנקודה האדומה בניווט נעלמת). */
+  if(typeof markAppUpdatesReadForView==='function') markAppUpdatesReadForView(view);
   renderNav();
   renderContent();
   window.scrollTo({top:0, behavior:'smooth'});

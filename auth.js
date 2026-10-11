@@ -71,9 +71,14 @@ function enterApp(role, payload){
   renderContent();
   renderNotifPanel();
   initFirestoreSync();
+  /* עדכוני מערכת לפיד "חדש עבורכם" (app-updates.js). */
+  if(typeof initAppUpdatesSync==='function') initAppUpdatesSync();
   toast(toastMsg);
   updatePushButtonsVisibility();
   silentlyRefreshPushTokenIfGranted();
+  /* אם האפליקציה נפתחה מלחיצה על Push ("#go=purchasing:promoSales..."),
+     עוברים ישר למסך שעודכן במקום להישאר בדף הבית. */
+  if(typeof consumePendingDeepLink==='function') consumePendingDeepLink();
 }
 /* מעדכן את שני כפתורי ה-Push (הפעלה / עזרה כשחסום) לפי מצב ההרשאה בפועל.
    נקרא גם מ-enterApp וגם בכל מקום שבו רוצים לרענן את התצוגה (למשל אחרי

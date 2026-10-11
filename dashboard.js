@@ -73,11 +73,40 @@ function openInstructionFromFeed(deptKey, instructionId){
 /* מוצג לסניפים/מנהלי אזור ברמה העליונה, לפני שנכנסים למחלקה ספציפית. פיד
    מאוחד מכל המחלקות (כרגע רק שיווק מפרסמת, אז זה כמעט זהה למה שהיה קודם —
    ההבדל היחיד הוא תגית המחלקה על כל פריט וכפתורי הכניסה למחלקות בניווט). */
+/* שורה אחת בפיד "חדש עבורכם" — משותף לתצוגת הצוות ולתצוגת הסניפים.
+   appUpdate = עדכון אוטומטי (מכר מבצעים מהמייל וכו', ראו app-updates.js):
+   לחיצה פותחת את המסך שבו בוצע השינוי, ותגית "חדש" עד שהסניף ראה אותו. */
+function globalFeedItemHtml(f){
+  let onclick, icon, kind;
+  if(f.type==='appUpdate'){
+    onclick = `openAppUpdate('${f.id}')`;
+    icon = f.icon;
+    kind = 'עדכון';
+  } else {
+    const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
+    onclick = f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`;
+    icon = f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆';
+    kind = f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות';
+  }
+  return `
+    <div class="dashboard-feed-item" onclick="${onclick}">
+      <span class="df-icon">${icon}</span>
+      <div class="df-main">
+        <div class="df-title">${f.type==='appUpdate' ? esc(f.title) : f.title}</div>
+        ${f.type==='appUpdate' && f.body ? `<div class="df-meta">${esc(f.body)}</div>` : ''}
+        <div class="df-meta">${kind} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
+      </div>
+      <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
+      ${feedItemBadge(f.typeKey, f.id, f.ts)}
+    </div>
+  `;
+}
 function viewGlobalHome(){
   const feed = [
     ...appData.instructions.map(i=>({type:'instruction', typeKey:'instructions', ts:itemFeedTimestampMs(i), edited:itemWasEditedAfterPublish(i), title:i.title, id:i.id, department:itemDepartment(i)})),
     ...appData.competitions.map(c=>({type:'competition', typeKey:'competitions', ts:itemFeedTimestampMs(c), edited:itemWasEditedAfterPublish(c), title:c.title, id:c.id, department:itemDepartment(c)})),
-    ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', typeKey:'events', ts:itemFeedTimestampMs(e), edited:itemWasEditedAfterPublish(e), title:e.title, id:e.id, department:itemDepartment(e)}))
+    ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', typeKey:'events', ts:itemFeedTimestampMs(e), edited:itemWasEditedAfterPublish(e), title:e.title, id:e.id, department:itemDepartment(e)})),
+    ...(typeof appUpdateFeedItems==='function' ? appUpdateFeedItems() : [])
   ].sort((a,b)=> b.ts-a.ts).slice(0,8);
   const greetName = session.role==='area' ? session.areaLabel
     : session.role==='marketing' ? marketingDisplayFor(currentUserEmail).name
@@ -96,19 +125,7 @@ function viewGlobalHome(){
       ${renderMyCalendarCard()}
       <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
       <div class="card" style="overflow:visible;">
-        ${feed.length ? feed.map(f=>{
-          const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
-          return `
-          <div class="dashboard-feed-item" onclick="${f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`}">
-            <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
-            <div class="df-main">
-              <div class="df-title">${f.title}</div>
-              <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
-            </div>
-            <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
-            ${feedItemBadge(f.typeKey, f.id, f.ts)}
-          </div>
-        `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
+        ${feed.length ? feed.map(globalFeedItemHtml).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
       </div>
     `;
   }
@@ -195,19 +212,7 @@ function viewGlobalHome(){
 
     <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
     <div class="card" style="overflow:visible;">
-      ${feed.length ? feed.map(f=>{
-        const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
-        return `
-        <div class="dashboard-feed-item" onclick="${f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`}">
-          <span class="df-icon">${f.type==='instruction'?'📋':f.type==='event'?'🗓':'🏆'}</span>
-          <div class="df-main">
-            <div class="df-title">${f.title}</div>
-            <div class="df-meta">${f.type==='instruction'?'הוראה':f.type==='event'?'אירוע':'תחרות'} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
-          </div>
-          <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
-          ${feedItemBadge(f.typeKey, f.id, f.ts)}
-        </div>
-      `;}).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
+      ${feed.length ? feed.map(globalFeedItemHtml).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
     </div>
   `;
 }

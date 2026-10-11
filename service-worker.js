@@ -3,7 +3,7 @@
    הקובץ הזה עצמו, כדי שגם באנר "קיימת גרסה חדשה" יופיע. לא חובה יותר לבמת
    כל עדכון קוד רגיל (dashboard.js/main.css וכו') — אלה עכשיו Network-first
    ומתעדכנים אוטומטית בלי קשר לגרסה כאן (ראו ה-'fetch' listener למטה). */
-const CACHE_VERSION = 'nizat-hub-static-v4';
+const CACHE_VERSION = 'nizat-hub-static-v5';
 const BASE = '/nizat-hub/';
 const OFFLINE_URL = BASE + 'offline.html';
 const STATIC_ASSETS = [
@@ -18,6 +18,36 @@ const STATIC_ASSETS = [
 /* Firebase Cloud Messaging — טיפול בהתראות Push שמגיעות כשהאפליקציה סגורה
    לגמרי או ברקע. חייב להיות באותו קובץ service worker שנרשם ב-scope הראשי,
    כדי שאותו רישום (registration) ישמש גם ל-messaging.getToken() בצד הלקוח. */
+/* לחיצה על התראה — חייב להירשם *לפני* firebase.messaging(), כדי לרוץ לפני
+   ה-handler הפנימי של Firebase (שפותח את fcmOptions.link — "/", כתובת שלא
+   קיימת כאן, כי האפליקציה יושבת תחת /nizat-hub/). מטפל בשני סוגי ההתראות:
+   - עדכוני מערכת (appUpdates): הקישור שמור ב-notification.data.link.
+   - שידורים רגילים (broadcasts): Firebase שומר את ה-payload תחת data.FCM_MSG.
+   הקישור הוא "#go=<מחלקה>:<מסך>&u=<id>". אם האפליקציה כבר פתוחה — מביאים
+   אותה לחזית ושולחים לה את הקישור (ניווט בלי טעינה מחדש); אחרת פותחים אותה
+   ישר על הקישור, ו-app-updates.js מנווט למסך אחרי הכניסה. */
+self.addEventListener('notificationclick', function(event){
+  const n = event.notification;
+  const d = n.data || {};
+  let link = d.link || '';
+  if(!link && d.FCM_MSG && d.FCM_MSG.data && d.FCM_MSG.data.link) link = d.FCM_MSG.data.link;
+  event.stopImmediatePropagation();
+  n.close();
+  event.waitUntil(openAppAt(link));
+});
+function openAppAt(link){
+  const appRoot = self.location.origin + BASE;
+  return self.clients.matchAll({type:'window', includeUncontrolled:true}).then(function(list){
+    const client = list.find(function(c){ return c.url.indexOf(appRoot) === 0; });
+    if(client){
+      return client.focus().then(function(c){
+        if(link) (c || client).postMessage({type:'NIZAT_OPEN_LINK', link: link});
+      });
+    }
+    return self.clients.openWindow(appRoot + (link || ''));
+  });
+}
+
 importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js');
 firebase.initializeApp({
@@ -41,16 +71,25 @@ self.addEventListener('push', function(event){
   console.log('🔔 [NIZAT-DEBUG-SW] אירוע push גולמי התקבל!', event.data ? event.data.text() : '(ללא data)');
 });
 
+/* הודעה כשהאפליקציה סגורה/ברקע.
+   - שידורים רגילים (broadcasts) מגיעים עם notification — Firebase מציג אותם
+     בעצמו (ראו onPush ב-SDK), ולכן כאן לא מציגים שוב. קודם הצגנו גם כאן,
+     וזה גרם להתראה כפולה.
+   - עדכוני מערכת (appUpdates) מגיעים כ-data בלבד, עם link — כאן מציגים
+     אותם ושומרים את הקישור, כדי שלחיצה תפתח את המסך שעודכן. */
 messaging.onBackgroundMessage(function(payload){
   console.log('🔔 [NIZAT-DEBUG-SW] onBackgroundMessage הופעל בפועל! payload:', payload);
-  const title = (payload.notification && payload.notification.title) || 'NIZAT HUB';
+  if(payload.notification) return;
+  const d = payload.data || {};
+  const title = d.title || 'NIZAT HUB';
   const options = {
-    body: (payload.notification && payload.notification.body) || '',
+    body: d.body || '',
     icon: BASE + 'icons/notif-icon-192.png',
     badge: BASE + 'icons/notif-badge-96.png',
-    dir: 'rtl'
+    dir: 'rtl',
+    data: { link: d.link || '' }
   };
-  self.registration.showNotification(title, options).then(function(){
+  return self.registration.showNotification(title, options).then(function(){
     console.log('🔔 [NIZAT-DEBUG-SW] showNotification הסתיים בהצלחה');
   }).catch(function(err){
     console.error('🔔 [NIZAT-DEBUG-SW] showNotification נכשל בשגיאה:', err);
