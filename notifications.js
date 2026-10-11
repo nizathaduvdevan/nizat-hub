@@ -72,6 +72,16 @@ function initBroadcastNotifSync(){
       console.error('Firestore sync error (broadcasts notifications):', err);
     });
 }
+/* זמן ההתראה למיון (החדשה ביותר למעלה). שידורים (broadcasts) נושאים מזהה
+   טקסט של Firestore, ולכן אי אפשר למיין לפי id — הזמן שלהם שמור ב-_sentAtMs.
+   התראות מקומיות נוצרות עם id = Date.now(). אם אין אף אחד מהם — לפי התאריך. */
+function notifTimeMs(n){
+  if(n && n._sentAtMs) return n._sentAtMs;
+  const idNum = Number(n && n.id);
+  if(isFinite(idNum) && idNum > 1e12) return idNum;
+  const t = parseHebDate(n && n.date);
+  return isNaN(t) ? 0 : t;
+}
 function pruneNotifications(){
   const now = Date.now();
   const before = appData.notifications.length;
@@ -81,7 +91,7 @@ function pruneNotifications(){
     return (now - t) <= NOTIF_MAX_AGE_DAYS*86400000;
   });
   if(appData.notifications.length > NOTIF_MAX_COUNT){
-    appData.notifications.sort((a,b)=>b.id-a.id);
+    appData.notifications.sort((a,b)=>notifTimeMs(b)-notifTimeMs(a));
     appData.notifications = appData.notifications.slice(0, NOTIF_MAX_COUNT);
   }
   if(appData.notifications.length !== before) saveNotificationsToStorage();
@@ -106,7 +116,7 @@ function markNotificationRead(id){
 }
 function renderNotifPanel(){
   pruneNotifications();
-  const list = [...appData.notifications].sort((a,b)=>b.id-a.id);
+  const list = [...appData.notifications].sort((a,b)=>notifTimeMs(b)-notifTimeMs(a));
   const unread = list.filter(n=>!n.read).length;
   const badge = document.getElementById('notif-badge');
   if(unread>0){ badge.style.display='flex'; badge.textContent = unread>9 ? '9+' : unread; }
