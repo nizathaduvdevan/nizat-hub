@@ -1426,6 +1426,24 @@ function clearPromoSearch(){
   updatePromoSearch('');
 }
 function setPromoTab(tab){ ui.promoTab = tab; renderContent(); }
+/* תקופת המכר של הנתונים המוצגים. הייבוא האוטומטי מהמייל שומר על כל מוצר
+   שדה period (למשל "4.10-10.10.26", מתוך כותרת המייל). בהעלאה ידנית אין
+   תקופה — מציגים במקום זה את תאריך ההעלאה (updatedAt). */
+function promoSalesPeriodHtml(products){
+  if(!products.length) return '';
+  const withPeriod = products.find(p=>p.period);
+  if(withPeriod){
+    return `<div style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;padding:4px 10px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);">📅 תקופת המכר: <b>${withPeriod.period}</b></div>`;
+  }
+  let latest = null;
+  products.forEach(p=>{
+    const d = p.updatedAt && typeof p.updatedAt.toDate==='function' ? p.updatedAt.toDate() : null;
+    if(d && (!latest || d>latest)) latest = d;
+  });
+  if(!latest) return '';
+  const txt = latest.toLocaleDateString('he-IL', {day:'numeric', month:'numeric', year:'2-digit'});
+  return `<div style="margin-top:8px;font-size:12.5px;color:var(--text-secondary);">נתוני המכר עודכנו ב-${txt}</div>`;
+}
 function viewPromoSales(){
   const products = [...(appData.promoProducts||[])];
   const areaMode = isAreaViewer() || hasPromoNationalAccess();
@@ -1437,6 +1455,7 @@ function viewPromoSales(){
     <div class="page-head">
       <h1>מכר מבצעים</h1>
       <p>ניתוח מימושי מבצעים מול חוברת המבצעים, ועיון חופשי לפי מוצר.</p>
+      ${promoSalesPeriodHtml(products)}
     </div>
     <div class="admin-tabs" style="margin-bottom:16px;">
       <button class="admin-tab ${tab==='analysis'?'active':''}" onclick="setPromoTab('analysis')">דוח פעולה</button>
