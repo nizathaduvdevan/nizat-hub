@@ -44,6 +44,7 @@ function viewVideos(){
           <iframe src="https://www.youtube.com/embed/${ytId}" style="position:absolute;inset:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         </div>` : `<div class="empty-state">קישור לא תקין.</div>`}
         ${v.category ? `<div style="font-size:12.5px;color:var(--text-secondary);margin-top:8px;">${v.category}</div>` : ''}
+        ${lastUpdatedHtml(v)}
         ${canManage ? `<div style="display:flex;gap:8px;margin-top:10px;">
           <button class="icon-btn" onclick="openVideoForm('${v.id}')" title="עריכה">✎</button>
           <button class="icon-btn danger" onclick="confirmDelete('materials', '${v.id}')" title="מחיקה">🗑</button>
@@ -84,7 +85,8 @@ function saveVideoForm(editId){
     unread: existing ? (existing.unread||false) : true,
     tags: existing ? (existing.tags||[]) : [],
     thumbUrl: null,
-    department: existing ? itemDepartment(existing) : (staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT)
+    department: existing ? itemDepartment(existing) : (staffDepartments(currentUserEmail)[0] || DEFAULT_DEPARTMENT),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
   closeModal();
   if(editId){
@@ -118,7 +120,8 @@ function materialCard(m){
   <div class="card material-card">
     ${thumbSrc ? `<img class="file-thumb" src="${thumbSrc}" alt="${m.name}">` : `<div class="file-icon">${m.type}</div>`}
     <div class="material-name">${m.name}</div>
-    <div class="material-meta">${m.category} · ${m.size} · עודכן ${m.date}${m.time ? ' '+m.time : ''}</div>
+    <div class="material-meta">${m.category}${m.size ? ' · '+m.size : ''}</div>
+    ${lastUpdatedHtml(m)}
     ${m.tags && m.tags.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;">${m.tags.map(t=>materialTagBadge(t)).join('')}</div>` : ''}
     <a class="download-btn" href="${m.fileUrl}" target="_blank" rel="noopener" download="${m.name}">⬇ הורדה</a>
   </div>`;

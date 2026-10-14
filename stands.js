@@ -315,7 +315,7 @@ function saveEditStand(campId){
   pendingEditStandImageUrl = undefined;
   closeModal();
   if(firebaseReady){
-    db.collection('standCampaigns').doc(campId).update(updates)
+    db.collection('standCampaigns').doc(campId).update(Object.assign({}, updates, {updatedAt: firebase.firestore.FieldValue.serverTimestamp()}))
       .then(()=>toast('הקמפיין עודכן בהצלחה'))
       .catch(err=>toast('שגיאה בעדכון הקמפיין: '+err.message));
   } else {
@@ -438,6 +438,7 @@ function standCardHtml(camp, b, idx, pending, confirmedAt){
         <div class="admin-row-main">
           <div class="t"><span class="stand-color-dot" style="background:${camp.colorHex};"></span> ${camp.label}${camp.demo ? ' <span class="badge ended">🧪 נתוני הדגמה</span>' : ''}</div>
           <div class="m">${camp.installDate ? `עלייה ב-<span dir="ltr">${camp.installDate}</span> · ` : ''}יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` · עוד ${daysLeft} ימים` : ' · התאריך עבר'}</div>
+          ${lastUpdatedHtml(camp)}
         </div>
         ${pending ? '' : '<span class="badge active"><span class="dot"></span>אושר</span>'}
       </div>

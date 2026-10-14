@@ -98,9 +98,10 @@ function viewInstructions(){
               <span class="badge ${i.priority==='urgent'?'urgent':'normal'}"><span class="dot"></span>${PRIORITY_LABEL[i.priority]}</span>
             </div>
           </div>
-          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span><span>${i.date}${i.time?' · '+i.time:''}</span>${i.updateLength==='short'?'<span class="badge cat" style="padding:2px 8px;">⚡ עדכון קצר</span>':''}<span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span>
+          <div class="instr-meta"><span class="badge cat" style="padding:2px 8px;">${i.category}</span>${i.updateLength==='short'?'<span class="badge cat" style="padding:2px 8px;">⚡ עדכון קצר</span>':''}<span style="${iUnread?'color:var(--blue-dark);font-weight:600;':'color:var(--muted);'}">${iUnread?'עדכון חדש':'נקרא'}</span>
             ${i.updateLength!=='short' ? `<span class="instr-expand-hint" id="instr-hint-${i.id}" style="${iOpen?'display:none;':''}">לחצו לקריאה המלאה ⌄</span>` : ''}
           </div>
+          ${lastUpdatedHtml(i)}
           <div class="instr-body ${iOpen?'open':''}" id="instr-body-${i.id}">
             <p style="margin:0 0 4px;">${i.body}</p>
             ${i.imageUrl ? `<img src="${i.imageUrl}" alt="תמונה להמחשה" style="max-width:100%;max-height:320px;border-radius:10px;margin:8px 0;display:block;" onclick="event.stopPropagation()">` : ''}

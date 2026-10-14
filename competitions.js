@@ -205,7 +205,7 @@ function deleteCompetitionUpdate(compId, updateId){
   if(!comp) return;
   const newUpdates = (comp.updates || []).filter(u=>String(u.id)!==String(updateId));
   if(firebaseReady){
-    db.collection('competitions').doc(compId).update({updates: newUpdates})
+    db.collection('competitions').doc(compId).update({updates: newUpdates, updatedAt: firebase.firestore.FieldValue.serverTimestamp()})
       .then(()=>{ toast('העדכון נמחק'); })
       .catch(err=>toast('שגיאה במחיקת העדכון: '+err.message));
   } else {
@@ -244,6 +244,7 @@ function compCard(c){
         </div>
         <h3 class="comp-title">${c.title}</h3>
         <div class="comp-meta"><span dir="ltr">${c.start} – ${c.end}</span></div>
+        ${lastUpdatedHtml(c, ['salesUpdatedAt'])}
       </div>
       ${c.logoDataUrl ? `<img src="${c.logoDataUrl}" class="comp-logo" alt="לוגו ${c.title}">` : ''}
     </div>

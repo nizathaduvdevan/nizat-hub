@@ -149,6 +149,7 @@ function nosRenderFeed(){
         ${b.note ? `<span class="nos-note">${b.note}</span>` : ''}
         ${isAdmin ? `<span class="nos-batch-actions"><button class="nos-icon-btn danger" onclick="nosDeleteBatch('${b.batchId}')">🗑 מחק ספק זה</button></span>` : ''}
       </div>
+      ${lastUpdatedHtmlForList(b.products)}
       <div class="nos-grid">
         ${b.products.map(p => nosProductCard(p, isAdmin)).join('')}
       </div>
@@ -229,7 +230,7 @@ function nosImageFileSelected(file){
   const docId = nosImageUploadTargetId;
   toast('מעלה תמונה...');
   uploadFileToCloudinary(file)
-    .then(result => db.collection('newOnShelf').doc(docId).update({imageUrl: result.secure_url}))
+    .then(result => db.collection('newOnShelf').doc(docId).update({imageUrl: result.secure_url, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}))
     .then(() => { toast('התמונה עודכנה'); nosLoadFeed(); })
     .catch(err => toast('שגיאה בהעלאה: ' + err.message))
     .finally(() => { nosImageUploadTargetId = null; });
@@ -237,7 +238,7 @@ function nosImageFileSelected(file){
 
 function nosDeleteImage(docId){
   if(!confirm('למחוק את התמונה של המוצר הזה?')) return;
-  db.collection('newOnShelf').doc(docId).update({imageUrl: null})
+  db.collection('newOnShelf').doc(docId).update({imageUrl: null, updatedAt: firebase.firestore.FieldValue.serverTimestamp()})
     .then(() => { toast('התמונה הוסרה'); nosLoadFeed(); })
     .catch(err => toast('שגיאה: ' + err.message));
 }

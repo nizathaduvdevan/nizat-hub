@@ -105,3 +105,84 @@ function loadXlsxLib(){
   });
   return _xlsxLoadPromise;
 }
+
+/* ============================================================
+   "עודכן לאחרונה" — שורה אחידה בכל תוכן שעולה לאפליקציה
+   ------------------------------------------------------------
+   פורמט קבוע: "עודכן לאחרונה בתאריך: 14.10.2026, שעה: 13:27".
+   הזמן נלקח מהשדה העדכני ביותר שקיים על הפריט: updatedAt / createdAt /
+   publishedAt / importedAt (Firestore Timestamp, Date, מספר מילישניות,
+   או מחרוזת "DD.MM.YYYY" / "DD.MM.YYYY HH:MM"). לפריטים ישנים בלי שדות
+   כאלה נופלים חזרה ל-date + time שנשמרו כטקסט. אם אין שעה ידועה בכלל
+   (רק תאריך) — מוצג רק התאריך, בלי להמציא שעה.
+============================================================ */
+function anyToTimeInfo(v){
+  if(v===null || v===undefined || v==='') return null;
+  if(typeof v.toDate === 'function') return { ms: v.toDate().getTime(), hasTime: true };
+  if(v instanceof Date) return isNaN(v.getTime()) ? null : { ms: v.getTime(), hasTime: true };
+  if(typeof v === 'number') return { ms: v, hasTime: true };
+  if(typeof v === 'object' && typeof v.seconds === 'number') return { ms: v.seconds*1000, hasTime: true };
+  if(typeof v === 'string'){
+    const m = v.trim().match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2}))?/);
+    if(m){
+      const d = new Date(+m[3], +m[2]-1, +m[1], m[4]!==undefined ? +m[4] : 0, m[5]!==undefined ? +m[5] : 0);
+      return { ms: d.getTime(), hasTime: m[4]!==undefined };
+    }
+    const iso = Date.parse(v);
+    if(!isNaN(iso) && /\d{4}-\d{2}-\d{2}/.test(v)) return { ms: iso, hasTime: /T\d{2}:\d{2}/.test(v) };
+  }
+  return null;
+}
+/* מחזיר {ms, hasTime} של העדכון האחרון של הפריט, או null. אפשר להעביר
+   רשימת שדות נוספים (extraFields) — למשל salesUpdatedAt בתחרויות. */
+function itemLastUpdatedInfo(item, extraFields){
+  if(!item) return null;
+  const fields = ['updatedAt','createdAt','publishedAt','importedAt','lastUpdated'].concat(extraFields || []);
+  let best = null;
+  fields.forEach(function(f){
+    const info = anyToTimeInfo(item[f]);
+    if(info && (!best || info.ms > best.ms || (info.ms === best.ms && info.hasTime && !best.hasTime))) best = info;
+  });
+  if(!best && item.date){
+    const legacy = anyToTimeInfo(item.date + (item.time ? ' ' + item.time : ''));
+    if(legacy) best = legacy;
+  }
+  return best;
+}
+function formatLastUpdatedText(info){
+  if(!info || !info.ms) return '';
+  const d = new Date(info.ms);
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yyyy = d.getFullYear();
+  if(!info.hasTime) return `עודכן לאחרונה בתאריך: ${dd}.${mm}.${yyyy}`;
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mi = String(d.getMinutes()).padStart(2,'0');
+  return `עודכן לאחרונה בתאריך: ${dd}.${mm}.${yyyy}, שעה: ${hh}:${mi}`;
+}
+/* השורה עצמה, מוכנה להזרקה ל-HTML. ריקה אם אין שום מידע זמן. */
+function lastUpdatedHtml(item, extraFields){
+  ensureLastUpdatedStyles();
+  const text = formatLastUpdatedText(itemLastUpdatedInfo(item, extraFields));
+  return text ? `<div class="last-updated">🕒 ${text}</div>` : '';
+}
+/* גרסה לרשימה שלמה (מסך שמציג אוסף כמו חוברת מבצעים) — לוקחת את העדכון
+   האחרון מבין כל הפריטים. */
+function lastUpdatedHtmlForList(items, extraFields){
+  let best = null;
+  (items || []).forEach(function(it){
+    const info = itemLastUpdatedInfo(it, extraFields);
+    if(info && (!best || info.ms > best.ms)) best = info;
+  });
+  ensureLastUpdatedStyles();
+  const text = formatLastUpdatedText(best);
+  return text ? `<div class="last-updated">🕒 ${text}</div>` : '';
+}
+let _lastUpdatedStylesInjected = false;
+function ensureLastUpdatedStyles(){
+  if(_lastUpdatedStylesInjected) return;
+  _lastUpdatedStylesInjected = true;
+  const style = document.createElement('style');
+  style.textContent = '.last-updated{font-size:12px;color:var(--muted);margin:6px 0 2px;line-height:1.5;}';
+  document.head.appendChild(style);
+}

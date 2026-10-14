@@ -50,6 +50,7 @@ function viewEvents(){
                   <div class="t">${catIcon[ev.category]||'📌'} ${ev.title} <span class="badge cat" style="margin-right:6px;">${ev.category}</span></div>
                   <div class="m" dir="ltr" style="font-size:12px;color:var(--muted);">${rangeText}</div>
                   <div class="m">${ev.desc}</div>
+                  ${lastUpdatedHtml(ev)}
                 </div>
               </div>`;
             }).join('')}

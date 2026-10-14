@@ -189,11 +189,11 @@ function loadPromoBoardData(){
 function pbLoadOriginalFiles(){
   db.collection('siteTexts').doc('purchasingPromoNotice').get().then(function(doc){
     const d = doc.exists ? (doc.data() || {}) : {};
-    pbOriginalFiles = {supplierUrl: d.supplierFileUrl || null, displayUrl: d.displayFileUrl || null};
+    pbOriginalFiles = {supplierUrl: d.supplierFileUrl || null, displayUrl: d.displayFileUrl || null, updatedAt: d.updatedAt || null};
     if(promoBoardLoaded) renderPromoBoard();
   }).catch(function(err){
     console.warn('purchasingPromoNotice load failed:', err);
-    pbOriginalFiles = {supplierUrl:null, displayUrl:null};
+    pbOriginalFiles = {supplierUrl:null, displayUrl:null, updatedAt:null};
   });
 }
 function pbOpenOriginal(kind){
@@ -386,6 +386,7 @@ function renderPromoBoard(){
   const rows = filteredRows.filter(r => pbShowDone ? doneInTab(r) : !doneInTab(r));
 
   let html = `
+    ${lastUpdatedHtml({updatedAt: (pbOriginalFiles||{}).updatedAt || null})}
     <div class="pb-toolbar">
       <div class="pb-search-row">
         <input type="text" id="pbSearchBox" list="pbSearchSuggestions" placeholder="חיפוש לפי שם מוצר, ברקוד, מספר מבצע או ספק..." value="${promoBoardSearch}">
