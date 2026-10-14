@@ -513,6 +513,7 @@ function extractRawSalesTable(rows, sheet, headers){
   colTypes[h0.targetCol] = 'int';
   colTypes[h0.salesCol] = 'money';
   colTypes[h0.pctCol] = 'pct';
+  if(h0.remainingCol >= 0) colTypes[h0.remainingCol] = 'money';
   const colStart = 0;
   const colEnd = Math.max(...headers.map(h=>h.managerCol));
   const rowStart = h0.rowIndex;
@@ -546,12 +547,27 @@ function parseCompetitionSheet(rows, sheet){
   const groupLabelRe = /^קבוצה\s*(\d+)/;
   const rankRe = /^מקום\s+(\S+)\s*[:：]?\s*(.*)$/;
   const headers = [];
+  const cellText = v => (v||'').toString().replace(/[\s\u00A0\u200F\u200E]+/g,' ').trim();
   rows.forEach((row,ri)=>{
     if(!row) return;
     for(let ci=0; ci<row.length; ci++){
-      if((row[ci]||'').toString().trim() === HEADER_NAME){
-        headers.push({rowIndex:ri, nameCol:ci, targetCol:ci+1, salesCol:ci+2, pctCol:ci+3, managerCol:ci+4});
-      }
+      if(cellText(row[ci]) !== HEADER_NAME) continue;
+      /* העמודות מזוהות לפי שם הכותרת שלהן (ולא לפי מיקום קבוע), כך שעמודה
+         נוספת כמו "נותר ליעד" / "נותר להגיע" בין "מכירות" ל"אחוז מהיעד" לא
+         מזיזה את השאר. אם כותרת לא נמצאה — נופלים למיקום הקבוע הישן.
+         (אותה לוגיקה בדיוק כמו בסקריפט הסנכרון האוטומטי מ-Drive.) */
+      const find = (re, fallback) => {
+        for(let cj=ci+1; cj<row.length && cj<=ci+10; cj++) if(re.test(cellText(row[cj]))) return cj;
+        return fallback;
+      };
+      headers.push({
+        rowIndex:ri, nameCol:ci,
+        targetCol: find(/^יעד$/, ci+1),
+        salesCol: find(/^(מכירות|סכום נמכר|נמכר)$/, ci+2),
+        pctCol: find(/^אחוז/, ci+3),
+        managerCol: find(/^מנהל/, ci+4),
+        remainingCol: find(/^נותר/, -1)
+      });
     }
   });
   console.log('[parseCompetitionSheet] headers found:', headers.length, headers);
