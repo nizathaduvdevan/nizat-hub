@@ -1,2204 +1,1650 @@
 /* ============================================================
-   planograms.js
+   מנוע ניתוח מכר מבצעים (רכש) — סיווג לשלוש קבוצות
    ------------------------------------------------------------
-   "פלנוגרמות" · רכש.
-   מתרגם את מצגת הפלנוגרמות של מחלקת הרכש לחוויה תפעולית פשוטה
-   לעובדי הסניפים: בוחרים מחלקה ורואים מה בגובה העיניים, מה אחריו,
-   הנחיות חשובות, מוצרים חדשים / שינוי מיקום ומוצרים שמוצגים ביותר
-   ממקום אחד. כולל חיפוש לפי מוצר / מותג / מחלקה / תת-מחלקה.
-
-   מבנה נתונים (Firestore) — DATA נפרד מ-UI:
-     planograms/{deptId}      מסמך לכל מחלקה (d7, d18...) עם
-                              subcategories[] → entries[] → items[]
-     config/planogramLegend   המקרא הגלובלי (defaultShelfRules),
-                              ודגל published (מתג "פרסם לסניפים").
-     planogramItems/{deptId}  מיקום על המדף לכל פריט פעיל (קוד פריט ->
-                              מחלקה / תת-מחלקה / משבצת עדיפות), מסמך לכל
-                              מחלקה + "none" (מחלקות בלי פלנוגרמה) +
-                              "_meta" (גרסה ומונים). נבנה מחוץ לאפליקציה
-                              ע"י build_planogram_locations.py ונטען דרך
-                              "ייבוא מיקומי מוצרים". משמש את החיפוש
-                              "איפה המוצר הזה הולך?" (שם פריט או קוד פריט).
-
-   הרשאות: קריאה — כל משתמש מחובר. כתיבה — isDeptAdmin('purchasing')
-   (ראו firestore.rules). עד שהרכש מפעיל "פרסם לסניפים", המסך גלוי
-   בממשק רק לצוות הרכש ול-super-admin (גם במצב "צפייה כמשתמש").
-
-   ייבוא: מסך הפלנוגרמות מציג לצוות הרכש כפתור "ייבוא JSON" שקורא
-   את planograms-seed.json ומחליף את כל הפלנוגרמות. מחלקה שהתוכן
-   שלה לא השתנה שומרת על תאריך "עודכן לאחרונה" הקודם שלה.
-
-   נטען אחרי navigation.js (משתמש ב-goTo, ui, renderNav) ואחרי
-   firebase-init.js (db, fbAuth, currentUserEmail).
-============================================================ */
-
-const PLANO_CACHE_KEY = 'nizatHubPlanogramsV1';
-const PLANO_PUBLISHED_KEY = 'nizatHubPlanoPublished';
-const PLANO_SUPER_ADMIN_EMAILS = ['eliran@nizat.co.il', 'yulia@nizat.co.il', 'ai@nizat.co.il'];
-const PLANO_DEFAULT_RULES = [
-  {priority:1, text:"מדף גובה העיניים (1.65 מ')"},
-  {priority:2, text:'מדף מתחת / מעל לגובה העיניים'},
-  {priority:3, text:'ממשיכים לפי סדר העדיפות', appliesToAllBelow:true}
-];
-const PLANO_NEW_LABEL_DEFAULT = 'חדש / שינוי מיקום';
-/* מקרא ברירת מחדל — מבוסס על שקופית "הסברים" של הרכש, מותאם למסך.
-   הרכש יכול לערוך את השורות ואת שורת התזכורת מתוך האפליקציה (נשמר
-   ב-config/planogramLegend: legendRows, legendReminder, legendVersion). */
-const PLANO_LEGEND_ROWS_DEFAULT = [
-  {style:'plain', key:'מחלקה', text:'כל שורה ברשימת המחלקות היא מחלקה בחנות, עם השם והמספר שלה.'},
-  {style:'plain', key:'תת-מחלקה', text:'הלשוניות בראש המחלקה הן תתי-המחלקות. עוברים ביניהן בלחיצה.'},
-  {style:'p1', key:'1', text:'המספר הוא סדר העדיפות על המדף. 1 = המקום הכי טוב, בגובה העיניים. אחריו 2, 3 וכן הלאה.'},
-  {style:'plain', key:'סדר', text:'הפירוט הוא לפי עדיפויות בלבד: מלמעלה למטה ומימין לשמאל.'},
-  {style:'shelf', key:'גונדולה', text:'בראש כל מחלקה מופיעה הגונדולה. המדף הירוק הוא גובה העיניים (עדיפות 1), מתחתיו עדיפות 2, ואחריהם השאר. לחיצה על לוגו פותחת את הפרטים.'},
-  {style:'new', key:'', text:'מוצר חדש, או מוצר שהמיקום שלו השתנה לאחרונה. שימו לב במיוחד.'},
-  {style:'alert', key:'חשוב', text:'הערה שחייבים לקרוא. היא גוברת על סדר העדיפויות.'},
-  {style:'plain', key:'גם ב', text:'מוצרי ניצת ויבוא מוצגים לפעמים גם במחלקות מתאימות נוספות, בנוסף למחלקה הראשית. זה מכוון.'},
-  {style:'plain', key:'סדר שונה', text:'בחלק מהמחלקות סדר המדפים שונה מהרגיל. זה מופיע בראש המחלקה וגובר על מה שכתוב כאן.'}
-];
-const PLANO_LEGEND_REMINDER_DEFAULT = 'המספר = סדר עדיפות על המדף, 1 הכי חשוב (גובה העיניים). מלמעלה למטה, מימין לשמאל.';
-const PLANO_LEGEND_SEEN_KEY = 'nizatHubPlanoLegendSeen';
-const PLANO_LEGEND_STYLES = {plain:'רגיל', p1:'מספר עדיפות', new:'חדש / שינוי מיקום', alert:'חשוב', shelf:'איור מדף'};
-const PLANO_MAX_RESULTS = 60;
-const PLANO_ITEMS_CACHE_KEY = 'nizatHubPlanoItemsV1';
-const PLANO_ITEMS_KIND = 'nizat-planogram-item-locations';
-const PLANO_MAX_PRODUCT_RESULTS = 15;
-
-/* ---------- מצב ---------- */
-let planoData = {
-  loaded: false,
-  loading: false,
-  departments: [],
-  byId: {},
-  legend: null,
-  index: [],
-  incoming: {},
-  fromCache: false,
-  cacheSavedAt: null,
-  error: null,
-  visuals: {},          /* שם בפלנוגרמה -> {logo} (מסמך planograms/_visuals) */
-  visualsMeta: null
-};
-/* מיקומי מוצרים (planogramItems) — נטענים בנפרד ובעצלתיים, כי זה כ-1MB. */
-let planoItems = {
-  loaded: false,
-  loading: false,
-  meta: null,           /* {generatedAt, planogramUpdated, importedAt, total, counts} */
-  list: [],             /* [{code, name, hay, rec}] */
-  byCode: {},
-  error: null
-};
-let planoPublished = (function(){
-  try { return localStorage.getItem(PLANO_PUBLISHED_KEY) === '1'; } catch(e){ return false; }
-})();
-let planoState = {
-  query: '',
-  subByDept: {},
-  highlight: null,
-  cameFromList: false,
-  focusSearch: false,
-  caret: null,
-  fullBySub: {},        /* "deptId/subId" -> true כשהפירוט המילולי המלא פתוח */
-  target: null,         /* מוצר שנבחר בחיפוש: {deptId, subId, entryId, brand, name, code} */
-  scrollToTarget: false
-};
-
+   בונה, לכל קוד מבצע, את "המימוש שלי" (סניף או סכום סניפי אזור) מול
+   חציון קבוצת השוואה (כל שאר הסניפים, או רק ביו מרקט אם מוגבל), ומסווג
+   ל"בדיקת חריגה" (אפס מקומי מול פעילות רשתית), "בירור פער" (מתחת
+   לחציון) או "לשמר חוזקה" (מעל החציון). בנוי מעל promoProducts (מכר בפועל)
+   + promoBooklet (מטא-דאטה מהחוברת: תבנית/מחיר/הערות/הגבלות/איחודים),
+   (כיום: החוברת מהארכיון החודשי promoBookletArchive שתואמת לקובץ המכר —
+   ראו activePromoBooklet), כך שאם אין חוברת בכלל המסך פשוט לא מציג ניתוח,
+   בלי לשבור את שאר האתר. */
+function median(arr){
+  if(!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length%2 ? s[mid] : (s[mid-1]+s[mid])/2;
+}
+function promoMultiplier(template){
+  if(!template) return 1;
+  if(template.indexOf("2 יח") !== -1) return 2;
+  if(template.indexOf('3 יחידות') !== -1) return 3;
+  if(template.indexOf('5 יחידות') !== -1) return 5;
+  if(template.indexOf('מוצר שני') !== -1) return 2;
+  return 1;
+}
+/* בנייה חד-פעמית (פר-רינדור) של: (1) מוצרים ממוזגים לפי קוד מאוחד
+   (mergedInto מסוכם לתוך קוד ההורה), (2) מפת branchName -> sales לכל קוד. */
 /* ============================================================
-   הרשאות ונראות
-============================================================ */
-/* צוות פנימי — רואה את המסך גם לפני פרסום לסניפים. לפי המייל האמיתי
-   (Firebase Auth), כך שזה נשמר גם במצב "צפייה כמשתמש". */
-function planoIsInternalViewer(){
-  const email = typeof currentUserEmail !== 'undefined' ? currentUserEmail : null;
-  if(!email) return false;
-  if(PLANO_SUPER_ADMIN_EMAILS.indexOf(email) !== -1) return true;
-  return typeof staffDepartments === 'function' && staffDepartments(email).indexOf('purchasing') !== -1;
-}
-/* האם להציג את הכרטיס "פלנוגרמות" בניווט עבור המשתמש הנוכחי. */
-function planoIsVisibleToCurrentUser(){
-  return planoPublished || planoIsInternalViewer();
-}
-/* כלי ניהול (ייבוא / פרסום) — רק בזהות האמיתית של צוות רכש, לא בזמן
-   "צפייה כמשתמש" (שם session.role הוא של סניף ו-canManageDepartment=false). */
-function planoCanManage(){
-  return typeof canManageDepartment === 'function' && canManageDepartment('purchasing');
-}
-
-/* טעינת דגל הפרסום מיד אחרי התחברות — מסמך אחד קטן, כדי שהניווט ידע
-   אם להציג את הכרטיס לסניף. */
-function planoFetchPublishState(){
-  if(typeof firebaseReady === 'undefined' || !firebaseReady || !db) return;
-  db.collection('config').doc('planogramLegend').get().then(function(doc){
-    const data = doc.exists ? doc.data() : {};
-    planoApplyPublished(!!data.published);
-  }).catch(function(err){
-    console.warn('planograms: טעינת מצב פרסום נכשלה (לא קריטי):', err);
-  });
-}
-function planoApplyPublished(val){
-  const changed = planoPublished !== val;
-  planoPublished = val;
-  try { localStorage.setItem(PLANO_PUBLISHED_KEY, val ? '1' : '0'); } catch(e){}
-  if(changed && typeof session !== 'undefined' && session.role){
-    if(typeof renderNav === 'function') renderNav();
-    if(typeof ui !== 'undefined' && (ui.view === 'planograms' || (ui.view === 'dashboard' && ui.department === 'purchasing'))){
-      if(typeof renderContent === 'function') renderContent();
-    }
-  }
-}
-if(typeof fbAuth !== 'undefined' && fbAuth){
-  fbAuth.onAuthStateChanged(function(user){
-    if(user) planoFetchPublishState();
-  });
-}
-
-/* ============================================================
-   עזרי טקסט ותאריך
-============================================================ */
-function planoEsc(s){
-  return typeof esc === 'function' ? esc(s) : String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function planoToday(){
-  if(typeof todayHeb === 'function') return todayHeb();
-  const d = new Date();
-  return String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + d.getFullYear();
-}
-/* נרמול לחיפוש בעברית: אותיות סופיות, ניקוד, גרשיים, "ללא גלוטן" = "לל"ג". */
-function planoNorm(s){
-  return String(s == null ? '' : s)
-    .toLowerCase()
-    .replace(/[\u0591-\u05C7]/g, '')
-    .replace(/["'`׳״’‘“”]/g, '')
-    .replace(/ך/g,'כ').replace(/ם/g,'מ').replace(/ן/g,'נ').replace(/ף/g,'פ').replace(/ץ/g,'צ')
-    .replace(/ללא\s*גלוטנ/g, 'ללג')
-    .replace(/[\/,\-+.():;!&|·—–]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-/* JSON עם מפתחות ממוינים — Firestore לא שומר על סדר מפתחות במפות,
-   אז השוואת "השתנה / לא השתנה" בייבוא חייבת להיות לא תלויה בסדר. */
-function planoCanonical(v){
-  if(Array.isArray(v)) return '[' + v.map(planoCanonical).join(',') + ']';
-  if(v && typeof v === 'object'){
-    return '{' + Object.keys(v).sort().map(function(k){ return JSON.stringify(k) + ':' + planoCanonical(v[k]); }).join(',') + '}';
-  }
-  return JSON.stringify(v === undefined ? null : v);
-}
-
-/* ============================================================
-   סגנונות — מוזרקים פעם אחת (כמו new-on-shelf.js), על בסיס
-   משתני main.css כדי שמצב כהה יעבוד אוטומטית.
-============================================================ */
-function planoInjectStyleOnce(){
-  if(document.getElementById('plano-style')) return;
-  const style = document.createElement('style');
-  style.id = 'plano-style';
-  style.textContent = `
-    .plano-wrap{max-width:760px;}
-    .plano-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;}
-    .plano-head h1{margin:0 0 4px;font-size:24px;font-weight:500;}
-    .plano-head p{margin:0;font-size:15px;color:var(--text-secondary);}
-    .plano-help-btn{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--gridline);background:var(--surface-1);color:var(--text-secondary);border-radius:99px;padding:8px 13px;font-size:13.5px;font-weight:500;min-height:38px;}
-    .plano-help-btn:hover{border-color:var(--blue);color:var(--blue);}
-
-    .plano-search{position:relative;margin-bottom:18px;}
-    .plano-search input{width:100%;padding:14px 46px 14px 14px;border-radius:12px;border:1.5px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);font-size:16.5px;}
-    .plano-search input:focus{outline:2px solid rgba(69,122,31,0.35);border-color:var(--blue);}
-    .plano-search .plano-search-ic{position:absolute;right:15px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:19px;pointer-events:none;display:flex;}
-    .plano-search-clear{position:absolute;left:8px;top:50%;transform:translateY(-50%);border:none;background:none;color:var(--muted);font-size:20px;width:36px;height:36px;border-radius:50%;}
-    .plano-search.compact input{padding-top:11px;padding-bottom:11px;font-size:15.5px;}
-
-    .plano-banner{border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14px;line-height:1.55;}
-    .plano-banner.staff{background:rgba(250,178,25,0.14);color:var(--text-primary);border:1px solid rgba(250,178,25,0.45);}
-    .plano-banner.offline{background:var(--page);color:var(--text-secondary);border:1px solid var(--gridline);}
-
-    .plano-admin{border:1px dashed var(--gridline);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface-1);}
-    .plano-admin-status{flex:1 1 220px;font-size:13.5px;color:var(--text-secondary);line-height:1.5;}
-    .plano-admin-status b{color:var(--text-primary);font-weight:500;}
-    .plano-admin button{border:1px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);border-radius:9px;padding:9px 14px;font-size:14px;font-weight:500;min-height:40px;}
-    .plano-admin button.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
-    .plano-admin button.primary:hover{background:var(--blue-dark);}
-
-    .plano-dept-list{list-style:none;margin:0;padding:0;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
-    .plano-dept-list li + li{border-top:1px solid var(--gridline);}
-    .plano-dept-row{width:100%;display:flex;align-items:center;gap:12px;padding:15px 16px;border:none;background:none;text-align:right;color:var(--text-primary);min-height:58px;}
-    .plano-dept-row:hover{background:var(--page);}
-    .plano-dept-name{flex:1;font-size:16.5px;font-weight:500;}
-    .plano-dept-num{font-size:13px;color:var(--muted);white-space:nowrap;}
-    .plano-chev{color:var(--muted);font-size:18px;line-height:1;}
-
-    .plano-back{display:inline-flex;align-items:center;gap:6px;border:none;background:none;color:var(--blue);font-size:15px;font-weight:500;padding:8px 0;margin-bottom:6px;min-height:40px;}
-    .plano-dept-title{margin:0 0 2px;font-size:25px;font-weight:500;line-height:1.25;}
-    .plano-dept-meta{font-size:14px;color:var(--text-secondary);margin-bottom:16px;display:flex;flex-wrap:wrap;gap:4px 14px;}
-
-    .plano-alert{border-radius:12px;padding:13px 15px;margin-bottom:12px;}
-    .plano-alert.critical{background:rgba(208,59,59,0.08);border:1.5px solid rgba(208,59,59,0.45);}
-    .plano-alert.critical .plano-alert-title{color:var(--critical);}
-    .plano-alert.info{background:var(--page);border:1px solid var(--gridline);}
-    .plano-alert-title{display:flex;align-items:center;gap:7px;font-size:15px;font-weight:500;margin-bottom:6px;}
-    .plano-alert ul{margin:0;padding:0 18px 0 0;}
-    .plano-alert li{font-size:14.5px;line-height:1.6;margin-bottom:3px;}
-    .plano-alert li:last-child{margin-bottom:0;}
-    .plano-alert.info li{color:var(--text-secondary);}
-
-    .plano-rules{font-size:13.5px;color:var(--text-secondary);border:1px solid var(--gridline);border-radius:12px;padding:11px 14px;margin-bottom:14px;background:var(--surface-1);}
-    .plano-rules b{color:var(--text-primary);font-weight:500;}
-    .plano-rules div{margin-top:3px;}
-
-    .plano-chips{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 16px;}
-    .plano-chip{border:1px solid var(--gridline);background:var(--surface-1);border-radius:99px;padding:9px 15px;font-size:14.5px;font-weight:500;color:var(--text-secondary);min-height:40px;}
-    .plano-chip.active{background:var(--text-primary);color:var(--surface-1);border-color:var(--text-primary);}
-    .plano-sub-title{font-size:19px;font-weight:500;margin:0 0 4px;}
-    .plano-sub-parent{font-size:13px;color:var(--muted);margin-bottom:10px;}
-
-    .plano-p{border-radius:var(--radius);margin-bottom:12px;padding:15px 16px;background:var(--surface-1);}
-    .plano-p1{border:2px solid var(--blue);background:rgba(69,122,31,0.06);}
-    .plano-p2{border:1px solid var(--border);box-shadow:var(--shadow);}
-    .plano-p-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:9px;}
-    .plano-p-pill{display:inline-flex;align-items:center;border-radius:99px;padding:4px 11px;font-size:13px;font-weight:500;white-space:nowrap;}
-    .plano-p1 .plano-p-pill{background:var(--blue);color:#fff;}
-    .plano-p2 .plano-p-pill{border:1.5px solid var(--blue);color:var(--blue);}
-    .plano-p-shelf{font-size:14px;color:var(--text-secondary);}
-    .plano-p1 .plano-p-shelf{color:var(--text-primary);font-weight:500;}
-    .plano-label{font-size:14px;color:var(--text-secondary);margin-bottom:3px;}
-    .plano-items{line-height:1.65;}
-    .plano-p1 .plano-items{font-size:18.5px;font-weight:500;}
-    .plano-p2 .plano-items{font-size:16.5px;font-weight:500;}
-    .plano-it-detail{font-weight:400;color:var(--text-secondary);font-size:.86em;}
-    .plano-sep{color:var(--muted);font-weight:400;}
-    .plano-new{display:inline-block;vertical-align:.1em;margin-inline-start:5px;border-radius:6px;padding:1px 7px;font-size:11.5px;font-weight:500;line-height:1.6;background:#dbe8f7;color:#1d4f8c;white-space:nowrap;}
-    html[data-theme="dark"] .plano-new{background:rgba(120,165,230,0.2);color:#a9c8f2;}
-    .plano-tag{display:inline-block;vertical-align:.1em;margin-inline-start:5px;border-radius:6px;padding:1px 7px;font-size:11.5px;font-weight:500;line-height:1.6;background:var(--page);color:var(--text-secondary);border:1px solid var(--gridline);white-space:nowrap;}
-    .plano-warn{display:flex;gap:7px;align-items:flex-start;margin-top:9px;font-size:14px;font-weight:500;color:var(--critical);line-height:1.5;}
-    .plano-note{margin-top:6px;font-size:13.5px;color:var(--text-secondary);}
-    .plano-also{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13.5px;color:var(--text-secondary);}
-    .plano-also button{border:1px solid var(--gridline);background:var(--surface-1);border-radius:99px;padding:5px 11px;font-size:13px;color:var(--blue);font-weight:500;min-height:32px;}
-    .plano-issue{margin-top:8px;font-size:12.5px;color:var(--muted);border-top:1px dashed var(--gridline);padding-top:6px;}
-
-    .plano-rest{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px;}
-    .plano-rest-row{display:flex;gap:12px;padding:12px 14px;align-items:flex-start;}
-    .plano-rest-row + .plano-rest-row{border-top:1px solid var(--gridline);}
-    .plano-num{flex:none;width:28px;height:28px;border-radius:50%;border:1.5px solid var(--gridline);display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:500;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
-    .plano-rest-body{flex:1;min-width:0;}
-    .plano-rest-row .plano-items{font-size:15.5px;}
-    .plano-rest-shelf{font-size:13px;color:var(--muted);margin-bottom:2px;}
-
-    .plano-group{font-size:14.5px;font-weight:500;color:var(--text-primary);margin:18px 2px 8px;padding-top:12px;border-top:1px solid var(--gridline);}
-    .plano-section-title{font-size:15px;font-weight:500;margin:20px 2px 8px;}
-    .plano-special .plano-num{border-color:var(--critical);color:var(--critical);}
-
-    .plano-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:14px;}
-    .plano-images figure{margin:0;}
-    .plano-images img{width:100%;border-radius:12px;display:block;background:var(--page);}
-    .plano-images figcaption{font-size:13px;color:var(--muted);margin-top:4px;}
-
-    .plano-res-count{font-size:13.5px;color:var(--muted);margin:0 2px 8px;}
-    .plano-res{width:100%;text-align:right;display:block;border:1px solid var(--border);background:var(--surface-1);border-radius:12px;padding:13px 15px;margin-bottom:9px;color:var(--text-primary);}
-    .plano-res:hover{border-color:var(--blue);}
-    .plano-res-where{font-size:13px;color:var(--text-secondary);margin-bottom:4px;}
-    .plano-res-main{font-size:16px;font-weight:500;line-height:1.5;}
-    .plano-res-main mark{background:rgba(69,122,31,0.16);color:inherit;border-radius:3px;padding:0 2px;}
-    .plano-res-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;}
-    .plano-res-pri{display:inline-flex;border-radius:99px;padding:2px 10px;font-size:12.5px;font-weight:500;border:1.5px solid var(--blue);color:var(--blue);}
-    .plano-res-pri.p1{background:var(--blue);color:#fff;}
-    .plano-res-kind{font-size:12.5px;color:var(--muted);}
-    .plano-res-static{cursor:default;}
-    .plano-empty{text-align:center;color:var(--muted);padding:34px 14px;font-size:15px;line-height:1.6;}
-
-    .plano-legend-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--gridline);}
-    .plano-legend-row:first-of-type{border-top:none;}
-    .plano-legend-key{flex:none;min-width:92px;}
-    .plano-legend-text{font-size:14.5px;line-height:1.55;color:var(--text-primary);}
-
-    .plano-target-bar{display:flex;align-items:center;gap:10px;border:2px solid #E8590C;background:rgba(232,89,12,0.08);border-radius:12px;padding:10px 12px;margin:0 0 14px;}
-    .plano-target-pin{font-size:20px;flex:none;}
-    .plano-target-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.5;color:var(--text-secondary);}
-    .plano-target-txt b{font-size:15.5px;font-weight:500;color:var(--text-primary);}
-    .plano-target-go{flex:none;border:none;background:#E8590C;color:#fff;border-radius:9px;padding:8px 12px;font-size:13.5px;font-weight:500;min-height:38px;}
-    .plano-target-x{flex:none;border:none;background:none;color:var(--text-secondary);font-size:22px;width:38px;height:38px;border-radius:50%;}
-    .pw-tile.pw-target, .gd .pw-tile.pw-target{border-color:#E8590C;outline:4px solid #E8590C;outline-offset:2px;z-index:2;animation:plano-target-pulse 1.6s ease-in-out 3;}
-    .pw-pin{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:#E8590C;color:#fff;font-size:11.5px;font-weight:500;line-height:1;padding:3px 8px 4px;border-radius:99px;white-space:nowrap;z-index:3;}
-    .plano-p.plano-target, .plano-rest-row.plano-target{outline:3px solid #E8590C;outline-offset:2px;border-radius:10px;}
-    @keyframes plano-target-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,89,12,0.55);}50%{box-shadow:0 0 0 9px rgba(232,89,12,0);}}
-    @media (prefers-reduced-motion: reduce){ .pw-tile.pw-target, .gd .pw-tile.pw-target{animation:none;} }
-    .plano-hl{animation:plano-flash 1.8s ease;}
-    @keyframes plano-flash{0%,35%{box-shadow:0 0 0 3px rgba(69,122,31,0.55);}100%{box-shadow:0 0 0 0 rgba(69,122,31,0);}}
-    @media (prefers-reduced-motion: reduce){ .plano-hl{animation:none;outline:3px solid rgba(69,122,31,0.55);} }
-
-    .plano-wrap button:focus-visible, .plano-wrap input:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
-
-    .plano-dept-ic{flex:none;width:38px;height:38px;border-radius:10px;background:var(--page);display:inline-flex;align-items:center;justify-content:center;font-size:21px;line-height:1;}
-
-    .plano-reminder{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:right;border:1px solid rgba(69,122,31,0.25);background:rgba(69,122,31,0.07);color:var(--text-primary);border-radius:12px;padding:11px 13px;margin:12px 0 14px;font-size:14px;line-height:1.55;}
-    .plano-reminder b{color:var(--blue);font-weight:500;white-space:nowrap;}
-    .plano-reminder-ic{flex:none;font-size:17px;line-height:1.3;}
-
-    .pw{margin:4px 0 12px;}
-    .pw-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);margin:0 0 6px;}
-    .pw-count{font-size:12px;background:var(--page);border-radius:99px;padding:3px 9px;white-space:nowrap;}
-    .pw-unit{border:2px solid var(--gridline);border-radius:12px;overflow:hidden;background:var(--surface-1);}
-    .pw-row{padding:9px 8px 10px;border-bottom:4px solid var(--gridline);}
-    .pw-row:last-child{border-bottom:none;}
-    .pw-row.eye{background:rgba(69,122,31,0.09);}
-    .pw-lbl{font-size:12.5px;color:var(--text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:5px;}
-    .pw-row.eye .pw-lbl{color:var(--blue);font-weight:500;}
-    .pw-tiles{display:flex;flex-wrap:wrap;gap:10px 8px;}
-    .pw-tile{position:relative;width:88px;flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 4px 6px;border:1px solid var(--gridline);border-radius:10px;background:#fff;color:#2b2b2b;cursor:pointer;text-align:center;}
-    .pw-tile:hover{border-color:var(--blue);}
-    .pw-tile.new{border-color:#3b82c4;box-shadow:inset 0 0 0 1.5px #3b82c4;}
-    .pw-img{display:flex;align-items:center;justify-content:center;width:74px;height:62px;}
-    .pw-img img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
-    .pw-fb{display:flex;align-items:center;justify-content:center;width:74px;height:62px;border-radius:8px;font-size:12px;font-weight:500;line-height:1.25;padding:3px;box-sizing:border-box;overflow:hidden;}
-    .pw-fb-generic{background:#f1efe8;color:#5f5e5a;font-weight:400;}
-    .pw-badge{position:absolute;top:44px;left:3px;width:30px;height:20px;border-radius:5px;background:#fff;border:1px solid #e3e3e3;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-    .pw-badge img{max-width:28px;max-height:18px;object-fit:contain;}
-    .pw-name{font-size:13px;font-weight:500;line-height:1.25;max-width:80px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:#222;margin-top:2px;}
-    .pw-tile.fb .pw-name{display:none;}
-    .pw-tile.fb .pw-fb{height:70px;}
-    .pw-new{font-size:10px;color:#2b6cb0;font-weight:500;line-height:1.2;}
-    .pw-p{position:absolute;top:-8px;right:-8px;min-width:22px;height:22px;border-radius:99px;background:#444;color:#fff;font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:center;padding:0 4px;box-sizing:border-box;z-index:1;}
-    .pw-row.eye .pw-p{background:var(--blue);}
-    .pw-warn{position:absolute;top:-9px;left:-6px;font-size:15px;z-index:1;}
-    .pw-foot{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:5px;}
-    .pw-alerts{display:flex;flex-direction:column;gap:6px;margin:0 0 12px;}
-    .pw-alert{display:flex;gap:8px;align-items:flex-start;text-align:right;width:100%;border:1px solid rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);color:var(--text-primary);border-radius:10px;padding:9px 11px;font-size:14px;line-height:1.5;}
-    .gd-actions{display:flex;gap:8px;margin:10px 0 12px;flex-wrap:wrap;}
-    .gd-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);border-radius:99px;padding:8px 14px;font-size:14.5px;font-weight:500;min-height:40px;}
-    .gd-pill.warn{border-color:rgba(214,120,30,0.5);background:rgba(214,120,30,0.1);color:#8a4a0c;}
-    .gd{position:relative;margin:6px 0 12px;}
-    .gd-count{position:absolute;top:-10px;left:0;font-size:11.5px;background:var(--page);border-radius:99px;padding:2px 8px;z-index:3;}
-    .gd-unit{background:linear-gradient(#ecebe6,#e2e0d8);border:6px solid #5f5e5a;border-top-width:0;border-radius:8px 8px 3px 3px;}
-    .gd-head{background:#5f5e5a;color:#fff;font-size:13.5px;font-weight:500;text-align:center;padding:6px 8px 8px;margin:0 -6px;border-radius:6px 6px 0 0;}
-    .gd-shelf{position:relative;padding:14px 8px 8px;box-sizing:border-box;}
-    .gd-shelf.empty{min-height:26px;padding:0;}
-    .gd-shelf.eye{background:rgba(151,196,89,0.35);box-shadow:inset 0 0 0 3px #639922;padding-top:30px;}
-    .gd-eye-flag{position:absolute;top:0;right:0;background:#3B6D11;color:#fff;font-size:12.5px;font-weight:500;padding:3px 10px 4px;border-radius:0 0 0 10px;}
-    .gd-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:12px 8px;align-items:end;}
-    .gd-rail{min-height:20px;background:#f7f5ef;border-top:3px solid #888780;border-bottom:1px solid #b4b2a9;box-shadow:0 2px 3px rgba(0,0,0,0.18);display:flex;align-items:center;gap:8px;padding:1px 8px;font-size:11.5px;color:#444;white-space:nowrap;position:relative;z-index:1;overflow:hidden;}
-    .gd-rail.eye{background:#EAF3DE;border-top-color:#3B6D11;color:#27500A;}
-    .gd-n{font-weight:500;}
-    .gd-tag{overflow:hidden;text-overflow:ellipsis;}
-    .gd-pr{margin-right:auto;color:#666;}
-    .gd-base{height:14px;background:#5f5e5a;margin:0 -6px -6px;}
-    .gd .pw-tile{width:auto;min-width:0;border-radius:6px 6px 2px 2px;box-shadow:0 1px 2px rgba(0,0,0,0.2);border-color:#dcdad2;padding:5px 3px 5px;}
-    .gd .pw-img, .gd .pw-fb{width:100%;height:52px;}
-    .gd .pw-tile.fb .pw-fb{height:52px;}
-    .gd .pw-name{max-width:100%;font-size:12px;}
-    .gd-dir{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--text-secondary);margin-top:5px;}
-    .pw-dt, .pw-dt *{font-size:15.5px;line-height:1.55;}
-    .pw-dt-top{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 0 12px;clear:both;}
-    .pw-dt-top img{max-width:160px;max-height:80px;object-fit:contain;}
-    .pw-dt-name{font-weight:500;text-align:center;}
-    .pw-dt-warn{display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);border-radius:10px;padding:9px 11px;margin-bottom:10px;}
-    .pw-dt-rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;margin:0;}
-    .pw-dt-rows dt{color:var(--text-secondary);white-space:nowrap;margin:0;}
-    .pw-dt-rows dd{margin:0;}
-    .pw-dt-also{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;color:var(--text-secondary);}
-    .pw-also-btn{border:1px solid var(--gridline);background:var(--surface-1);border-radius:99px;padding:4px 12px;color:var(--blue);}
-    .gd-x{position:sticky;top:0;float:left;margin:-8px -10px 0 0;width:40px;height:40px;border:none;background:var(--page);border-radius:99px;font-size:24px;line-height:1;color:var(--text-secondary);z-index:2;}
-    .gd-alerts{display:flex;flex-direction:column;gap:8px;clear:both;}
-    .gd-alert{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gridline);border-radius:10px;padding:10px 12px;font-size:15px;line-height:1.55;}
-    .gd-alert.crit{border-color:rgba(214,120,30,0.35);background:rgba(214,120,30,0.08);}
-    .gd-alert[role="button"]{cursor:pointer;}
-    .pw-toggle{display:block;width:100%;border:1px dashed var(--gridline);background:none;border-radius:10px;padding:11px;font-size:14.5px;font-weight:500;color:var(--blue);margin:2px 0 14px;}
-    .pw-toggle-sub{display:block;font-size:12px;font-weight:400;color:var(--text-secondary);margin-top:2px;}
-    .pw-modal-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;}
-    .pw-modal-shelf{font-size:13.5px;color:var(--text-secondary);}
-    .pw-modal-pics{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
-    .pw-modal-pics img{width:110px;height:70px;padding:6px;box-sizing:border-box;object-fit:contain;background:#fff;border:1px solid var(--gridline);border-radius:10px;}
-    html[data-theme="dark"] .pw-tile{background:#f7f7f5;}
-
-    .plano-legend-chip{display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 9px;border-radius:99px;background:var(--page);font-size:13px;font-weight:500;color:var(--text-primary);}
-    .plano-legend-chip.p1{background:var(--blue);color:#fff;}
-    .plano-legend-chip.alert{background:rgba(214,120,30,0.14);color:#a4560f;}
-    .plano-legend-chip.shelf{background:rgba(69,122,31,0.1);color:var(--blue);}
-    .plano-leg-edit-row{border:1px solid var(--gridline);border-radius:10px;padding:10px;margin-bottom:10px;}
-    .plano-leg-edit-row .plano-leg-top{display:flex;gap:8px;margin-bottom:8px;}
-    .plano-leg-edit-row select, .plano-leg-edit-row input, .plano-leg-edit-row textarea, .plano-leg-reminder-in{border:1px solid var(--gridline);border-radius:8px;padding:8px 10px;font-size:14.5px;background:var(--surface-1);color:var(--text-primary);font-family:inherit;}
-    .plano-leg-edit-row textarea, .plano-leg-reminder-in{width:100%;min-height:56px;resize:vertical;box-sizing:border-box;}
-    .plano-leg-edit-row input{flex:1;min-width:0;}
-    .plano-leg-del{flex:none;border:1px solid var(--gridline);background:none;border-radius:8px;padding:0 10px;color:#a33;}
-    .plano-leg-scroll{margin:8px 0;}
-    .plano-leg-edit-row select{flex:0 0 40%;min-width:0;}
-
-    @media (max-width:640px){
-      .plano-head h1{font-size:22px;}
-      .plano-dept-title{font-size:22px;}
-      .plano-p{padding:14px;}
-      .plano-p1 .plano-items{font-size:17.5px;}
-      .plano-help-btn .plano-help-txt{display:none;}
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-/* ============================================================
-   טעינת נתונים + cache מקומי (לעבודה בקליטה חלשה)
-============================================================ */
-function planoReadCache(){
-  try {
-    const raw = localStorage.getItem(PLANO_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch(e){ return null; }
-}
-function planoWriteCache(departments, legend){
-  try {
-    localStorage.setItem(PLANO_CACHE_KEY, JSON.stringify({departments: departments, legend: legend, visuals: planoData.visuals || {}, visualsMeta: planoData.visualsMeta || null, savedAt: Date.now()}));
-  } catch(e){ console.warn('planograms: שמירת cache נכשלה (לא קריטי):', e); }
-}
-/* "ניצת" -> "ניצת הדובדבן" בכל טקסט שמוצג (שמות, תוויות, הערות, הנחיות).
-   רק מילה שלמה, ולא כשכבר כתוב "ניצת הדובדבן". מזהים (id) לא משתנים.
-   הלוגו נמצא גם לפי השם המקורי - ראו planoVisualFor. */
-const PLANO_NIZAT_RE = /(^|[\s(\/,.\-–"'׳״])ניצת(?!\s*הדובדבן)(?=$|[\s)\/,.\-–:;"'׳״])/g;
-function planoFullBrandText(t){
-  return typeof t === 'string' ? t.replace(PLANO_NIZAT_RE, '$1ניצת הדובדבן') : t;
-}
-function planoFullBrandDeep(o, key){
-  if(typeof o === 'string') return /(^id$|Id$)/.test(key || '') ? o : planoFullBrandText(o);
-  if(Array.isArray(o)) return o.map(function(x){ return planoFullBrandDeep(x, key); });
-  if(o && typeof o === 'object'){
-    const r = {};
-    Object.keys(o).forEach(function(k){ r[k] = planoFullBrandDeep(o[k], k); });
-    return r;
-  }
-  return o;
-}
-function planoSetData(departments, legend){
-  departments = (departments || []).map(function(d){ return planoFullBrandDeep(d, ''); });
-  departments = departments.slice().sort(function(a,b){ return (a.order||999) - (b.order||999) || (a.number||0) - (b.number||0); });
-  planoData.departments = departments;
-  planoData.byId = {};
-  departments.forEach(function(d){ planoData.byId[d.id] = d; });
-  planoData.legend = legend || null;
-  planoBuildIncoming();
-  planoBuildIndex();
-}
-function planoEnsureLoaded(){
-  if(planoData.loaded || planoData.loading) return;
-  if(!planoData.departments.length){
-    const cached = planoReadCache();
-    if(cached && cached.departments){
-      planoData.visuals = cached.visuals || {};
-      planoData.visualsMeta = cached.visualsMeta || null;
-      planoSetData(cached.departments, cached.legend);
-      planoData.fromCache = true;
-      planoData.cacheSavedAt = cached.savedAt || null;
-    }
-  }
-  if(typeof firebaseReady === 'undefined' || !firebaseReady || !db){
-    planoData.loaded = true;
-    return;
-  }
-  planoData.loading = true;
-  Promise.all([
-    db.collection('planograms').get(),
-    db.collection('config').doc('planogramLegend').get()
-  ]).then(function(res){
-    const departments = [];
-    let visualsDoc = null;
-    res[0].forEach(function(doc){
-      /* מסמכים שמתחילים ב-"_" אינם מחלקות (למשל _visuals - תמונות האריחים). */
-      if(doc.id.charAt(0) === '_'){ if(doc.id === '_visuals') visualsDoc = doc.data(); return; }
-      departments.push(Object.assign({}, doc.data(), {id: doc.id}));
-    });
-    planoData.visuals = (visualsDoc && visualsDoc.items) || {};
-    planoData.visualsMeta = visualsDoc ? {importedAt: visualsDoc.importedAt || null, count: Object.keys(visualsDoc.items || {}).length} : null;
-    const legend = res[1].exists ? res[1].data() : null;
-    planoSetData(departments, legend);
-    planoWriteCache(departments, legend);
-    planoData.fromCache = false;
-    planoData.error = null;
-    planoData.loaded = true;
-    planoData.loading = false;
-    if(legend) planoApplyPublished(!!legend.published);
-    planoRerender();
-  }).catch(function(err){
-    console.error('planograms: טעינה נכשלה', err);
-    planoData.error = err;
-    planoData.loaded = true;
-    planoData.loading = false;
-    planoRerender();
-  });
-}
-function planoReload(){
-  planoData.loaded = false;
-  planoData.loading = false;
-  planoEnsureLoaded();
-}
-function planoRerender(){
-  if(typeof ui !== 'undefined' && ui.view === 'planograms' && typeof renderContent === 'function') renderContent();
-}
-
-/* "מוצג גם כאן" — מפה הפוכה של alsoAt, כדי שמחלקת היעד תציג את המוצר
-   בלי לשכפל אותו בנתונים. */
-function planoBuildIncoming(){
-  const inc = {};
-  planoData.departments.forEach(function(d){
-    (d.subcategories||[]).forEach(function(s){
-      (s.entries||[]).forEach(function(e){
-        (e.alsoAt||[]).forEach(function(a){
-          const key = a.departmentId + '/' + a.subcategoryId;
-          (inc[key] = inc[key] || []).push({fromDept:d, fromSub:s, entry:e, ref:a});
-        });
-      });
-    });
-  });
-  planoData.incoming = inc;
-}
-
-/* אינדקס חיפוש — רשומה לכל מחלקה, תת-מחלקה, משבצת עדיפות והנחיה. */
-function planoBuildIndex(){
-  const idx = [];
-  planoData.departments.forEach(function(d){
-    idx.push({kind:'dept', dept:d, hay: planoNorm(d.name + ' ' + (d.sourceName||'')), num: String(d.number)});
-    (d.alerts||[]).forEach(function(a){
-      idx.push({kind:'alert', dept:d, sub:null, alert:a, hay: planoNorm(a.text)});
-    });
-    (d.subcategories||[]).forEach(function(s){
-      if(s.name) idx.push({kind:'sub', dept:d, sub:s, hay: planoNorm(s.name + ' ' + (s.sourceName||'') + ' ' + (s.parent||''))});
-      (s.alerts||[]).forEach(function(a){
-        idx.push({kind:'alert', dept:d, sub:s, alert:a, hay: planoNorm(a.text)});
-      });
-      (s.entries||[]).forEach(function(e){
-        const itemTexts = (e.items||[]).map(function(i){ return planoNorm(i.name + ' ' + (i.detail||'')); });
-        const hasNew = (e.items||[]).some(function(i){ return i.newOrMoved; });
-        /* "חדש" / "שינוי מיקום" בחיפוש מחזיר את כל המוצרים המסומנים. */
-        const ctx = planoNorm([e.label||'', e.group||'', s.name||'', s.parent||'', d.name, hasNew ? 'חדש שינוי מיקום' : ''].join(' '));
-        idx.push({kind:'entry', dept:d, sub:s, entry:e, itemTexts:itemTexts, ctx:ctx, hay: itemTexts.join(' ') + ' ' + ctx});
-      });
-    });
-  });
-  planoData.index = idx;
-}
-
-/* ============================================================
-   מיקומי מוצרים — "איפה המוצר הזה הולך?"
+   חוברת לפי חודש (promoBookletArchive)
    ------------------------------------------------------------
-   רשומה לכל קוד פריט (JSON מקוצר, ראו build_planogram_locations.py):
-     n   שם הפריט           st  סוג ההתאמה (exact/supplier/multi/
-     d   מזהה מחלקה              catchall/subcat/dept/none)
-     s   מזהה תת-מחלקה      e   מזהה משבצת עדיפות   p  עדיפות
-     b   שם המותג בפלנוגרמה שלפיו נמצא המקום (לסימון האריח הנכון)
-     alt מקומות אפשריים נוספים. בקובץ: [[s, e, p], ...]; ב-Firestore
-         נשמר כ-[{s, e, p}, ...], כי Firestore לא תומך במערך בתוך מערך.
-     ed  שם המחלקה במערכת (רק כשאין לה פלנוגרמה)
-   טעינה: קודם מסמך _meta הקטן. אם הגרסה זהה למה ששמור במכשיר — משתמשים
-   בשמור, אחרת קוראים את כל האוסף פעם אחת ושומרים.
-============================================================ */
-function planoItemsReadCache(){
-  try {
-    const raw = localStorage.getItem(PLANO_ITEMS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch(e){ return null; }
-}
-function planoItemsWriteCache(meta, items){
-  try {
-    localStorage.setItem(PLANO_ITEMS_CACHE_KEY, JSON.stringify({meta: meta, items: items, savedAt: Date.now()}));
-  } catch(e){
-    /* מקום אחסון מלא — לא קריטי, פשוט נטען מהשרת בפעם הבאה. */
-    try { localStorage.removeItem(PLANO_ITEMS_CACHE_KEY); } catch(e2){}
-    console.warn('planograms: שמירת מיקומי מוצרים במכשיר נכשלה (לא קריטי):', e);
-  }
-}
-function planoItemsSet(meta, items){
-  const list = [];
-  const byCode = {};
-  Object.keys(items || {}).forEach(function(code){
-    const rec = items[code];
-    if(!rec || !rec.n) return;
-    /* במערכת כתוב גרש כ-` (למשל ק`ג) — מציגים גרש רגיל. */
-    const name = planoFullBrandText(String(rec.n).replace(/`/g, "'").replace(/\s+/g, ' ').trim());
-    const row = {code: code, name: name, hay: planoNorm(name), rec: rec};
-    list.push(row);
-    byCode[code] = row;
-  });
-  planoItems.meta = meta || null;
-  planoItems.list = list;
-  planoItems.byCode = byCode;
-}
-function planoItemsEnsureLoaded(){
-  if(planoItems.loaded || planoItems.loading) return;
-  if(!planoItems.list.length){
-    const cached = planoItemsReadCache();
-    if(cached && cached.items) planoItemsSet(cached.meta, cached.items);
-  }
-  if(typeof firebaseReady === 'undefined' || !firebaseReady || !db){
-    planoItems.loaded = true;
-    return;
-  }
-  planoItems.loading = true;
-  const col = db.collection('planogramItems');
-  col.doc('_meta').get().then(function(metaDoc){
-    if(!metaDoc.exists){
-      planoItemsSet(null, {});
-      try { localStorage.removeItem(PLANO_ITEMS_CACHE_KEY); } catch(e){}
-      return null;
-    }
-    const meta = metaDoc.data();
-    const cachedVer = planoItems.meta && planoItems.meta.generatedAt;
-    if(cachedVer && cachedVer === meta.generatedAt && planoItems.list.length){
-      planoItems.meta = meta;
-      return null;
-    }
-    return col.get().then(function(snap){
-      const items = {};
-      snap.forEach(function(doc){
-        if(doc.id.charAt(0) === '_') return;
-        Object.assign(items, (doc.data() || {}).items || {});
-      });
-      planoItemsSet(meta, items);
-      planoItemsWriteCache(meta, items);
-    });
-  }).then(function(){
-    planoItems.error = null;
-    planoItems.loaded = true;
-    planoItems.loading = false;
-    planoItemsRefreshResults();
-  }).catch(function(err){
-    console.warn('planograms: טעינת מיקומי מוצרים נכשלה', err);
-    planoItems.error = err;
-    planoItems.loaded = true;
-    planoItems.loading = false;
-    planoItemsRefreshResults();
-  });
-}
-function planoItemsReload(){
-  planoItems.loaded = false;
-  planoItems.loading = false;
-  planoItemsEnsureLoaded();
-}
-/* עדכון רשימת התוצאות בלבד (בלי רינדור מלא) — כדי לא לאבד פוקוס בחיפוש. */
-function planoItemsRefreshResults(){
-  if(typeof ui === 'undefined' || ui.view !== 'planograms') return;
-  const body = document.getElementById('plano-body');
-  if(body && planoState.query.trim()) body.innerHTML = planoResultsHtml();
-  else if(planoCanManage()) planoRerender();
-}
-
-/* חיפוש מוצרים: קוד פריט מדויק, או כל המילים בשם הפריט. */
-function planoSearchItems(nq, tokens, numeric){
-  if(!planoItems.list.length) return [];
-  if(numeric){
-    const hit = planoItems.byCode[numeric];
-    return hit ? [{r: {kind:'product', item: hit}, score: 98}] : [];
-  }
-  if(nq.length < 2) return [];
-  const out = [];
-  for(let i = 0; i < planoItems.list.length; i++){
-    const it = planoItems.list[i];
-    if(!tokens.every(function(t){ return it.hay.indexOf(t) !== -1; })) continue;
-    let score = 62;
-    if(it.hay === nq) score = 78;
-    else if(it.hay.indexOf(nq) === 0) score = 72;
-    else if(it.hay.indexOf(nq) !== -1) score = 66;
-    /* פריט עם מקום מדויק על המדף קודם לפריט שיש לו רק מחלקה. */
-    if(it.rec.e) score += 2;
-    out.push({r: {kind:'product', item: it}, score: score});
-  }
-  out.sort(function(a,b){ return b.score - a.score || a.r.item.name.length - b.r.item.name.length; });
-  return out.slice(0, PLANO_MAX_PRODUCT_RESULTS);
-}
-
-/* מקום נוסף -> {s, e, p}. מקבל גם את הצורה מהקובץ ([s, e, p]) וגם את
-   הצורה השמורה ב-Firestore ({s, e, p}). */
-function planoAltNorm(a){
-  if(Array.isArray(a)){
-    if(!a[0] || !a[1]) return null;
-    return {s: String(a[0]), e: String(a[1]), p: typeof a[2] === 'number' ? a[2] : null};
-  }
-  if(a && typeof a === 'object' && a.s && a.e){
-    return {s: String(a.s), e: String(a.e), p: typeof a.p === 'number' ? a.p : null};
-  }
-  return null;
-}
-/* תיאור המיקום של פריט במילים, לתוצאת חיפוש. */
-function planoFindEntry(d, subId, entryId){
-  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0] || null;
-  const e = s ? (s.entries||[]).filter(function(x){ return x.id === entryId; })[0] || null : null;
-  return {s: s, e: e};
-}
-function planoPlaceText(d, s, e){
-  if(!e || typeof e.priority !== 'number') return 'מיקום מיוחד';
-  const shelf = e.priority <= 2 ? planoShortShelf(d, e.priority) : '';
-  return 'מקום ' + e.priority + (shelf ? ' · ' + shelf : '');
-}
-function planoProductResultHtml(r, tokens){
-  const it = r.item, rec = it.rec;
-  const d = rec.d ? planoData.byId[rec.d] : null;
-  const codeLine = `<span class="plano-res-kind">קוד פריט ${planoEsc(it.code)}</span>`;
-  /* מחלקה בלי פלנוגרמה, או מחלקה שכבר לא קיימת בפלנוגרמה הנוכחית */
-  if(!d){
-    return `<div class="plano-res plano-res-static">
-      <div class="plano-res-where">מוצר${rec.ed ? ' · מחלקה במערכת: ' + planoEsc(rec.ed) : ''}</div>
-      <div class="plano-res-main">${planoMark(it.name, tokens)}</div>
-      <div class="plano-res-meta">${codeLine}</div>
-      <div class="plano-note">אין פלנוגרמה למחלקה הזו.</div>
-    </div>`;
-  }
-  const found = rec.s ? planoFindEntry(d, rec.s, rec.e) : {s:null, e:null};
-  const s = found.s, e = found.e;
-  const deptLine = `${planoEsc(d.name)} · מחלקה ${planoEsc(d.number)}` + (s && s.name ? ' › ' + planoEsc(s.name) : '');
-  let place, note = '';
-  if(e){
-    place = `<span class="plano-res-pri${e.priority === 1 ? ' p1' : ''}">${planoEsc(planoPlaceText(d, s, e))}</span>`;
-    if(rec.st === 'catchall') note = 'יחד עם שאר המותגים במשבצת הזו.';
-    const alts = (rec.alt || []).map(planoAltNorm).filter(Boolean).map(function(a){
-      const f = planoFindEntry(d, a.s, a.e);
-      if(!f.e) return null;
-      return (f.s && f.s.name ? f.s.name + ' · ' : '') + 'מקום ' + f.e.priority;
-    }).filter(Boolean);
-    if(rec.st === 'multi' && alts.length) note = 'המותג מופיע גם ב: ' + alts.slice(0, 3).join(', ') + '. בדקו לפי סוג המוצר.';
-  } else if(s){
-    place = `<span class="plano-res-pri">${planoEsc(s.name || 'תת-מחלקה')}</span>`;
-    note = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של תת-המחלקה.';
-  } else {
-    place = `<span class="plano-res-pri">מחלקה ${planoEsc(d.number)}</span>`;
-    note = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של המחלקה.';
-  }
-  const staffNote = planoCanManage() && (rec.st === 'supplier' || rec.st === 'multi')
-    ? `<div class="plano-issue">לצוות בלבד: ${rec.st === 'supplier' ? 'זוהה לפי שם הספק, לא לפי שם הפריט' : 'המותג מופיע בכמה מקומות, נבחר הסביר ביותר'}</div>` : '';
-  return `<button class="plano-res" onclick="planoOpenProduct('${planoEsc(it.code)}')">
-    <div class="plano-res-where">מוצר · ${deptLine}</div>
-    <div class="plano-res-main">${planoMark(it.name, tokens)}</div>
-    <div class="plano-res-meta">${place} ${codeLine}</div>
-    ${note ? `<div class="plano-note">${planoEsc(note)}</div>` : ''}
-    ${staffNote}
-  </button>`;
-}
-
-/* ---------- ייבוא מיקומי מוצרים (רכש) ----------
-   קובץ planogram-item-locations.json מ-build_planogram_locations.py.
-   נשמר באוסף planogramItems: מסמך לכל מחלקה (d1, d7…), "none" לפריטים
-   במחלקות בלי פלנוגרמה, ו-"_meta". הייבוא מחליף את כל האוסף. */
-let planoPendingItems = null;
-function planoItemsFileSelected(file){
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = function(ev){
-    let obj = null;
-    try { obj = JSON.parse(String(ev.target.result).replace(/^\uFEFF/, '')); } catch(e){ obj = null; }
-    if(!obj || (obj.kind && obj.kind !== PLANO_ITEMS_KIND) || !obj.items || typeof obj.items !== 'object' || Array.isArray(obj.items)){
-      toast('זה לא קובץ מיקומי מוצרים תקין (planogram-item-locations.json)'); return;
-    }
-    /* חלוקה למסמכים לפי מחלקה + בדיקה מול הפלנוגרמה הנוכחית */
-    const docs = {};
-    const counts = {};
-    let total = 0, unknownDept = 0, unknownEntry = 0, withPlace = 0;
-    Object.keys(obj.items).forEach(function(code){
-      const rec = obj.items[code];
-      if(!/^\d+$/.test(code) || !rec || typeof rec !== 'object' || !rec.n) return;
-      const clean = {n: String(rec.n).slice(0, 200), st: String(rec.st || 'dept')};
-      if(rec.d) clean.d = String(rec.d);
-      if(rec.s) clean.s = String(rec.s);
-      if(rec.e) clean.e = String(rec.e);
-      if(typeof rec.p === 'number') clean.p = rec.p;
-      if(rec.ed) clean.ed = String(rec.ed);
-      if(rec.b) clean.b = String(rec.b).slice(0, 120);
-      if(Array.isArray(rec.alt) && rec.alt.length){
-        const alt = rec.alt.slice(0, 4).map(planoAltNorm).filter(Boolean);
-        if(alt.length) clean.alt = alt;
-      }
-      let docId = 'none';
-      if(clean.d){
-        const d = planoData.byId[clean.d];
-        if(!d){ unknownDept++; }
-        else {
-          docId = clean.d;
-          if(clean.e){
-            if(planoFindEntry(d, clean.s, clean.e).e) withPlace++;
-            else unknownEntry++;
-          }
-        }
-        if(!d) docId = 'none';
-      }
-      if(!/^[A-Za-z0-9_-]+$/.test(docId)) docId = 'none';
-      (docs[docId] = docs[docId] || {})[code] = clean;
-      counts[clean.st] = (counts[clean.st] || 0) + 1;
-      total++;
-    });
-    if(!total){ toast('לא נמצאו פריטים בקובץ'); return; }
-    const tooBig = Object.keys(docs).filter(function(id){ return JSON.stringify(docs[id]).length > 900000; });
-    if(tooBig.length){ toast('מחלקה גדולה מדי לשמירה: ' + tooBig.join(', ')); return; }
-    const withDept = total - (counts.none || 0) - unknownDept;
-    const warn = (unknownDept || unknownEntry)
-      ? `<p style="font-size:13.5px;color:var(--text-secondary);line-height:1.6;margin:10px 0 0;">⚠️ ${unknownDept ? unknownDept + ' פריטים מפנים למחלקה שלא קיימת בפלנוגרמה הנוכחית' : ''}${unknownDept && unknownEntry ? ', ו-' : ''}${unknownEntry ? unknownEntry + ' למשבצת שלא קיימת' : ''}. כנראה שהקובץ נבנה מ-seed אחר. כדאי להריץ את הסקריפט מחדש מול ה-seed הנוכחי.</p>` : '';
-    document.getElementById('modal-body').innerHTML = `
-      <h3>ייבוא מיקומי מוצרים</h3>
-      <div style="font-size:14.5px;line-height:1.7;color:var(--text-primary);">
-        ${total} פריטים פעילים.<br>
-        <b>${withPlace}</b> עם מקום על המדף, ${Math.max(withDept - withPlace, 0)} עם מחלקה בלבד, ${(counts.none || 0) + unknownDept} במחלקות בלי פלנוגרמה.
-      </div>
-      ${warn}
-      <p style="font-size:13px;color:var(--text-secondary);margin:10px 0 0;">הייבוא מחליף את כל מיקומי המוצרים הקיימים. הסניפים יוכלו לחפש מוצר לפי שם או קוד פריט.</p>
-      <div class="modal-actions">
-        <button class="btn-secondary" onclick="planoPendingItems=null;closeModal()">ביטול</button>
-        <button class="btn-confirm" id="plano-items-go" onclick="planoRunItemsImport()">ייבוא</button>
-      </div>`;
-    document.getElementById('modal-overlay').classList.add('open');
-    planoPendingItems = {
-      docs: docs,
-      meta: {
-        generatedAt: obj.generatedAt || new Date().toISOString(),
-        planogramUpdated: obj.planogramUpdated || null,
-        total: total,
-        withPlace: withPlace,
-        counts: counts
-      }
-    };
-  };
-  reader.onerror = function(){ toast('קריאת הקובץ נכשלה'); };
-  reader.readAsText(file, 'utf-8');
-}
-function planoRunItemsImport(){
-  const p = planoPendingItems;
-  if(!p || !firebaseReady || !db){ closeModal(); return; }
-  const btn = document.getElementById('plano-items-go');
-  if(btn){ btn.disabled = true; btn.textContent = 'מייבא…'; }
-  const col = db.collection('planogramItems');
-  const meta = Object.assign({}, p.meta, {importedAt: planoToday(), importedBy: currentUserEmail || null, docIds: Object.keys(p.docs)});
-  col.get().then(function(snap){
-    const batch = db.batch();
+   רכש מעלה את חוברת החודש הבא לפני שהחודש הנוכחי נגמר, והפרסום מחליף את
+   promoBooklet "החי". מכר המבצעים שמנותח כאן שייך בדרך כלל לחודש הקודם —
+   לכן ה-Cloud Function שומרת גם עותק לכל חודש ב-promoBookletArchive/{YYYY-MM},
+   וכאן בוחרים אוטומטית את החוברת שהקודים שלה תואמים הכי טוב לקודים שבקובץ
+   המכר (promoProducts). אפשר לשנות ידנית מהרשימה שבראש המסך.
+   אם אין עדיין ארכיון (או שהטעינה נכשלה) — חוזרים ל-promoBooklet כמו קודם. */
+let _promoArchiveState = 'idle'; /* idle | loading | ready | error */
+function ensurePromoBookletArchive(){
+  if(_promoArchiveState!=='idle') return;
+  _promoArchiveState = 'loading';
+  db.collection('promoBookletArchive').get().then(function(snap){
+    const arch = {};
     snap.forEach(function(doc){
-      if(doc.id !== '_meta' && !p.docs[doc.id]) batch.delete(col.doc(doc.id));
+      const v = doc.data() || {};
+      if(v.codes && typeof v.codes==='object') arch[doc.id] = {key:doc.id, label:v.label||doc.id, codes:v.codes};
     });
-    Object.keys(p.docs).forEach(function(id){
-      batch.set(col.doc(id), {items: p.docs[id], generatedAt: meta.generatedAt});
-    });
-    batch.set(col.doc('_meta'), meta);
-    return batch.commit();
-  }).then(function(){
-    const all = {};
-    Object.keys(p.docs).forEach(function(id){ Object.assign(all, p.docs[id]); });
-    planoItemsSet(meta, all);
-    planoItemsWriteCache(meta, all);
-    planoItems.loaded = true;
-    planoPendingItems = null;
-    closeModal();
-    toast('מיקומי המוצרים יובאו: ' + meta.total + ' פריטים');
-    planoRerender();
+    appData.promoBookletArchive = arch;
+    _promoArchiveState = 'ready';
+    _promoAnalysisCache = null;
+    renderContent();
   }).catch(function(err){
-    console.error('planograms: ייבוא מיקומי מוצרים נכשל', err);
-    if(btn){ btn.disabled = false; btn.textContent = 'ייבוא'; }
-    toast('הייבוא נכשל: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
+    console.warn('promoBookletArchive load failed:', err);
+    appData.promoBookletArchive = {};
+    _promoArchiveState = 'error';
+    renderContent();
   });
 }
-
-/* ============================================================
-   חיפוש
-============================================================ */
-function planoSearch(q){
-  const nq = planoNorm(q);
-  if(!nq) return [];
-  const tokens = nq.split(' ').filter(Boolean);
-  const numeric = /^\d+$/.test(nq) ? nq : null;
-  const out = [];
-  planoData.index.forEach(function(r){
-    if(r.kind === 'dept'){
-      if(numeric){ if(r.num === numeric) out.push({r:r, score:100}); return; }
-      if(tokens.every(function(t){ return r.hay.indexOf(t) !== -1; })) out.push({r:r, score: r.hay === nq ? 95 : 90});
-      return;
-    }
-    if(numeric) return;
-    if(!tokens.every(function(t){ return r.hay.indexOf(t) !== -1; })) return;
-    let score = 0;
-    if(r.kind === 'sub') score = r.hay === nq ? 85 : 80;
-    else if(r.kind === 'alert') score = 20;
-    else if(r.kind === 'entry'){
-      const inItems = tokens.every(function(t){ return r.itemTexts.some(function(it){ return it.indexOf(t) !== -1; }); });
-      const exactItem = r.itemTexts.some(function(it){ return it === nq || planoNorm(it.split(' ')[0]) === nq; });
-      const inLabel = r.entry.label && planoNorm(r.entry.label).indexOf(nq) !== -1;
-      score = exactItem ? 70 : (inItems ? 60 : (inLabel ? 55 : 30));
-      if(typeof r.entry.priority === 'number') score -= Math.min(r.entry.priority, 12) * 0.5;
-    }
-    out.push({r:r, score:score});
-  });
-  planoSearchItems(nq, tokens, numeric).forEach(function(x){ out.push(x); });
-  out.sort(function(a,b){ return b.score - a.score; });
-  return out.map(function(x){ return x.r; });
+function promoSalesCodeSet(){
+  const set = {};
+  (appData.promoProducts||[]).forEach(p=>{ if(p.code!=null) set[String(p.code)] = true; });
+  return set;
 }
-function planoMark(text, tokens){
-  let html = planoEsc(text);
-  if(!tokens.length) return html;
-  /* סימון פשוט: אם הטקסט המנורמל מכיל אחת המילים — מסמנים את כל הפריט. */
-  const n = planoNorm(text);
-  return tokens.some(function(t){ return n.indexOf(t) !== -1; }) ? '<mark>' + html + '</mark>' : html;
+/* כל החוברות שאפשר לבחור: החודשים מהארכיון (מהחדש לישן) + החוברת החיה. */
+function promoBookletOptions(){
+  const salesCodes = promoSalesCodeSet();
+  const salesCount = Object.keys(salesCodes).length;
+  const overlapOf = codes => Object.keys(codes||{}).filter(c=>salesCodes[c]).length;
+  const arch = appData.promoBookletArchive || {};
+  const opts = Object.keys(arch).sort().reverse().map(k=>({
+    key:k, label:arch[k].label, codes:arch[k].codes, overlap:overlapOf(arch[k].codes), salesCount
+  }));
+  const live = appData.promoBooklet || {};
+  const liveKeys = Object.keys(live).sort().join(',');
+  /* החוברת החיה של רכש מוצגת כאפשרות נפרדת רק אם היא לא זהה לחוברת
+     שכבר קיימת בארכיון (אחרי כל פרסום היא תמיד גם בארכיון). */
+  const liveDuplicatesArchive = opts.some(o=>Object.keys(o.codes||{}).sort().join(',')===liveKeys);
+  if(Object.keys(live).length && !liveDuplicatesArchive){
+    opts.push({key:'live', label:'החוברת הנוכחית של רכש', codes:live, overlap:overlapOf(live), salesCount});
+  }
+  return opts;
 }
-
-/* ============================================================
-   מסך ראשי — נקרא מ-renderContent (navigation.js)
-============================================================ */
-function viewPlanograms(){
-  planoInjectStyleOnce();
-  /* שחזור פוקוס בשדה החיפוש אחרי רינדור מחדש שמגיע ממאזין Firestore
-     אחר באפליקציה (renderContent מחליף את כל ה-HTML של המסך). */
-  const active = document.activeElement;
-  if(active && active.id === 'plano-search'){
-    planoState.focusSearch = true;
-    try { planoState.caret = active.selectionStart; } catch(e){ planoState.caret = null; }
-  }
-  setTimeout(planoAfterRender, 0);
-
-  if(!planoIsVisibleToCurrentUser()){
-    return `
-      <div class="plano-wrap">
-        <div class="plano-head"><div><h1>פלנוגרמות</h1><p>איך מסדרים את המחלקה</p></div></div>
-        <div class="plano-empty">הפלנוגרמות עדיין לא פורסמו לסניפים.</div>
-      </div>`;
-  }
-  planoEnsureLoaded();
-  planoItemsEnsureLoaded();
-
-  const deptId = (typeof ui !== 'undefined' && ui.planoDept) ? ui.planoDept : null;
-  if(deptId && planoData.byId[deptId]) return planoViewDept(planoData.byId[deptId]);
-  if(deptId && !planoData.byId[deptId] && planoData.loaded){
-    ui.planoDept = null;
-  }
-  return planoViewList();
+/* הבחירה האוטומטית: החוברת עם הכי הרבה קודים משותפים לקובץ המכר. בשוויון
+   מנצח החודש החדש יותר (הרשימה כבר ממוינת כך). */
+function autoPromoBookletKey(opts){
+  let best = null;
+  opts.forEach(o=>{ if(!best || o.overlap>best.overlap) best = o; });
+  return best ? best.key : null;
 }
-
-function planoAfterRender(){
-  planoMaybeAutoOpenLegend();
-  planoMarkGondolaOverflow();
-  const input = document.getElementById('plano-search');
-  if(input && planoState.focusSearch){
-    input.focus();
-    const pos = planoState.caret == null ? input.value.length : planoState.caret;
-    try { input.setSelectionRange(pos, pos); } catch(e){}
-  }
-  planoState.focusSearch = false;
-  planoState.caret = null;
-
-  if(planoState.scrollToTarget){
-    planoState.scrollToTarget = false;
-    setTimeout(function(){
-      const el = document.querySelector('.pw-target') || document.querySelector('.plano-target') || document.querySelector('.plano-target-bar');
-      if(!el) return;
-      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      el.scrollIntoView({block:'center', inline:'center', behavior: reduce ? 'auto' : 'smooth'});
-    }, 180);
-  }
-  if(planoState.highlight){
-    const h = planoState.highlight;
-    planoState.highlight = null;
-    /* השהיה קצרה — goTo מתחיל גלילה לראש העמוד מיד אחרי הרינדור, וההדגשה
-       צריכה לגלול לכרטיס אחרי זה ולא להידרס על ידו. */
-    setTimeout(function(){
-      const el = document.getElementById(h);
-      if(!el) return;
-      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      el.scrollIntoView({block:'center', behavior: reduce ? 'auto' : 'smooth'});
-      el.classList.add('plano-hl');
-      setTimeout(function(){ el.classList.remove('plano-hl'); }, 2000);
-    }, 180);
-  }
+function activePromoBookletOption(){
+  const opts = promoBookletOptions();
+  const chosen = ui.promoBookletKey && opts.find(o=>o.key===ui.promoBookletKey);
+  if(chosen) return {opt:chosen, opts, auto:false};
+  const autoKey = autoPromoBookletKey(opts);
+  return {opt:opts.find(o=>o.key===autoKey)||null, opts, auto:true};
 }
-
-function planoHeader(){
+function activePromoBooklet(){
+  const a = activePromoBookletOption();
+  return a.opt ? (a.opt.codes||{}) : (appData.promoBooklet||{});
+}
+function setPromoBookletKey(key){
+  ui.promoBookletKey = key || null;
+  _promoAnalysisCache = null;
+  renderContent();
+}
+function promoBookletPickerHtml(){
+  const a = activePromoBookletOption();
+  if(!a.opt) return '';
+  const o = a.opt;
+  /* סניפים ומנהלי אזור רואים רק על איזו חוברת הניתוח מבוסס. בחירה ידנית,
+     מספרי התאמה ואזהרות — רק לצוות המטה (role 'marketing'). */
+  if(session.role!=='marketing'){
+    return `<div style="margin-top:10px;font-size:12.5px;color:var(--text-secondary);">מבוסס על חוברת: <b style="color:var(--text-primary,inherit);">${o.label}</b></div>`;
+  }
+  const matchTxt = o.salesCount ? `${o.overlap} מתוך ${o.salesCount} קודי המכר נמצאו בחוברת זו` : '';
+  const warn = (o.salesCount && o.overlap < o.salesCount*0.5)
+    ? `<div style="font-size:12px;color:var(--warning,#c9962f);margin-top:4px;">⚠ פחות ממחצית קודי המכר נמצאו בחוברת — ייתכן שחסרה חוברת של החודש המתאים. איחודים והגבלות (למשל ביו מרקט) לא יחושבו לקודים החסרים.</div>`
+    : '';
+  const select = a.opts.length>1 ? `
+    <select onchange="setPromoBookletKey(this.value)" style="font-size:13px;padding:4px 8px;border-radius:8px;">
+      <option value="" ${a.auto?'selected':''}>אוטומטי (${a.auto?o.label:'לפי התאמה לקובץ המכר'})</option>
+      ${a.opts.map(x=>`<option value="${x.key}" ${!a.auto&&x.key===o.key?'selected':''}>${x.label} (${x.overlap} קודים תואמים)</option>`).join('')}
+    </select>` : '';
   return `
-    <div class="plano-head">
-      <div><h1>פלנוגרמות</h1><p>איך מסדרים את המחלקה</p></div>
-      <button class="plano-help-btn" onclick="planoOpenLegend()" aria-label="איך קוראים פלנוגרמה?">
-        <span aria-hidden="true">ⓘ</span><span class="plano-help-txt">איך קוראים פלנוגרמה?</span>
-      </button>
-    </div>`;
-}
-function planoSearchBox(compact){
-  return `
-    <div class="plano-search${compact ? ' compact' : ''}">
-      <span class="plano-search-ic">${typeof icon === 'function' ? icon('search') : '⌕'}</span>
-      <input id="plano-search" type="text" enterkeyhint="search" autocomplete="off"
-        placeholder="איפה המוצר הזה הולך? שם או קוד פריט" value="${compact ? '' : planoEsc(planoState.query)}"
-        oninput="planoOnSearchInput(this.value, ${compact ? 'true' : 'false'})" aria-label="חיפוש מוצר לפי שם או קוד פריט, מותג או מחלקה">
-      ${planoState.query && !compact ? `<button class="plano-search-clear" onclick="planoClearSearch()" aria-label="ניקוי החיפוש">×</button>` : ''}
-    </div>`;
-}
-function planoBanners(){
-  let html = '';
-  if(!planoPublished && planoIsInternalViewer()){
-    html += `<div class="plano-banner staff">המסך גלוי כרגע רק לצוות הרכש ולהנהלת המערכת. הסניפים יראו אותו אחרי לחיצה על "פרסם לסניפים".</div>`;
-  }
-  if(planoData.error && planoData.departments.length){
-    const when = planoData.cacheSavedAt ? new Date(planoData.cacheSavedAt).toLocaleDateString('he-IL') : '';
-    html += `<div class="plano-banner offline">אין חיבור כרגע. מוצג המידע השמור במכשיר${when ? ' מ-' + planoEsc(when) : ''}.</div>`;
-  }
-  return html;
-}
-function planoAdminBar(){
-  if(!planoCanManage()) return '';
-  const legend = planoData.legend || {};
-  const status = planoPublished
-    ? `<b>פורסם לסניפים</b>${legend.publishedAt ? ' ב-' + planoEsc(legend.publishedAt) : ''}`
-    : '<b>לא פורסם לסניפים</b> · גלוי לצוות בלבד';
-  const imported = (legend.importedAt ? `<br>ייבוא אחרון: ${planoEsc(legend.importedAt)}` : '')
-    + (planoData.visualsMeta ? `<br>תמונות מותגים: ${planoEsc(planoData.visualsMeta.count)} שמות${planoData.visualsMeta.importedAt ? ' (' + planoEsc(planoData.visualsMeta.importedAt) + ')' : ''}` : '<br>תמונות מותגים: עדיין לא יובאו')
-    + (planoItems.meta ? `<br>מיקומי מוצרים: ${planoEsc(planoItems.meta.total)} פריטים, ${planoEsc(planoItems.meta.withPlace || 0)} עם מקום על המדף${planoItems.meta.importedAt ? ' (' + planoEsc(planoItems.meta.importedAt) + ')' : ''}` : '<br>מיקומי מוצרים: עדיין לא יובאו');
-  return `
-    <div class="plano-admin">
-      <div class="plano-admin-status">${status}${imported}</div>
-      <input type="file" id="plano-import-input" accept=".json,application/json" style="display:none" onchange="planoImportFileSelected(this.files[0]); this.value='';">
-      <button onclick="document.getElementById('plano-import-input').click()">ייבוא JSON</button>
-      <input type="file" id="plano-visuals-input" accept=".json,application/json" style="display:none" onchange="planoVisualsFileSelected(this.files[0]); this.value='';">
-      <button onclick="document.getElementById('plano-visuals-input').click()">ייבוא תמונות מותגים</button>
-      <input type="file" id="plano-items-input" accept=".json,application/json" style="display:none" onchange="planoItemsFileSelected(this.files[0]); this.value='';">
-      <button onclick="document.getElementById('plano-items-input').click()">ייבוא מיקומי מוצרים</button>
-      ${planoData.departments.length ? (planoPublished
-        ? `<button onclick="planoConfirmPublish(false)">הסתר מהסניפים</button>`
-        : `<button class="primary" onclick="planoConfirmPublish(true)">פרסם לסניפים</button>`) : ''}
-    </div>`;
-}
-
-function planoViewList(){
-  let body;
-  if(!planoData.departments.length){
-    if(!planoData.loaded || planoData.loading) body = `<div class="plano-empty">טוען…</div>`;
-    else if(planoData.error) body = `<div class="plano-empty">לא הצלחתי לטעון את הפלנוגרמות. בדקו את החיבור ונסו שוב.<br><button class="plano-help-btn" style="margin-top:12px" onclick="planoReload()">נסו שוב</button></div>`;
-    else body = `<div class="plano-empty">עדיין לא יובאו פלנוגרמות.${planoCanManage() ? '<br>לחצו על "ייבוא JSON" כדי לטעון את הקובץ.' : ''}</div>`;
-  } else {
-    body = `<div id="plano-body">${planoState.query ? planoResultsHtml() : planoDeptListHtml()}</div>`;
-  }
-  return `
-    <div class="plano-wrap">
-      ${planoHeader()}
-      ${lastUpdatedHtmlForList((planoData.departments||[]).map(function(d){ return {updatedAt: d.contentUpdatedAt || null, lastUpdated: d.lastUpdated || null}; }))}
-      ${planoBanners()}
-      ${planoAdminBar()}
-      ${planoData.departments.length ? planoSearchBox(false) : ''}
-      ${body}
-    </div>`;
-}
-/* אייקון לכל מחלקה לפי מילות מפתח בשם. הסדר חשוב: ביטוי ספציפי קודם
-   (למשל "תחליפי חלב" לפני "חלב"). אם שדה icon קיים במחלקה (מה-JSON) - הוא גובר. */
-const PLANO_DEPT_ICONS = [
-  ['תחליפי חלב','🥛'],['תחליפי בשר','🌱'],['טבעוני','🌱'],['ללא גלוטן','🌾'],
-  ['שימור','🥫'],['קטני','🫘'],['דגני בוקר','🥣'],['דגנ','🌾'],['אורז','🍚'],['פסט','🍝'],
-  ['קמח','🥖'],['אפי','🧁'],['לחם','🍞'],['מאפ','🥐'],
-  ['תבלינ','🌶️'],['שמן','🫒'],['רטב','🥫'],['ממרח','🍯'],['דבש','🍯'],['ממתיק','🍯'],['סוכר','🍯'],
-  ['שוקולד','🍫'],['ממתק','🍬'],['חטיפ','🍪'],['עוגי','🍪'],
-  ['אגוז','🥜'],['פירות יבשים','🥜'],['פיצוח','🥜'],['תמר','🌴'],
-  ['תה','🍵'],['קפה','☕'],['משק','🧃'],['מיצ','🧃'],['מים','💧'],
-  ['גבינ','🧀'],['חלב','🥛'],['מקרר','🧀'],['ביצ','🥚'],['קפוא','🧊'],['הקפאה','🧊'],
-  ['בשר','🍗'],['עוף','🍗'],['דג','🐟'],['ירק','🥬'],['פירות','🍎'],
-  ['תינוק','👶'],['ילד','🧸'],['ניקוי','🧽'],['ניקיון','🧽'],['כביסה','🧺'],['חד פעמי','🧻'],['נייר','🧻'],
-  ['טיפוח','🧴'],['קוסמטיק','💄'],['שיער','🧴'],['היגיינ','🪥'],['שיניים','🪥'],
-  ['ויטמינ','💊'],['תוספ','💊'],['טבע','🌿'],['צמחי','🌿'],['סופר פוד','🌿'],['חלבון','💪'],['ספורט','💪'],
-  ['בעלי חיים','🐾'],['חיות','🐾'],['מרקחת','💊'],['קופה','🛍️']
-];
-function planoDeptEmoji(d){
-  if(d.icon) return d.icon;
-  const n = String(d.name||'');
-  for(let i=0;i<PLANO_DEPT_ICONS.length;i++){
-    if(n.indexOf(PLANO_DEPT_ICONS[i][0]) >= 0) return PLANO_DEPT_ICONS[i][1];
-  }
-  return '🛒';
-}
-function planoDeptListHtml(){
-  return `<ul class="plano-dept-list">${planoData.departments.map(function(d){
-    return `<li><button class="plano-dept-row" onclick="planoOpenDept('${planoEsc(d.id)}')">
-      <span class="plano-dept-ic" aria-hidden="true">${planoDeptEmoji(d)}</span>
-      <span class="plano-dept-name">${planoEsc(d.name)}</span>
-      <span class="plano-dept-num">מחלקה ${planoEsc(d.number)}</span>
-      <span class="plano-chev" aria-hidden="true">‹</span>
-    </button></li>`;
-  }).join('')}</ul>`;
-}
-
-function planoOnSearchInput(val, fromDept){
-  planoState.query = val;
-  if(fromDept){
-    /* חיפוש מתוך מסך מחלקה — עוברים לרשימת התוצאות, הפוקוס נשמר. */
-    planoState.focusSearch = true;
-    planoState.caret = val.length;
-    planoOpenList();
-    return;
-  }
-  const body = document.getElementById('plano-body');
-  if(body) body.innerHTML = val.trim() ? planoResultsHtml() : planoDeptListHtml();
-  const wrap = document.querySelector('.plano-search');
-  if(wrap){
-    const hasClear = !!wrap.querySelector('.plano-search-clear');
-    if(val && !hasClear) wrap.insertAdjacentHTML('beforeend', `<button class="plano-search-clear" onclick="planoClearSearch()" aria-label="ניקוי החיפוש">×</button>`);
-    if(!val && hasClear) wrap.querySelector('.plano-search-clear').remove();
-  }
-}
-function planoClearSearch(){
-  planoState.query = '';
-  planoState.focusSearch = true;
-  planoRerender();
-}
-
-function planoResultsHtml(){
-  const q = planoState.query;
-  const tokens = planoNorm(q).split(' ').filter(Boolean);
-  const all = planoSearch(q);
-  const itemsPending = !planoItems.list.length && planoItems.loading;
-  if(!all.length){
-    if(itemsPending) return `<div class="plano-empty">מחפש גם בין המוצרים…</div>`;
-    return `<div class="plano-empty">לא נמצאו תוצאות עבור "${planoEsc(q.trim())}".<br>נסו שם מוצר, מותג, מחלקה או קוד פריט.</div>`;
-  }
-  const shown = all.slice(0, PLANO_MAX_RESULTS);
-  const countTxt = all.length > PLANO_MAX_RESULTS ? `מוצגות ${PLANO_MAX_RESULTS} מתוך ${all.length} תוצאות` : (all.length === 1 ? 'תוצאה אחת' : `${all.length} תוצאות`);
-  return `<div class="plano-res-count">${countTxt}</div>` + shown.map(function(r){ return planoResultHtml(r, tokens); }).join('');
-}
-function planoResultHtml(r, tokens){
-  if(r.kind === 'product') return planoProductResultHtml(r, tokens);
-  const d = r.dept;
-  const deptLine = `${planoEsc(d.name)} · מחלקה ${planoEsc(d.number)}`;
-  if(r.kind === 'dept'){
-    return `<button class="plano-res" onclick="planoOpenDept('${planoEsc(d.id)}')">
-      <div class="plano-res-where">מחלקה</div>
-      <div class="plano-res-main">${planoEsc(d.name)}</div>
-      <div class="plano-res-meta"><span class="plano-res-kind">מחלקה ${planoEsc(d.number)}</span></div>
-    </button>`;
-  }
-  if(r.kind === 'sub'){
-    return `<button class="plano-res" onclick="planoOpenDept('${planoEsc(d.id)}','${planoEsc(r.sub.id)}')">
-      <div class="plano-res-where">${deptLine}</div>
-      <div class="plano-res-main">${planoEsc(r.sub.name)}</div>
-      <div class="plano-res-meta"><span class="plano-res-kind">תת-קטגוריה</span></div>
-    </button>`;
-  }
-  if(r.kind === 'alert'){
-    const subId = r.sub ? r.sub.id : '';
-    return `<button class="plano-res" onclick="planoOpenDept('${planoEsc(d.id)}','${planoEsc(subId)}')">
-      <div class="plano-res-where">${deptLine}${r.sub && r.sub.name ? ' › ' + planoEsc(r.sub.name) : ''}</div>
-      <div class="plano-res-main" style="font-weight:400;font-size:15px;">${r.alert.level === 'critical' ? '⚠️ ' : ''}${planoEsc(r.alert.text)}</div>
-      <div class="plano-res-meta"><span class="plano-res-kind">הנחיה</span></div>
-    </button>`;
-  }
-  /* entry */
-  const e = r.entry, s = r.sub;
-  const items = (e.items||[]);
-  const matchedIdx = items.map(function(it, i){ return tokens.some(function(t){ return r.itemTexts[i].indexOf(t) !== -1; }) ? i : -1; }).filter(function(i){ return i !== -1; });
-  let showIdx = matchedIdx.length ? matchedIdx : items.map(function(_, i){ return i; });
-  if(showIdx.length > 6) showIdx = showIdx.slice(0, 6);
-  const hidden = items.length - showIdx.length;
-  const itemsHtml = showIdx.map(function(i){
-    const it = items[i];
-    return planoMark(it.name, tokens) + (it.detail ? ` <span class="plano-it-detail">${planoEsc(it.detail)}</span>` : '') + (it.newOrMoved ? `<span class="plano-new">${planoEsc(planoNewLabel())}</span>` : '');
-  }).join('<span class="plano-sep">, </span>');
-  const where = deptLine + (s.name ? ' › ' + planoEsc(s.name) : '') + (e.label ? ' › ' + planoEsc(e.label) : '');
-  const pri = typeof e.priority === 'number'
-    ? `<span class="plano-res-pri${e.priority === 1 ? ' p1' : ''}">עדיפות ${e.priority}${e.priority <= 2 ? ' · ' + planoEsc(planoShortShelf(d, e.priority)) : ''}</span>`
-    : `<span class="plano-res-pri">מיקום מיוחד</span>`;
-  const warn = e.placementOverride
-    ? `<div class="plano-warn"><span aria-hidden="true">⚠️</span><span>${planoEsc(e.placementOverride)}</span></div>`
-    : planoFirstCriticalFor(d, s) ? `<div class="plano-warn"><span aria-hidden="true">⚠️</span><span>${planoEsc(planoFirstCriticalFor(d, s))}</span></div>` : '';
-  const also = (e.alsoAt||[]).map(function(a){ return planoLocName(a.departmentId, a.subcategoryId); }).filter(Boolean);
-  return `<button class="plano-res" onclick="planoOpenDept('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}')">
-    <div class="plano-res-where">${where}</div>
-    <div class="plano-res-main">${itemsHtml}${hidden > 0 ? `<span class="plano-res-kind"> ועוד ${hidden}</span>` : ''}</div>
-    <div class="plano-res-meta">${pri}</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--text-secondary);">
+      <span>חוברת: <b style="color:var(--text-primary,inherit);">${o.label}</b>${a.auto?' (נבחרה אוטומטית)':''}</span>
+      ${select}
+      ${matchTxt?`<span>· ${matchTxt}</span>`:''}
+    </div>
     ${warn}
-    ${also.length ? `<div class="plano-note">מופיע גם ב: ${also.map(planoEsc).join(', ')}</div>` : ''}
-  </button>`;
-}
-function planoFirstCriticalFor(d, s){
-  const subA = (s && s.alerts || []).filter(function(a){ return a.level === 'critical'; });
-  if(subA.length) return subA[0].text;
-  return null;
-}
-function planoLocName(deptId, subId){
-  const d = planoData.byId[deptId];
-  if(!d) return null;
-  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0];
-  return d.name + (s && s.name ? ' › ' + s.name : '');
-}
-function planoNewLabel(){
-  return (planoData.legend && planoData.legend.newOrMovedLabel) || PLANO_NEW_LABEL_DEFAULT;
+  `;
 }
 
-/* ============================================================
-   מסך מחלקה
-============================================================ */
-function planoRulesFor(d){
-  if(d.shelfRules && d.shelfRules.length) return d.shelfRules;
-  return (planoData.legend && planoData.legend.defaultShelfRules) || PLANO_DEFAULT_RULES;
-}
-function planoShelfText(d, p){
-  const rules = planoRulesFor(d);
-  const exact = rules.filter(function(r){ return r.priority === p; })[0];
-  if(exact) return exact.text;
-  const below = rules.filter(function(r){ return r.appliesToAllBelow && r.priority <= p; })[0];
-  return below ? below.text : '';
-}
-function planoShortShelf(d, p){
-  return planoShelfText(d, p).replace(/^מדף /, '');
-}
-
-function planoViewDept(d){
-  const subs = d.subcategories || [];
-  let subId = planoState.subByDept[d.id];
-  if(!subId || !subs.some(function(s){ return s.id === subId; })) subId = subs.length ? subs[0].id : null;
-  planoState.subByDept[d.id] = subId;
-  const sub = subs.filter(function(s){ return s.id === subId; })[0];
-
-  const crit = (d.alerts||[]).filter(function(a){ return a.level === 'critical'; });
-  const info = (d.alerts||[]).filter(function(a){ return a.level !== 'critical'; });
-  const namedSubs = subs.filter(function(s){ return s.name; });
-
-  return `
-    <div class="plano-wrap">
-      <button class="plano-back" onclick="planoBackToList()"><span aria-hidden="true">›</span> כל המחלקות</button>
-      ${planoSearchBox(true)}
-      ${planoBanners()}
-      <h1 class="plano-dept-title">${planoEsc(d.name)}</h1>
-      <div class="plano-dept-meta">
-        <span>מחלקה ${planoEsc(d.number)}</span>
-      </div>
-      ${lastUpdatedHtml({updatedAt: d.contentUpdatedAt || null, lastUpdated: d.lastUpdated || null})}
-      ${planoTargetBarHtml(d, subId)}
-      ${planoDeptActionsHtml(d, sub)}
-      ${planoImagesHtml(d.referenceImages, 'כך המחלקה צריכה להיראות')}
-      ${namedSubs.length > 1 ? `<div class="plano-chips" role="tablist">${subs.map(function(s){
-        const on = s.id === subId;
-        return `<button class="plano-chip${on ? ' active' : ''}" role="tab" aria-selected="${on}" onclick="planoSelectSub('${planoEsc(d.id)}','${planoEsc(s.id)}')">${planoEsc(s.name || d.name)}</button>`;
-      }).join('')}</div>` : ''}
-      ${sub ? planoSubHtml(d, sub, namedSubs.length > 1) : `<div class="plano-empty">אין פריטים במחלקה זו.</div>`}
-    </div>`;
-}
-function planoAlertBox(alerts, level){
-  const title = level === 'critical'
-    ? `<div class="plano-alert-title"><span aria-hidden="true">⚠️</span>חשוב</div>`
-    : `<div class="plano-alert-title" style="font-size:14px;color:var(--text-secondary)"><span aria-hidden="true">ⓘ</span>לתשומת לב</div>`;
-  return `<div class="plano-alert ${level}">${title}<ul>${alerts.map(function(a){ return `<li>${planoEsc(a.text)}</li>`; }).join('')}</ul></div>`;
-}
-function planoRulesBox(d){
-  return `<div class="plano-rules"><b>סדר המדפים במחלקה הזו שונה מהרגיל:</b>${d.shelfRules.map(function(r){
-    return `<div>עדיפות ${r.priority}${r.appliesToAllBelow ? ' ומטה' : ''}: ${planoEsc(r.text)}</div>`;
-  }).join('')}</div>`;
-}
-function planoImagesHtml(images, caption){
-  if(!images || !images.length) return '';
-  return `<div class="plano-section-title">${planoEsc(caption)}</div><div class="plano-images">${images.map(function(img){
-    const url = typeof img === 'string' ? img : img.url;
-    const cap = typeof img === 'string' ? '' : (img.caption || '');
-    return `<figure><img src="${planoEsc(url)}" alt="${planoEsc(cap || caption)}" loading="lazy">${cap ? `<figcaption>${planoEsc(cap)}</figcaption>` : ''}</figure>`;
-  }).join('')}</div>`;
-}
-
-function planoSubHtml(d, s, showTitle){
-  const isAdmin = planoCanManage();
-  const crit = (s.alerts||[]).filter(function(a){ return a.level === 'critical'; });
-  const info = (s.alerts||[]).filter(function(a){ return a.level !== 'critical'; });
-  const entries = s.entries || [];
-  const ranked = entries.filter(function(e){ return typeof e.priority === 'number'; });
-  const special = entries.filter(function(e){ return typeof e.priority !== 'number'; });
-
-  /* שם תת-הקטגוריה כבר מסומן ב-chip הפעיל — לא חוזרים עליו ככותרת.
-     רק קבוצת-אם (למשל "תחליפי מוצרי חלב") מוצגת, כי היא לא ב-chip. */
-  let html = '';
-  if(showTitle && s.parent) html += `<div class="plano-sub-parent">חלק מ${planoEsc(s.parent)}</div>`;
-  html += planoImagesHtml(s.referenceImages, 'כך זה צריך להיראות');
-
-  if(ranked.length) html += planoGondolaHtml(d, s, ranked, isAdmin);
-
-  const fullKey = d.id + '/' + s.id;
-  const fullOpen = !ranked.length || !!planoState.fullBySub[fullKey];
-  const incCount = (planoData.incoming[fullKey] || []).length;
-  if(ranked.length){
-    html += `<button class="pw-toggle" aria-expanded="${fullOpen}" onclick="planoToggleFull('${planoEsc(d.id)}','${planoEsc(s.id)}')">
-      ${fullOpen ? 'הסתרת הפירוט המלא ▴' : 'הצג פירוט מלא ▾'}
-      ${!fullOpen && (special.length || incCount) ? `<span class="pw-toggle-sub">כולל ${[special.length ? special.length + ' במיקום מיוחד' : '', incCount ? incCount + ' ממחלקות אחרות' : ''].filter(Boolean).join(' ו-')}</span>` : ''}
-    </button>`;
-  }
-  if(!fullOpen) return html;
-  if(ranked.length){
-    if(crit.length) html += planoAlertBox(crit, 'critical');
-    if(info.length) html += planoAlertBox(info, 'info');
-  } else {
-    if(crit.length) html += planoAlertBox(crit, 'critical');
-    if(info.length) html += planoAlertBox(info, 'info');
-  }
-
-  /* עדיפויות 1-2 ככרטיסים, 3 ומטה כשורות ברשימה אחת. קבוצה (למשל
-     "להכנה מהירה") פותחת כותרת משלה בנקודה שבה היא מתחילה. */
-  let restOpen = false;
-  let currentGroup = null;
-  ranked.forEach(function(e){
-    if(e.group && e.group !== currentGroup){
-      if(restOpen){ html += '</div>'; restOpen = false; }
-      currentGroup = e.group;
-      html += `<div class="plano-group">${planoEsc(e.group)}</div>`;
-    }
-    if(e.priority <= 2){
-      if(restOpen){ html += '</div>'; restOpen = false; }
-      html += planoCardHtml(d, s, e, isAdmin);
-    } else {
-      if(!restOpen){ html += '<div class="plano-rest">'; restOpen = true; }
-      html += planoRowHtml(d, s, e, isAdmin, false);
-    }
+let _promoAnalysisCache = null;
+let _promoAnalysisCacheKey = null;
+function buildPromoAnalysisBase(){
+  const a = activePromoBookletOption();
+  const cacheKey = (a.opt?a.opt.key:'none') + '|' + (appData.promoProducts||[]).length;
+  if(_promoAnalysisCache && _promoAnalysisCacheKey===cacheKey) return _promoAnalysisCache;
+  _promoAnalysisCacheKey = cacheKey;
+  const booklet = activePromoBooklet();
+  const byCode = {}; /* code -> {title, salesByBranch:{branch:num}} */
+  (appData.promoProducts||[]).forEach(p=>{
+    const code = p.code!=null ? String(p.code) : null;
+    if(!code) return;
+    const meta = booklet[code];
+    const targetCode = (meta && meta.mergedInto) ? meta.mergedInto : code;
+    if(!byCode[targetCode]) byCode[targetCode] = {title:null, salesByBranch:{}};
+    if(!meta || !meta.mergedInto) byCode[targetCode].title = p.title;
+    (p.branches||[]).forEach(b=>{
+      byCode[targetCode].salesByBranch[b.name] = (byCode[targetCode].salesByBranch[b.name]||0) + (b.sales||0);
+    });
   });
-  if(restOpen) html += '</div>';
-
-  if(special.length){
-    html += `<div class="plano-section-title">מיקום מיוחד</div><div class="plano-rest plano-special">`;
-    special.forEach(function(e){ html += planoRowHtml(d, s, e, isAdmin, true); });
-    html += '</div>';
-  }
-
-  const inc = planoData.incoming[d.id + '/' + s.id] || [];
-  if(inc.length){
-    html += `<div class="plano-section-title">מוצג גם כאן</div><div class="plano-rest">`;
-    inc.forEach(function(x){
-      /* מציגים רק את מה שההפניה מתארת (למשל "טפיוקה ניצת"), לא את כל
-         המשבצת במחלקה הראשית — שם יש לפעמים מוצרים שלא שייכים לכאן. */
-      html += `<div class="plano-rest-row"><span class="plano-num" aria-hidden="true">+</span><div class="plano-rest-body">
-        <div class="plano-items">${planoEsc(x.ref.text)}${x.ref.condition ? `<span class="plano-tag">${planoEsc(x.ref.condition)}</span>` : ''}</div>
-        <div class="plano-also"><span>מיקום ראשי:</span><button onclick="planoOpenDept('${planoEsc(x.fromDept.id)}','${planoEsc(x.fromSub.id)}','${planoEsc(x.entry.id)}')">${planoEsc(planoLocName(x.fromDept.id, x.fromSub.id))}</button></div>
-      </div></div>`;
-    });
-    html += '</div>';
-  }
-  if(!entries.length && !inc.length) html += `<div class="plano-empty">אין פריטים בתת-קטגוריה זו.</div>`;
-  return html;
+  _promoAnalysisCache = {byCode};
+  return _promoAnalysisCache;
 }
-function planoItemsHtml(items){
-  return (items||[]).map(function(it){
-    let h = planoEsc(it.name);
-    if(it.detail) h += ` <span class="plano-it-detail">${planoEsc(it.detail)}</span>`;
-    if(it.facings) h += `<span class="plano-tag">${planoEsc(it.facings)}</span>`;
-    if(it.condition) h += `<span class="plano-tag">${planoEsc(it.condition)}</span>`;
-    if(it.newOrMoved) h += `<span class="plano-new">${planoEsc(planoNewLabel())}</span>`;
-    return h;
-  }).join('<span class="plano-sep">, </span>');
+const BIO_MARKET_MATCH = 'ביו מרקט';
+function isBioMarketBranch(name){ return (name||'').indexOf(BIO_MARKET_MATCH) !== -1; }
+/* קבוצת ההשוואה הרשתית לקוד נתון: כל הסניפים, חוץ מהמוצאים בפועל
+   (excludeNames) - או רק סניפי ביו מרקט אם המבצע מוגבל אליהם. */
+function promoComparisonPool(meta, excludeNames){
+  const allBranchNames = BRANCH_DIRECTORY.map(b=>b.name);
+  const pool = (meta && meta.restricted==='ביו מרקט') ? allBranchNames.filter(isBioMarketBranch) : allBranchNames;
+  return pool.filter(n=>excludeNames.indexOf(n)===-1);
 }
-function planoEntryExtras(d, s, e, isAdmin){
-  let h = '';
-  if(e.facings) h += `<div class="plano-note">כמות על המדף: ${planoEsc(e.facings)}</div>`;
-  if(e.condition) h += `<div class="plano-note">${planoEsc(e.condition)}</div>`;
-  if(e.placementOverride) h += `<div class="plano-warn"><span aria-hidden="true">⚠️</span><span>${planoEsc(e.placementOverride)}</span></div>`;
-  if(e.note || e.optional){
-    const parts = [];
-    if(e.note) parts.push(planoEsc(e.note));
-    if(e.optional && !(e.note && /חובה/.test(e.note))) parts.push('לא חובה');
-    h += `<div class="plano-note">${parts.join(' · ')}</div>`;
-  }
-  if(e.alsoAt && e.alsoAt.length){
-    h += `<div class="plano-also"><span>גם ב:</span>${e.alsoAt.map(function(a){
-      const name = planoLocName(a.departmentId, a.subcategoryId);
-      if(!name) return '';
-      return `<button onclick="planoOpenDept('${planoEsc(a.departmentId)}','${planoEsc(a.subcategoryId)}')">${planoEsc(name)}</button>${a.condition ? `<span class="plano-tag">${planoEsc(a.condition)}</span>` : ''}`;
-    }).join('')}</div>`;
-  }
-  if(isAdmin && e.sourceIssue) h += `<div class="plano-issue">הערת המרה (לצוות בלבד): ${planoEsc(e.sourceIssue)}</div>`;
-  return h;
+function isPromoRelevantForBranch(meta, branchName){
+  if(meta && meta.restricted==='ביו מרקט') return isBioMarketBranch(branchName);
+  return true;
 }
-function planoCardHtml(d, s, e, isAdmin){
-  const cls = (e.priority === 1 ? 'plano-p1' : 'plano-p2') + (planoIsTargetEntry(d, s, e) ? ' plano-target' : '');
-  return `<div class="plano-p ${cls}" id="plano-${planoEsc(d.id)}-${planoEsc(s.id)}-${planoEsc(e.id)}">
-    <div class="plano-p-head">
-      <span class="plano-p-pill">עדיפות ${e.priority}</span>
-      <span class="plano-p-shelf">${planoEsc(planoShortShelf(d, e.priority))}</span>
-    </div>
-    ${e.label ? `<div class="plano-label">${planoEsc(e.label)}</div>` : ''}
-    <div class="plano-items">${planoItemsHtml(e.items)}</div>
-    ${planoEntryExtras(d, s, e, isAdmin)}
-  </div>`;
+/* מסווגת ערך אחד (סניף/אזור) מול מערך ערכי השוואה. group: 'anomaly'|'gap'|'strength'|'none' */
+function classifyPromoValue(selfVal, comparisonVals){
+  const med = median(comparisonVals);
+  const positiveOthers = comparisonVals.filter(v=>v>0).length;
+  const totalOthers = comparisonVals.length;
+  const gapNum = med===null ? null : (selfVal-med);
+  const gapPct = (med && med>0) ? ((selfVal/med-1)*100) : null;
+  let group = 'none';
+  if(selfVal===0 && totalOthers>0 && (positiveOthers/totalOthers)>=0.7 && positiveOthers>=10) group = 'anomaly';
+  else if(med!==null && selfVal<med) group = 'gap';
+  else if(med!==null && selfVal>med) group = 'strength';
+  return {med, positiveOthers, totalOthers, gapNum, gapPct, group, selfVal};
 }
-function planoRowHtml(d, s, e, isAdmin, special){
-  const shelf = !special ? planoSpecificShelf(d, e.priority) : '';
-  return `<div class="plano-rest-row${planoIsTargetEntry(d, s, e) ? ' plano-target' : ''}" id="plano-${planoEsc(d.id)}-${planoEsc(s.id)}-${planoEsc(e.id)}">
-    <span class="plano-num">${special ? '!' : planoEsc(e.priority)}</span>
-    <div class="plano-rest-body">
-      ${shelf ? `<div class="plano-rest-shelf">${planoEsc(shelf)}</div>` : ''}
-      ${e.label ? `<div class="plano-label">${planoEsc(e.label)}</div>` : ''}
-      <div class="plano-items">${planoItemsHtml(e.items)}</div>
-      ${planoEntryExtras(d, s, e, isAdmin)}
-    </div>
-  </div>`;
-}
-/* טקסט מדף לעדיפות 3+ — מוצג רק אם המחלקה הגדירה משהו ספציפי לעדיפות
-   הזו (למשל "מדפים תחתוניים" בדגנים וקטניות), לא החוק הכללי. */
-function planoSpecificShelf(d, p){
-  if(!d.shelfRules || !d.shelfRules.length) return '';
-  const exact = d.shelfRules.filter(function(r){ return r.priority === p && !r.appliesToAllBelow; })[0];
-  return exact ? exact.text : '';
-}
-
-/* ============================================================
-   ניווט פנימי (history — ראו goTo/popstate ב-navigation.js)
-============================================================ */
-/* פתיחת מוצר מתוצאות החיפוש: עוברים למחלקה ולתת-המחלקה שלו, ומסמנים את
-   המקום שלו בגונדולה במסגרת כתומה בולטת, שנשארת עד שעוזבים את המחלקה
-   או לוחצים "הסתר סימון". */
-function planoOpenProduct(code){
-  const it = planoItems.byCode[code];
-  if(!it || !it.rec.d || !planoData.byId[it.rec.d]) return;
-  const rec = it.rec, d = planoData.byId[rec.d];
-  const found = rec.s ? planoFindEntry(d, rec.s, rec.e) : {s:null, e:null};
-  planoState.target = {
-    deptId: d.id,
-    subId: found.s ? found.s.id : null,
-    entryId: found.e ? found.e.id : null,
-    brand: rec.b ? planoFullBrandText(rec.b) : null,
-    name: it.name,
-    code: it.code
-  };
-  /* מקום במשבצת בלי עדיפות (מיקום מיוחד) מוצג רק בפירוט המלא */
-  if(found.s && found.e && typeof found.e.priority !== 'number') planoState.fullBySub[d.id + '/' + found.s.id] = true;
-  planoState.scrollToTarget = true;
-  planoOpenDept(d.id, found.s ? found.s.id : null, null, true);
-}
-function planoClearTarget(){
-  planoState.target = null;
-  planoRerender();
-}
-function planoShowTarget(){
-  const t = planoState.target;
-  if(!t) return;
-  if(t.subId) planoState.subByDept[t.deptId] = t.subId;
-  planoState.scrollToTarget = true;
-  planoRerender();
-}
-function planoIsTargetEntry(d, s, e){
-  const t = planoState.target;
-  return !!(t && t.entryId && t.deptId === d.id && t.subId === s.id && t.entryId === e.id);
-}
-/* באיזה אריח לסמן: המותג שלפיו נמצא המקום. אם הוא לא מזוהה בין האריחים
-   של המשבצת - מסמנים את כל המשבצת. */
-function planoIsTargetTile(d, s, e, it){
-  if(!planoIsTargetEntry(d, s, e)) return false;
-  const t = planoState.target;
-  const names = (e.items||[]).map(function(x){ return planoNorm(x.name); });
-  /* 1) המותג מהקובץ (שדה b) */
-  let b = t.brand ? planoNorm(t.brand) : '';
-  /* 2) גיבוי - קובץ ישן בלי b, או שם שלא תואם: מחפשים איזה מהמותגים
-        במשבצת מופיע כמילים שלמות בשם המוצר (הארוך ביותר קודם). */
-  if(!b || names.indexOf(b) === -1){
-    const prodName = ' ' + planoNorm(t.name) + ' ';
-    const hits = names.filter(function(n){ return n && prodName.indexOf(' ' + n + ' ') !== -1; })
-      .sort(function(a, c){ return c.length - a.length; });
-    b = hits.length ? hits[0] : '';
-  }
-  /* לא זוהה מותג אחד - מסמנים את כל המשבצת */
-  if(!b) return true;
-  return planoNorm(it.name) === b;
-}
-function planoTargetBarHtml(d, currentSubId){
-  const t = planoState.target;
-  if(!t || t.deptId !== d.id) return '';
-  const s = t.subId ? (d.subcategories||[]).filter(function(x){ return x.id === t.subId; })[0] : null;
-  const e = s && t.entryId ? (s.entries||[]).filter(function(x){ return x.id === t.entryId; })[0] : null;
-  let where;
-  if(e) where = (s && s.name ? s.name + ' · ' : '') + planoPlaceText(d, s, e) + '. מסומן במסגרת כתומה.';
-  else if(s) where = (s.name || 'תת-המחלקה') + ' · אין מקום מוגדר למוצר הזה במדף.';
-  else where = 'אין מקום מוגדר למוצר הזה במדף. מסדרים לפי סדר העדיפויות של המחלקה.';
-  const otherSub = t.subId && currentSubId && t.subId !== currentSubId;
-  return `<div class="plano-target-bar" role="status">
-    <span class="plano-target-pin" aria-hidden="true">📍</span>
-    <div class="plano-target-txt"><b>${planoEsc(t.name)}</b><span>${planoEsc(where)}</span></div>
-    ${otherSub ? `<button class="plano-target-go" onclick="planoShowTarget()">הצג את המיקום</button>` : ''}
-    <button class="plano-target-x" onclick="planoClearTarget()" aria-label="הסתר סימון">×</button>
-  </div>`;
-}
-function planoOpenDept(deptId, subId, entryId, keepTarget){
-  if(!keepTarget) planoState.target = null;
-  if(typeof ui === 'undefined') return;
-  const ov = document.getElementById('modal-overlay');
-  if(ov && ov.classList.contains('open') && typeof closeModal === 'function') closeModal();
-  /* קפיצה לפריט מסוים (מחיפוש / "מיקום ראשי") - פותחים את הפירוט המלא כדי שהכרטיס יהיה במסך */
-  if(entryId && subId) planoState.fullBySub[deptId + '/' + subId] = true;
-  /* סוגרים את המקלדת בנייד — אחרת שחזור הפוקוס בחיפוש יפתח אותה שוב במסך המחלקה. */
-  if(document.activeElement && document.activeElement.id === 'plano-search') document.activeElement.blur();
-  planoState.cameFromList = ui.view === 'planograms' && !ui.planoDept;
-  if(subId) planoState.subByDept[deptId] = subId;
-  planoState.highlight = entryId ? ('plano-' + deptId + '-' + (subId || '') + '-' + entryId) : null;
-  ui.department = 'purchasing';
-  ui.planoDept = deptId;
-  goTo('planograms', {keepDepartment:true, keepPlanoDept:true});
-}
-function planoSelectSub(deptId, subId){
-  planoState.subByDept[deptId] = subId;
-  planoRerender();
-}
-function planoBackToList(){
-  if(planoState.cameFromList && history.state && history.state.nizatHubPlanoDept){
-    planoState.cameFromList = false;
-    history.back();
-    return;
-  }
-  planoOpenList();
-}
-function planoOpenList(){
-  if(typeof ui === 'undefined') return;
-  planoState.target = null;
-  ui.department = 'purchasing';
-  ui.planoDept = null;
-  goTo('planograms', {keepDepartment:true, keepPlanoDept:true});
-}
-
-/* ============================================================
-   מקרא — "איך קוראים פלנוגרמה?"
-============================================================ */
-/* ---------- קיר המדפים (ויזואלי) ----------
-   כל שורה = מדף: עדיפות 1 = גובה העיניים (מודגש), עדיפות 2 = המדף הצמוד,
-   3 ומטה = שאר המדפים. הכיתוב של כל מדף מגיע מכללי המחלקה (planoShelfText).
-   כל מוצר/מותג הוא אריח: תמונת מוצר + לוגו קטן, או רק לוגו, או אריח צבעוני
-   עם השם כשאין תמונה. התמונות מגיעות ממסמך planograms/_visuals (נטען דרך
-   "ייבוא תמונות מותגים") ומוצגות ישירות מאתר ניצת. לחיצה על אריח פותחת את
-   הפרטים המלאים של אותה משבצת (הערות, כמות, "גם ב"). */
-const PLANO_TILE_COLORS = [
-  ['#FAEEDA','#854F0B'],['#EEEDFE','#534AB7'],['#E1F5EE','#0F6E56'],['#FBEAF0','#993556'],
-  ['#E6F1FB','#185FA5'],['#EAF3DE','#3B6D11'],['#FAECE7','#993C1D'],['#F1EFE8','#5F5E5A']
-];
-const PLANO_GENERIC_RE = /השאר|אחרים|שונות/;
-/* אריחים מציגים לוגו בלבד (החלטה: תמונת מוצר אחת לא מייצגת נכון מותג שיש
-   לו הרבה מוצרים). אין לוגו -> אריח צבעוני עם השם. */
-function planoVisualFor(name){
-  const vs = planoData.visuals || {};
-  let v = vs[name];
-  if(!v && typeof name === 'string' && name.indexOf('ניצת הדובדבן') !== -1){
-    /* השם הוצג כ"ניצת הדובדבן", אבל בקובץ הלוגואים הוא שמור כ"ניצת" */
-    v = vs[name.replace(/ניצת הדובדבן/g, 'ניצת')];
-  }
-  return v && v.logo ? {img: v.logo, logo: null} : null;
-}
-function planoTileColor(name){
-  let h = 0; const t = String(name||'');
-  for(let i=0;i<t.length;i++){ h = (h*31 + t.charCodeAt(i)) >>> 0; }
-  return PLANO_TILE_COLORS[h % PLANO_TILE_COLORS.length];
-}
-function planoFallbackHtml(name){
-  if(PLANO_GENERIC_RE.test(String(name||''))) return `<span class="pw-fb pw-fb-generic">${planoEsc(name)}</span>`;
-  const c = planoTileColor(name);
-  return `<span class="pw-fb" style="background:${c[0]};color:${c[1]}">${planoEsc(name)}</span>`;
-}
-/* תמונה שלא נטענה: קודם מנסים את הלוגו, ואם גם הוא נכשל - אריח צבעוני. */
-function planoImgFail(img){
-  const logo = img.getAttribute('data-logo');
-  const box = img.parentNode;
-  if(logo && img.getAttribute('src') !== logo){
-    img.setAttribute('src', logo);
-    img.removeAttribute('data-logo');
-    const badge = box && box.parentNode ? box.parentNode.querySelector('.pw-badge') : null;
-    if(badge) badge.remove();
-    return;
-  }
-  if(box){
-    const tile = box.parentNode;
-    if(tile && tile.classList) tile.classList.add('fb');
-    box.outerHTML = planoFallbackHtml(img.getAttribute('data-name') || '');
-  }
-}
-function planoTileHtml(d, s, e, it, idx){
-  const vis = planoVisualFor(it.name);
-  const isNew = !!it.newOrMoved;
-  const warn = !!e.placementOverride;
-  const media = vis
-    ? `<span class="pw-img"><img src="${planoEsc(vis.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-name="${planoEsc(it.name)}" ${vis.logo ? `data-logo="${planoEsc(vis.logo)}"` : ''} onerror="planoImgFail(this)"></span>`
-    : planoFallbackHtml(it.name);
-  const badge = vis && vis.logo ? `<span class="pw-badge"><img src="${planoEsc(vis.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></span>` : '';
-  const isTarget = planoIsTargetTile(d, s, e, it);
-  const label = (isTarget ? 'המוצר שחיפשת: ' : '') + it.name + (isNew ? ' - ' + planoNewLabel() : '') + (warn ? ' - יש הנחיה חשובה' : '') + ', עדיפות ' + e.priority;
-  return `<button class="pw-tile${isNew ? ' new' : ''}${vis ? '' : ' fb'}${isTarget ? ' pw-target' : ''}" onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(e.id)}',${idx|0})" aria-label="${planoEsc(label)}">
-    ${isTarget ? '<span class="pw-pin" aria-hidden="true">כאן</span>' : ''}
-    <span class="pw-p" aria-hidden="true">${planoEsc(e.priority)}</span>
-    ${warn ? '<span class="pw-warn" aria-hidden="true">⚠️</span>' : ''}
-    ${media}${badge}
-    <span class="pw-name">${planoEsc(it.name)}</span>
-  </button>`;
-}
-/* ---------- גונדולה: הדמיית מדף סופר ----------
-   עד 5 מדפים, לפי תעדוף (החלטת אלירן):
-     מדף 2 (גובה העיניים)      = עדיפות 1
-     מדף 3 (מתחת לגובה העיניים) = עדיפות 2
-     מדפים 4 -> 5 -> 1 (עליון)  = עדיפות 3 ומטה, לפי הסדר
-   מדף 3+ מתמלא עד רוחב המדפים של עדיפות 1-2 (לפחות 4 מותגים) ואז עוברים
-   לבא, כדי שהגונדולה תישאר מאוזנת. מוצגים רק מדפים שיש עליהם משהו.
-   כשהמותגים לא נכנסים ברוחב - כל הגונדולה נגללת הצידה ביחד (המדפים לא
-   זזים זה מול זה), והגלילה מתחילה מימין = מהעדיפות הגבוהה. */
-/* שיבוץ מוצרים למדפים (1-5 מלמעלה) - משותף לגונדולה ולחלונית הפרטים.
-   ברירת מחדל: עדיפות 1 = מדף 2 (גובה העיניים), עדיפות 2 = מדף 3,
-   3 ומטה = מדפים 4 -> 5 -> 1 לפי הסדר.
-   הנחיה חשובה במשבצת גוברת: אם כתוב בה "מעל גובה העיניים" או "מדף עליון"
-   (למשל מיונז וחרדל, סרדינים וטונות) - המשבצת עולה למדף העליון. */
-const PLANO_UP_RE = /מעל\s+(ל)?גובה\s+העיניים|מדף\s+עליון|במדף\s+העליון/;
-function planoShelfLayout(d, s){
-  const ranked = (s.entries||[]).filter(function(e){ return typeof e.priority === 'number'; });
-  const up = function(e){ return !!(e.placementOverride && PLANO_UP_RE.test(e.placementOverride)); };
-  const flat = function(list){ const o=[]; list.forEach(function(e){ (e.items||[]).forEach(function(it,i){ o.push({e:e, it:it, i:i}); }); }); return o; };
-  const forced = flat(ranked.filter(up));
-  const normal = ranked.filter(function(e){ return !up(e); });
-  const p1 = flat(normal.filter(function(e){ return e.priority === 1; }));
-  const p2 = flat(normal.filter(function(e){ return e.priority === 2; }));
-  const rest = flat(normal.filter(function(e){ return e.priority >= 3; }));
-  const cap = Math.max(4, p1.length, p2.length);
-  const shelves = {1: forced.concat(rest.slice(cap*2)), 2: p1, 3: p2, 4: rest.slice(0, cap), 5: rest.slice(cap, cap*2)};
-  /* מדף עליון: קודם לפי עדיפות (המשבצות שהועלו + ההמשך של 3+) */
-  shelves[1].sort(function(a,b){ return a.e.priority - b.e.priority; });
-  const where = {};
-  Object.keys(shelves).forEach(function(n){ shelves[n].forEach(function(x){ where[x.e.id + '#' + x.i] = +n; }); });
-  return {shelves: shelves, where: where};
-}
-function planoShelfOf(d, s, entryId, idx){
-  return planoShelfLayout(d, s).where[entryId + '#' + idx] || 0;
-}
-const PLANO_SHELF_NAMES = {1:'עליון', 2:"גובה העיניים (1.65 מ')", 3:'מתחת לגובה העיניים', 4:'', 5:'תחתון'};
-
-/* כיתוב קצר לפס המחיר: בלי המילה "מדף" בהתחלה (כבר כתוב "מדף 2"). */
-function planoRailText(t){
-  return String(t||'').replace(/^\s*מדף\s+/, '').trim();
-}
-function planoGondolaHtml(d, s, ranked, isAdmin){
-  const L = planoShelfLayout(d, s).shelves;
-  const custom = d.shelfRules && d.shelfRules.length;
-  /* תמיד 5 מדפים פיזיים, ממוספרים מלמעלה - כדי שהעובד יראה איפה כל מדף
-     נמצא בגונדולה. מדף ריק מוצג נמוך וריק. */
-  const shelves = [
-    {n:1, list:L[1], tag:'עליון'},
-    {n:2, list:L[2], tag: custom ? planoRailText(planoShelfText(d,1)) : "גובה העיניים · 1.65 מ'", eye:true},
-    {n:3, list:L[3], tag: custom ? planoRailText(planoShelfText(d,2)) : 'מתחת לגובה העיניים'},
-    {n:4, list:L[4], tag:''},
-    {n:5, list:L[5], tag:'תחתון'}
-  ];
-  let total = 0, withLogo = 0;
-  const body = shelves.map(function(sh){
-    const tiles = sh.list.map(function(x){
-      total++;
-      if(planoVisualFor(x.it.name)) withLogo++;
-      return planoTileHtml(d, s, x.e, x.it, x.i);
-    }).join('');
-    const pr = sh.list.length ? Array.from(new Set(sh.list.map(function(x){ return x.e.priority; }))) : [];
-    const prTxt = !pr.length ? '' : (pr.length === 1 ? 'עדיפות ' + pr[0] : 'עדיפות ' + Math.min.apply(null, pr) + '–' + Math.max.apply(null, pr));
-    return `<div class="gd-shelf${sh.eye ? ' eye' : ''}${sh.list.length ? '' : ' empty'}">
-        ${sh.eye ? '<div class="gd-eye-flag"><span aria-hidden="true">👁</span> גובה העיניים</div>' : ''}
-        ${sh.list.length ? `<div class="gd-items">${tiles}</div>` : ''}
-      </div>
-      <div class="gd-rail${sh.eye ? ' eye' : ''}">
-        <span class="gd-n">מדף ${sh.n}</span>
-        ${sh.tag ? `<span class="gd-tag">${planoEsc(sh.tag)}</span>` : ''}
-        ${prTxt ? `<span class="gd-pr">${prTxt}</span>` : ''}
-      </div>`;
-  }).join('');
-  const title = s.name || d.name;
-  return `<div class="gd">
-    ${isAdmin ? `<div class="gd-count" title="לצוות הרכש בלבד">🖼 ${withLogo}/${total}</div>` : ''}
-    <div class="gd-unit" role="group" aria-label="${planoEsc('גונדולה: ' + title)}">
-      <div class="gd-head">${planoEsc(title)}</div>
-      ${body}
-      <div class="gd-base"></div>
-    </div>
-    <div class="gd-dir"><span>מספר על הלוגו = סדר העדיפות</span><span>מציבים מימין לשמאל ←</span></div>
-  </div>`;
-}
-function planoMarkGondolaOverflow(){ /* אין גלילה בגונדולה - כל המותגים באותו גודל ועוברים שורה */ }
-
-/* ---------- הנחיות: כפתור אחד שפותח חלון (במקום מלל על המסך) ---------- */
-function planoCollectAlerts(d, s){
-  const out = [];
-  (d.alerts||[]).forEach(function(a){ out.push({level:a.level, text:a.text}); });
-  if(d.shelfRules && d.shelfRules.length){
-    out.push({level:'info', text:'סדר המדפים במחלקה הזו שונה מהרגיל: ' + d.shelfRules.map(function(r){ return 'עדיפות ' + r.priority + (r.appliesToAllBelow ? ' ומטה' : '') + ' - ' + r.text; }).join(' · ')});
-  }
-  if(s){
-    (s.alerts||[]).forEach(function(a){ out.push({level:a.level, text:a.text}); });
-    (s.entries||[]).forEach(function(e){
-      if(e.placementOverride) out.push({level:'critical', text:e.placementOverride, who:(e.label || (e.items||[]).map(function(it){ return it.name; }).join(', ')), entry:e.id});
-    });
-  }
+/* דוח מלא לסניף בודד: שלוש קבוצות + ממצאים שסויגו החוצה. */
+function buildPromoBranchReport(branchName){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = activePromoBooklet();
+  const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    if(!isPromoRelevantForBranch(meta, branchName)){ out.scopedOut.push({code, title:entry.title, reason:`מבצע ייעודי ל${meta.restricted}, לא רלוונטי לסניף זה.`}); return; }
+    const selfVal = entry.salesByBranch[branchName] || 0;
+    const compVals = promoComparisonPool(meta, [branchName]).map(n=>entry.salesByBranch[n]||0);
+    if(!compVals.length){ out.scopedOut.push({code, title:entry.title, reason:'אין סניפי השוואה זמינים.'}); return; }
+    const cls = classifyPromoValue(selfVal, compVals);
+    if(cls.group==='none') return;
+    out[cls.group].push({code, title:entry.title, meta, cls});
+  });
   return out;
 }
-function planoDeptActionsHtml(d, s){
-  const alerts = planoCollectAlerts(d, s);
-  const crit = alerts.filter(function(a){ return a.level === 'critical'; }).length;
-  return `<div class="gd-actions">
-    ${alerts.length ? `<button class="gd-pill${crit ? ' warn' : ''}" onclick="planoOpenAlerts('${planoEsc(d.id)}','${planoEsc(s ? s.id : '')}')"><span aria-hidden="true">${crit ? '⚠️' : 'ⓘ'}</span> הנחיות (${alerts.length})</button>` : ''}
-    <button class="gd-pill" onclick="planoOpenLegend()"><span aria-hidden="true">📖</span> מקרא</button>
-  </div>`;
+/* דוח מלא לאזור (קבוצת סניפים): סכום הסניפים באזור מול "צפי" = חציון
+   הרשת (למעט סניפי האזור) × מספר סניפים באזור. קירוב מוצהר, לא מדד רשמי.
+   בכל שורה מצורפת גם רשימת הסניפים באזור עם 0 מימושים באותו קוד - חשוב
+   למנהל האזור לראות בדיוק אילו סניפים ספציפיים לא מימשו, לא רק את הסכום. */
+function buildPromoAreaReport(areaBranchNames){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = activePromoBooklet();
+  const out = {anomaly:[], gap:[], strength:[], scopedOut:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    const relevant = areaBranchNames.filter(n=>isPromoRelevantForBranch(meta, n));
+    if(!relevant.length) return;
+    const totalSelf = relevant.reduce((s,n)=>s+(entry.salesByBranch[n]||0),0);
+    const zeroBranches = relevant.filter(n=>(entry.salesByBranch[n]||0)===0);
+    const compVals = promoComparisonPool(meta, areaBranchNames).map(n=>entry.salesByBranch[n]||0);
+    const med = median(compVals);
+    if(med===null) return;
+    const expected = med * relevant.length;
+    const gapPct = expected>0 ? ((totalSelf/expected-1)*100) : null;
+    let group = 'none';
+    if(totalSelf===0 && expected>0) group = 'anomaly';
+    else if(totalSelf<expected) group = 'gap';
+    else if(totalSelf>expected) group = 'strength';
+    if(group==='none') return;
+    out[group].push({code, title:entry.title, meta, cls:{selfVal:totalSelf, med:expected, gapPct, branchCount:relevant.length, zeroBranches}});
+  });
+  return out;
 }
-function planoModalX(){
-  return `<button class="gd-x" onclick="closeModal()" aria-label="סגירה">×</button>`;
-}
-function planoOpenAlerts(deptId, subId){
-  const d = planoData.byId[deptId]; if(!d) return;
-  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0] || null;
-  const alerts = planoCollectAlerts(d, s);
-  alerts.sort(function(a,b){ return (a.level === 'critical' ? 0 : 1) - (b.level === 'critical' ? 0 : 1); });
-  document.getElementById('modal-body').innerHTML = `
-    ${planoModalX()}
-    <h3>הנחיות${s && s.name ? ' · ' + planoEsc(s.name) : ''}</h3>
-    <div class="gd-alerts">${alerts.map(function(a){
-      const open = a.entry ? ` onclick="planoOpenTile('${planoEsc(d.id)}','${planoEsc(s.id)}','${planoEsc(a.entry)}')" role="button" tabindex="0"` : '';
-      return `<div class="gd-alert ${a.level === 'critical' ? 'crit' : ''}"${open}>
-        <span aria-hidden="true">${a.level === 'critical' ? '⚠️' : 'ⓘ'}</span>
-        <span>${a.who ? `<b>${planoEsc(a.who)}:</b> ` : ''}${planoEsc(a.text)}</span>
-      </div>`;
-    }).join('')}</div>`;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-function planoToggleFull(deptId, subId){
-  const k = deptId + '/' + subId;
-  planoState.fullBySub[k] = !planoState.fullBySub[k];
-  planoRerender();
-}
-/* חלונית פרטים לאריח: כל המשבצת (כל המוצרים באותה עדיפות), הערות, "גם ב". */
-/* חלונית פרטים למותג אחד: הלוגו שלו בלבד, ושורות קצרות באותו גודל:
-   מחלקה / תת מחלקה (התווית של המשבצת + פירוט המוצר) / מיקום (מדף ועדיפות),
-   ואחריהן כמות, הערות, הנחיה חשובה ו"גם ב" - רק אם קיימים. */
-function planoOpenTile(deptId, subId, entryId, idx){
-  const d = planoData.byId[deptId]; if(!d) return;
-  const s = (d.subcategories||[]).filter(function(x){ return x.id === subId; })[0]; if(!s) return;
-  const e = (s.entries||[]).filter(function(x){ return x.id === entryId; })[0]; if(!e) return;
-  const items = e.items || [];
-  const one = (typeof idx === 'number' && items[idx]) ? items[idx] : null;
-  const it = one || items[0] || {name:''};
-  const v = one ? planoVisualFor(it.name) : null;
-
-  let subLine = e.label || s.name || '';
-  if(one && it.detail){
-    const det = String(it.detail).replace(/^\s*\(|\)\s*$/g, '');
-    subLine += (subLine ? ' - ' : '') + det;
-  }
-  if(!e.label && s.name && e.group) subLine = e.group + ' · ' + subLine;
-
-  const rows = [];
-  rows.push(['מחלקה', d.name]);
-  if(subLine) rows.push(['תת מחלקה', subLine]);
-  if(typeof e.priority === 'number'){
-    const n = planoShelfOf(d, s, e.id, one ? idx : 0);
-    const custom = d.shelfRules && d.shelfRules.length;
-    const sname = n === 2 || n === 3 ? (custom ? planoRailText(planoShelfText(d, n === 2 ? 1 : 2)) : PLANO_SHELF_NAMES[n]) : PLANO_SHELF_NAMES[n];
-    rows.push(['מיקום', (n ? 'מדף ' + n + (sname ? ' · ' + sname : '') + ' · ' : '') + 'עדיפות ' + e.priority]);
-  } else {
-    rows.push(['מיקום', 'מיקום מיוחד']);
-  }
-  if(!one && items.length) rows.push(['מותגים', items.map(function(x){ return x.name; }).join(', ')]);
-  const facings = (one && it.facings) || e.facings;
-  if(facings) rows.push(['כמות על המדף', facings]);
-  const cond = (one && it.condition) || e.condition;
-  if(cond) rows.push(['תנאי', cond]);
-  if(one && it.newOrMoved) rows.push(['שים לב', planoNewLabel()]);
-  if(e.note) rows.push(['הערה', e.note + (e.optional && !/חובה/.test(e.note) ? ' · לא חובה' : '')]);
-  else if(e.optional) rows.push(['הערה', 'לא חובה']);
-
-  const also = (e.alsoAt||[]).map(function(a){
-    const name = planoLocName(a.departmentId, a.subcategoryId);
-    if(!name) return '';
-    return `<button class="pw-also-btn" onclick="planoOpenDept('${planoEsc(a.departmentId)}','${planoEsc(a.subcategoryId)}')">${planoEsc(name)}${a.condition ? ' (' + planoEsc(a.condition) + ')' : ''}</button>`;
-  }).filter(Boolean).join('');
-
-  document.getElementById('modal-body').innerHTML = `
-    ${planoModalX()}
-    <div class="pw-dt">
-      <div class="pw-dt-top">
-        ${v ? `<img src="${planoEsc(v.img)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
-        <div class="pw-dt-name">${planoEsc(one ? it.name : (e.label || it.name))}</div>
-      </div>
-      ${e.placementOverride ? `<div class="pw-dt-warn"><span aria-hidden="true">⚠️</span><span>${planoEsc(e.placementOverride)}</span></div>` : ''}
-      <dl class="pw-dt-rows">${rows.map(function(r){ return `<dt>${planoEsc(r[0])}:</dt><dd>${planoEsc(r[1])}</dd>`; }).join('')}</dl>
-      ${also ? `<div class="pw-dt-also"><span>מוצג גם ב:</span>${also}</div>` : ''}
-      ${planoCanManage() && e.sourceIssue ? `<div class="plano-issue">הערת המרה (לצוות בלבד): ${planoEsc(e.sourceIssue)}</div>` : ''}
-    </div>`;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-
-/* ---------- ייבוא תמונות מותגים (רכש) ----------
-   קובץ planogram_visuals.json: {kind:"nizat-planogram-visuals", items:{"שם בפלנוגרמה":{logo}}}
-   נשמר במסמך planograms/_visuals (אותן הרשאות כמו הפלנוגרמות, בלי שינוי בחוקים). */
-function planoVisualsFileSelected(file){
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = function(ev){
-    let obj = null;
-    try { obj = JSON.parse(String(ev.target.result).replace(/^\uFEFF/, '')); } catch(e){ obj = null; }
-    if(!obj || obj.kind !== 'nizat-planogram-visuals' || !obj.items || typeof obj.items !== 'object'){
-      toast('זה לא קובץ תמונות מותגים תקין (planogram_visuals.json)'); return;
+function promoInsightText(row, isArea){
+  const {meta, cls} = row;
+  const parts = [];
+  if(row.__group==='anomaly' || (!isArea && cls.group==='anomaly')){
+    if(isArea){
+      parts.push(`אפס מימושים באזור. הצפי (חציון הרשת × מספר סניפים) היה ${cls.med.toFixed(1)}.`);
+    } else {
+      parts.push(`0 מימושים בסניף, מול ${cls.positiveOthers} מתוך ${cls.totalOthers} סניפים אחרים פעילים. החציון הוא ${cls.med}.`);
     }
-    /* לוגו = קישור https (מאתר ניצת) או לוגו שהועלה ידנית ונשמר בתוך הקובץ (data:image) */
-    const okUrl = function(u){
-      if(typeof u !== 'string') return null;
-      if(/^https:\/\//.test(u)) return u;
-      if(/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(u) && u.length < 200000) return u;
-      return null;
-    };
-    const items = {};
-    Object.keys(obj.items).forEach(function(k){
-      const logo = okUrl((obj.items[k] || {}).logo);
-      if(k && logo) items[k] = {logo: logo};
-    });
-    let total = 0, covered = 0;
-    planoData.departments.forEach(function(d){ (d.subcategories||[]).forEach(function(s){ (s.entries||[]).forEach(function(e){
-      if(typeof e.priority !== 'number') return;
-      (e.items||[]).forEach(function(it){ total++; if(items[it.name]) covered++; });
-    }); }); });
-    document.getElementById('modal-body').innerHTML = `
-      <h3>ייבוא תמונות מותגים</h3>
-      <p style="font-size:14.5px;line-height:1.6;">מתוך ${total} אריחים בפלנוגרמות:<br>
-      <b>${covered}</b> יקבלו לוגו, ו-${total - covered} יוצגו כאריח צבעוני עם השם.</p>
-      <p style="font-size:13px;color:var(--text-secondary);">הייבוא מחליף את כל התמונות הקיימות ומתעדכן לכל הסניפים.</p>
-      <div class="modal-actions">
-        <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-        <button class="btn-confirm" id="plano-vis-go" onclick="planoRunVisualsImport()">ייבוא</button>
-      </div>`;
-    document.getElementById('modal-overlay').classList.add('open');
-    planoPendingVisuals = {items: items, generatedAt: obj.generatedAt || null};
-  };
-  reader.readAsText(file, 'utf-8');
-}
-let planoPendingVisuals = null;
-function planoRunVisualsImport(){
-  const p = planoPendingVisuals;
-  if(!p || !firebaseReady || !db){ closeModal(); return; }
-  const btn = document.getElementById('plano-vis-go');
-  if(btn){ btn.disabled = true; btn.textContent = 'מייבא…'; }
-  const doc = {items: p.items, version: 3, generatedAt: p.generatedAt, importedAt: planoToday(), importedBy: currentUserEmail || null};
-  db.collection('planograms').doc('_visuals').set(doc).then(function(){
-    planoData.visuals = p.items;
-    planoData.visualsMeta = {importedAt: doc.importedAt, count: Object.keys(p.items).length};
-    planoWriteCache(planoData.departments, planoData.legend);
-    planoPendingVisuals = null;
-    closeModal();
-    toast('התמונות יובאו: ' + Object.keys(p.items).length + ' שמות');
-    planoRerender();
-  }).catch(function(err){
-    console.error('planograms: ייבוא תמונות נכשל', err);
-    if(btn){ btn.disabled = false; btn.textContent = 'ייבוא'; }
-    toast('הייבוא נכשל: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
-  });
-}
-
-/* ---------- מקרא: נתונים ---------- */
-function planoLegendRows(){
-  const rows = planoData.legend && planoData.legend.legendRows;
-  return (rows && rows.length) ? rows : PLANO_LEGEND_ROWS_DEFAULT;
-}
-function planoLegendReminder(){
-  return (planoData.legend && planoData.legend.legendReminder) || PLANO_LEGEND_REMINDER_DEFAULT;
-}
-function planoLegendVersion(){
-  return (planoData.legend && planoData.legend.legendVersion) || 1;
-}
-function planoLegendKeyHtml(r){
-  const key = r.style === 'new' ? (r.key || planoNewLabel()) : (r.key || '');
-  if(r.style === 'new') return `<span class="plano-new" style="margin:0">${planoEsc(key)}</span>`;
-  if(r.style === 'alert') return `<span class="plano-legend-chip alert"><span aria-hidden="true">⚠️</span>&nbsp;${planoEsc(key)}</span>`;
-  return `<span class="plano-legend-chip ${r.style === 'p1' ? 'p1' : (r.style === 'shelf' ? 'shelf' : '')}">${planoEsc(key)}</span>`;
-}
-
-/* ---------- מקרא: נפתח לבד בכניסה הראשונה ואחרי כל עדכון של הרכש ---------- */
-function planoMaybeAutoOpenLegend(){
-  if(planoState.legendAutoChecked) return;
-  if(!planoData.loaded || !planoData.departments.length) return;
-  if(!planoIsVisibleToCurrentUser()) return;
-  planoState.legendAutoChecked = true;
-  let seen = 0;
-  try { seen = parseInt(localStorage.getItem(PLANO_LEGEND_SEEN_KEY) || '0', 10) || 0; } catch(e){}
-  if(seen >= planoLegendVersion()) return;
-  const overlay = document.getElementById('modal-overlay');
-  if(overlay && overlay.classList.contains('open')) return;
-  planoOpenLegend(true);
-}
-function planoMarkLegendSeen(){
-  try { localStorage.setItem(PLANO_LEGEND_SEEN_KEY, String(planoLegendVersion())); } catch(e){}
-}
-
-function planoOpenLegend(isAuto){
-  planoMarkLegendSeen();
-  const rows = planoLegendRows();
-  const updated = planoData.legend && planoData.legend.legendUpdatedAt;
-  document.getElementById('modal-body').innerHTML = `
-    <h3>איך קוראים פלנוגרמה?</h3>
-    ${isAuto ? `<p style="font-size:13.5px;color:var(--text-secondary);margin:0 0 6px;">${planoLegendVersion() > 1 ? 'המקרא עודכן. ' : ''}אפשר לחזור לכאן בכל רגע דרך הכפתור "איך קוראים פלנוגרמה?".</p>` : ''}
-    ${rows.map(function(r){
-      return `<div class="plano-legend-row"><div class="plano-legend-key">${planoLegendKeyHtml(r)}</div><div class="plano-legend-text">${planoEsc(r.text)}</div></div>`;
-    }).join('')}
-    ${updated ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">עודכן: ${planoEsc(updated)}</div>` : ''}
-    <div class="modal-actions">
-      ${planoCanManage() ? `<button class="btn-secondary" onclick="planoOpenLegendEditor()">✏️ עריכת מקרא</button>` : ''}
-      <button class="btn-confirm" onclick="closeModal()">הבנתי</button>
-    </div>`;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-
-/* ---------- מקרא: עריכה (רכש והנהלת המערכת בלבד) ---------- */
-let planoLegendDraft = null;
-function planoOpenLegendEditor(){
-  if(!planoCanManage()) return;
-  planoLegendDraft = {
-    reminder: planoLegendReminder(),
-    rows: planoLegendRows().map(function(r){ return {style:r.style||'plain', key:r.key||'', text:r.text||''}; })
-  };
-  planoRenderLegendEditor();
-}
-function planoReadLegendEditor(){
-  if(!planoLegendDraft) return;
-  const rem = document.getElementById('plano-leg-reminder');
-  if(rem) planoLegendDraft.reminder = rem.value;
-  planoLegendDraft.rows.forEach(function(r, i){
-    const st = document.getElementById('plano-leg-style-' + i);
-    const k = document.getElementById('plano-leg-key-' + i);
-    const t = document.getElementById('plano-leg-text-' + i);
-    if(st) r.style = st.value;
-    if(k) r.key = k.value;
-    if(t) r.text = t.value;
-  });
-}
-function planoRenderLegendEditor(){
-  const d = planoLegendDraft;
-  document.getElementById('modal-body').innerHTML = `
-    <h3>עריכת מקרא</h3>
-    <div style="font-size:13.5px;color:var(--text-secondary);margin:4px 0 4px;">שורות המקרא:</div>
-    <div class="plano-leg-scroll">${d.rows.map(function(r, i){
-      return `<div class="plano-leg-edit-row">
-        <div class="plano-leg-top">
-          <select id="plano-leg-style-${i}" aria-label="סוג הסימון">${Object.keys(PLANO_LEGEND_STYLES).map(function(k){
-            return `<option value="${k}" ${r.style === k ? 'selected' : ''}>${PLANO_LEGEND_STYLES[k]}</option>`;
-          }).join('')}</select>
-          <input id="plano-leg-key-${i}" type="text" value="${planoEsc(r.key)}" placeholder="${r.style === 'new' ? planoEsc(planoNewLabel()) : 'כיתוב קצר'}" aria-label="כיתוב הסימון">
-          <button class="plano-leg-del" onclick="planoLegendRemoveRow(${i})" aria-label="מחיקת שורה">🗑</button>
-        </div>
-        <textarea id="plano-leg-text-${i}" aria-label="הסבר">${planoEsc(r.text)}</textarea>
-      </div>`;
-    }).join('')}</div>
-    <button class="btn-secondary" onclick="planoLegendAddRow()">+ הוספת שורה</button>
-    <label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-top:12px;">
-      <input type="checkbox" id="plano-leg-bump" checked> להציג את המקרא שוב לכל העובדים בכניסה הבאה
-    </label>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="planoLegendResetDefault()">שחזור ברירת מחדל</button>
-      <button class="btn-secondary" onclick="planoOpenLegend()">ביטול</button>
-      <button class="btn-confirm" id="plano-leg-save" onclick="planoSaveLegend()">שמירה</button>
-    </div>`;
-  document.getElementById('modal-overlay').classList.add('open');
-}
-function planoLegendAddRow(){
-  planoReadLegendEditor();
-  planoLegendDraft.rows.push({style:'plain', key:'', text:''});
-  planoRenderLegendEditor();
-}
-function planoLegendRemoveRow(i){
-  planoReadLegendEditor();
-  planoLegendDraft.rows.splice(i, 1);
-  planoRenderLegendEditor();
-}
-function planoLegendResetDefault(){
-  planoLegendDraft = {
-    reminder: PLANO_LEGEND_REMINDER_DEFAULT,
-    rows: PLANO_LEGEND_ROWS_DEFAULT.map(function(r){ return Object.assign({}, r); })
-  };
-  planoRenderLegendEditor();
-}
-function planoSaveLegend(){
-  planoReadLegendEditor();
-  const rows = planoLegendDraft.rows
-    .map(function(r){ return {style: r.style || 'plain', key: (r.key||'').trim(), text: (r.text||'').trim()}; })
-    .filter(function(r){ return r.text; });
-  if(!rows.length){ toast('צריך לפחות שורה אחת עם הסבר'); return; }
-  if(!firebaseReady || !db){ toast('אין חיבור כרגע. נסו שוב.'); return; }
-  const bump = document.getElementById('plano-leg-bump');
-  const patch = {
-    legendRows: rows,
-    legendReminder: (planoLegendDraft.reminder||'').trim() || PLANO_LEGEND_REMINDER_DEFAULT,
-    legendVersion: planoLegendVersion() + ((bump && bump.checked) ? 1 : 0),
-    legendUpdatedAt: planoToday(),
-    legendUpdatedBy: currentUserEmail || null
-  };
-  const btn = document.getElementById('plano-leg-save');
-  if(btn){ btn.disabled = true; btn.textContent = 'שומר…'; }
-  db.collection('config').doc('planogramLegend').set(patch, {merge:true}).then(function(){
-    planoData.legend = Object.assign({}, planoData.legend || {}, patch);
-    planoWriteCache(planoData.departments, planoData.legend);
-    planoMarkLegendSeen();
-    planoLegendDraft = null;
-    closeModal();
-    toast('המקרא נשמר');
-    planoRerender();
-  }).catch(function(err){
-    console.error('planograms: שמירת מקרא נכשלה', err);
-    if(btn){ btn.disabled = false; btn.textContent = 'שמירה'; }
-    toast('השמירה נכשלה: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
-  });
-}
-
-/* ============================================================
-   ניהול — ייבוא JSON ופרסום לסניפים (צוות רכש בלבד)
-============================================================ */
-let planoPendingImport = null;
-
-function planoValidateSeed(obj){
-  const errors = [];
-  if(!obj || typeof obj !== 'object') return {ok:false, errors:['הקובץ אינו JSON תקין של פלנוגרמות.']};
-  if(!Array.isArray(obj.departments) || !obj.departments.length) errors.push('חסרה רשימת מחלקות (departments).');
-  const ids = {};
-  const stats = {departments:0, subcategories:0, entries:0, items:0, newOrMoved:0, alsoAt:0};
-  (obj.departments||[]).forEach(function(d, i){
-    const where = 'מחלקה #' + (i+1) + (d && d.name ? ' (' + d.name + ')' : '');
-    if(!d || typeof d !== 'object'){ errors.push(where + ': מבנה לא תקין.'); return; }
-    if(!d.id || !/^[A-Za-z0-9_-]+$/.test(d.id)) errors.push(where + ': מזהה (id) חסר או לא תקין.');
-    else if(ids[d.id]) errors.push(where + ': מזהה כפול ' + d.id + '.');
-    else ids[d.id] = true;
-    if(!d.name) errors.push(where + ': חסר שם מחלקה.');
-    if(!Array.isArray(d.subcategories) || !d.subcategories.length) errors.push(where + ': אין תתי-קטגוריות.');
-    stats.departments++;
-    (d.subcategories||[]).forEach(function(s){
-      stats.subcategories++;
-      if(!s.id) errors.push(where + ': תת-קטגוריה בלי מזהה.');
-      (s.entries||[]).forEach(function(e){
-        stats.entries++;
-        if(!e.id) errors.push(where + ': משבצת עדיפות בלי מזהה.');
-        if(!Array.isArray(e.items) || !e.items.length) errors.push(where + ': משבצת עדיפות בלי מוצרים.');
-        (e.items||[]).forEach(function(it){ stats.items++; if(it.newOrMoved) stats.newOrMoved++; if(!it.name) errors.push(where + ': מוצר בלי שם.'); });
-        stats.alsoAt += (e.alsoAt||[]).length;
-      });
-    });
-  });
-  /* הפניות alsoAt חייבות להצביע למחלקה ותת-קטגוריה שקיימות בקובץ. */
-  const subsById = {};
-  (obj.departments||[]).forEach(function(d){ if(d && d.id) subsById[d.id] = (d.subcategories||[]).map(function(s){ return s.id; }); });
-  (obj.departments||[]).forEach(function(d){
-    (d && d.subcategories || []).forEach(function(s){
-      (s.entries||[]).forEach(function(e){
-        (e.alsoAt||[]).forEach(function(a){
-          if(!subsById[a.departmentId] || subsById[a.departmentId].indexOf(a.subcategoryId) === -1){
-            errors.push((d.name||d.id) + ': הפניית "גם ב" למיקום שלא קיים (' + a.departmentId + '/' + a.subcategoryId + ').');
-          }
-        });
-      });
-    });
-  });
-  if((obj.departments||[]).some(function(d){ return d && JSON.stringify(d).length > 900000; })){
-    errors.push('אחת המחלקות גדולה מדי לשמירה.');
+  } else if(row.__group==='gap' || (!isArea && cls.group==='gap')){
+    if(meta.note && meta.note.indexOf('בחוץ מדף')!==-1) parts.push('כדאי לבדוק שילוט/מיקום מול ההנחיה: ' + meta.note.replace('מימושים.','').trim());
+    if(meta.template && (meta.template.indexOf('שני')!==-1 || meta.template.indexOf("2 יח")!==-1)) parts.push('מבצע זוגות/שני יחידות — ייתכן שלקוחות לא משלימים את המימוש.');
+    if(!parts.length) parts.push('פער מתחת לחציון קבוצת ההשוואה; מומלץ בדיקת זמינות ומיקום.');
+  } else {
+    parts.push(cls.med===0 ? 'פעילות חיובית מול בסיס השוואה נמוך — לא בהכרח הצטיינות.' : 'מעל החציון — לשמר זמינות.');
   }
-  return {ok: !errors.length, errors: errors, stats: stats};
+  if(isArea && cls.zeroBranches && cls.zeroBranches.length){
+    parts.push(`סניפים באזור עם 0 מימושים: ${cls.zeroBranches.join(', ')}.`);
+  }
+  if(meta.restricted) parts.push(`⚠ מבצע ייעודי ל${meta.restricted} בלבד.`);
+  if(meta.needsParticipantList) parts.push('⚠ בחוברת סומן כ"פתוח לחלק מהסניפים בלבד" - נתוני המכר מראים בפועל מי מוכר ומי לא, כך שסניף עם מכירות בפועל נחשב משתתף מאומת.');
+  const mult = promoMultiplier(meta.template);
+  if(mult>1 && !isArea) parts.push(`כל מימוש = ${mult} פריטים (${cls.selfVal} מימושים ≈ ${cls.selfVal*mult} פריטים).`);
+  return parts.join(' ');
+}
+function promoGroupLabel(group){
+  return group==='anomaly' ? 'בדיקת חריגה' : (group==='gap' ? 'בירור פער' : 'לשמר חוזקה');
+}
+function promoGroupColor(group){
+  return group==='anomaly' ? 'var(--critical)' : (group==='gap' ? 'var(--warning)' : 'var(--good)');
+}
+function promoAnalysisRowHtml(row, group, isArea){
+  row.__group = group;
+  const priceTxt = row.meta.price ? '₪'+Number(row.meta.price).toFixed(2) : '';
+  const codeTxt = row.code;
+  const areaPrefix = row.cls.areaLabel ? `<span style="color:var(--blue,#185FA5);font-weight:600;">אזור ${row.cls.areaLabel}</span> · ` : '';
+  return `
+    <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:6px;">
+      <div class="admin-row-main">
+        <div class="t">${areaPrefix}${row.title||''} <span style="font-family:monospace;font-size:11.5px;color:var(--muted);">#${codeTxt}</span></div>
+        <div class="m">${row.meta.template||''} ${priceTxt}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-secondary);">${promoInsightText(row, isArea)}</div>
+    </div>
+  `;
+}
+function promoAnalysisSectionHtml(title, group, rows, isArea, emptyMsg){
+  const sortFn = (a,b)=>{
+    if(group==='anomaly') return (b.cls.positiveOthers||0)-(a.cls.positiveOthers||0);
+    if(group==='strength') return (b.cls.gapPct||0)-(a.cls.gapPct||0);
+    return Math.abs(b.cls.gapNum||(b.cls.selfVal-b.cls.med)||0) - Math.abs(a.cls.gapNum||(a.cls.selfVal-a.cls.med)||0);
+  };
+  const sorted = [...rows].sort(sortFn);
+  const visible = sorted.slice(0,5);
+  const rest = sorted.slice(5);
+  const extraId = 'promo-extra-' + group;
+  return `
+    <div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים)</span></h3>
+      </div>
+      <div class="card">
+        ${visible.length ? visible.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+        ${rest.length ? `
+          <div id="${extraId}" style="display:none;">${rest.map(r=>promoAnalysisRowHtml(r,group,isArea)).join('')}</div>
+          <button id="${extraId}-btn" class="icon-btn" style="width:100%;margin-top:8px;font-size:12.5px;" onclick="togglePromoMore('${extraId}')">הראה לי עוד (${rest.length} נוספים)</button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+function togglePromoMore(id){
+  const el = document.getElementById(id);
+  if(el) el.style.display = 'block';
+  const btn = document.getElementById(id+'-btn');
+  if(btn) btn.style.display = 'none';
+}
+/* גרסה לתצוגה הארצית: הממצאים מגיעים מכל 6 האזורים מעורבבים יחד, אז מיון
+   שטוח + slice(0,5) גלובלי עלול "לבלוע" אזור שקט לגמרי אם אזור אחר רועש.
+   כאן ממיינים בתוך כל אזור בנפרד, לוקחים עד 5 לכל אזור, ואז מציגים אזור
+   אחר אזור (בסדר האזורים שבטבלת ה-KPI) עם כותרת-משנה לכל אזור. */
+function promoNationalSectionHtml(title, group, rows, emptyMsg, capPerArea){
+  const cap = capPerArea || 5;
+  const sortFn = (a,b)=>{
+    if(group==='anomaly') return (b.cls.positiveOthers||0)-(a.cls.positiveOthers||0);
+    if(group==='strength') return (b.cls.gapPct||0)-(a.cls.gapPct||0);
+    return Math.abs(b.cls.gapNum||(b.cls.selfVal-b.cls.med)||0) - Math.abs(a.cls.gapNum||(a.cls.selfVal-a.cls.med)||0);
+  };
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const byArea = areaLabels.map(area=>{
+    const sortedArea = rows.filter(r=>r.cls.areaLabel===area).sort(sortFn);
+    return {area, visible: sortedArea.slice(0,cap), rest: sortedArea.slice(cap)};
+  }).filter(x=>x.visible.length);
+  return `
+    <div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${promoGroupColor(group)};display:inline-block;"></span>
+        <h3 style="margin:0;font-size:14.5px;">${title} <span style="font-weight:400;color:var(--text-secondary);font-size:12.5px;">(${rows.length} ממצאים בס"ה)</span></h3>
+      </div>
+      <div class="card">
+        ${byArea.length ? byArea.map(({area,visible,rest})=>{
+          const extraId = 'promo-extra-national-' + group + '-' + area;
+          return `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12.5px;font-weight:600;color:var(--blue,#185FA5);padding:6px 4px 2px;">אזור ${area}</div>
+            ${visible.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}
+            ${rest.length ? `
+              <div id="${extraId}" style="display:none;">${rest.map(r=>promoAnalysisRowHtml(r,group,true)).join('')}</div>
+              <button id="${extraId}-btn" class="icon-btn" style="width:100%;margin-top:4px;font-size:12px;" onclick="togglePromoMore('${extraId}')">הראה לי עוד (${rest.length} נוספים באזור ${area})</button>
+            ` : ''}
+          </div>
+        `;}).join('') : `<div class="empty-state">${emptyMsg}</div>`}
+      </div>
+    </div>
+  `;
+}
+/* דוח מאקרו לתצוגה ארצית (ארבל/עופר) - לא ברמת סניף, אלא ברמת אזור מול
+   אזור. לכל קוד מבצע, כל אזור מושווה מול חציון "הממוצע לסניף" של שאר
+   האזורים (מנורמל למספר הסניפים באזור, כדי שאזור גדול לא ייראה חזק
+   באופן מלאכותי רק כי יש בו יותר סניפים). */
+function buildPromoNationalReport(){
+  const {byCode} = buildPromoAnalysisBase();
+  const booklet = activePromoBooklet();
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const areaBranchMap = {};
+  areaLabels.forEach(a=>{ areaBranchMap[a] = BRANCH_DIRECTORY.filter(b=>b.area===a).map(b=>b.name); });
+  const out = {anomaly:[], gap:[], strength:[]};
+  Object.keys(byCode).forEach(code=>{
+    const meta = booklet[code] || {};
+    const entry = byCode[code];
+    const areaStats = areaLabels.map(a=>{
+      const branches = (areaBranchMap[a]||[]).filter(n=>isPromoRelevantForBranch(meta, n));
+      if(!branches.length) return null;
+      const total = branches.reduce((s,n)=>s+(entry.salesByBranch[n]||0),0);
+      const zeroBranches = branches.filter(n=>(entry.salesByBranch[n]||0)===0);
+      return {area:a, total, perBranch: total/branches.length, count:branches.length, zeroBranches};
+    }).filter(Boolean);
+    if(areaStats.length<2) return; /* אין מה להשוות בין פחות משני אזורים */
+    areaStats.forEach(as=>{
+      const others = areaStats.filter(x=>x.area!==as.area).map(x=>x.perBranch);
+      const med = median(others);
+      if(med===null) return;
+      const expected = med * as.count;
+      const gapPct = expected>0 ? ((as.total/expected-1)*100) : null;
+      let group = 'none';
+      if(as.total===0 && expected>0) group = 'anomaly';
+      else if(as.total<expected) group = 'gap';
+      else if(as.total>expected) group = 'strength';
+      if(group==='none') return;
+      out[group].push({code, title:entry.title, meta, cls:{selfVal:as.total, med:expected, gapPct, branchCount:as.count, zeroBranches:as.zeroBranches, areaLabel:as.area}});
+    });
+  });
+  return out;
+}
+/* טבלת KPI תמציתית לכל אזור: סה"כ מימושים ברשת (כל הקודים), ומספר קודים
+   בכל אחת משלוש הקבוצות - זו התמונה ה"ארצית לפי מנהלי אזור" עצמה. */
+function promoNationalSummaryTableHtml(report){
+  const areaLabels = Object.values(AREA_MANAGER_INFO).filter(v=>v.areaName).map(v=>v.areaName);
+  const rows = areaLabels.map(a=>{
+    const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===a).map(b=>b.name);
+    const {byCode} = buildPromoAnalysisBase();
+    let total = 0;
+    Object.values(byCode).forEach(entry=>{ areaBranches.forEach(n=>{ total += (entry.salesByBranch[n]||0); }); });
+    const anomalyCount = report.anomaly.filter(r=>r.cls.areaLabel===a).length;
+    const gapCount = report.gap.filter(r=>r.cls.areaLabel===a).length;
+    const strengthCount = report.strength.filter(r=>r.cls.areaLabel===a).length;
+    return {area:a, branchCount:areaBranches.length, total, anomalyCount, gapCount, strengthCount};
+  }).sort((x,y)=>y.total-x.total);
+  return `
+    <div class="card" style="margin-bottom:18px;overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;">
+        <thead><tr style="text-align:right;color:var(--text-secondary);">
+          <th style="padding:6px 8px;">מנהל אזור</th><th style="padding:6px 8px;">סניפים</th>
+          <th style="padding:6px 8px;">סה"כ מימושים (כל הקודים)</th>
+          <th style="padding:6px 8px;color:var(--critical,#d03b3b);">בדיקת חריגה</th>
+          <th style="padding:6px 8px;color:var(--warning,#c9962f);">בירור פער</th>
+          <th style="padding:6px 8px;color:var(--good,#0ca30c);">לשמר חוזקה</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>`
+            <tr style="border-top:1px solid var(--gridline);">
+              <td style="padding:6px 8px;font-weight:500;">${r.area}</td>
+              <td style="padding:6px 8px;">${r.branchCount}</td>
+              <td style="padding:6px 8px;">${r.total}</td>
+              <td style="padding:6px 8px;">${r.anomalyCount||'—'}</td>
+              <td style="padding:6px 8px;">${r.gapCount||'—'}</td>
+              <td style="padding:6px 8px;">${r.strengthCount||'—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+/* המסך הראשי לניתוח מכר מבצעים (סניף/אזור) - מוצג מעל עיון-לפי-מוצר. */
+function viewPromoAnalysis(){
+  ensurePromoBookletArchive();
+  const bookletCount = Object.keys(activePromoBooklet()).length;
+  if(!bookletCount){
+    if(_promoArchiveState==='loading'){
+      return `<div class="card"><div class="empty-state">טוען את חוברות המבצעים...</div></div>`;
+    }
+    return `<div class="card"><div class="empty-state">עדיין לא הועלתה חוברת המבצעים החודשית — הניתוח יופיע כאן ברגע שרכש יעלה אותה ב"ניהול תוכן".</div></div>`;
+  }
+  if(hasPromoNationalAccess()){
+    const report = buildPromoNationalReport();
+    return `
+      <div class="card" style="margin-bottom:16px;">
+        <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — תצוגה ארצית לפי מנהלי אזור</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);">כל אזור מושווה מול שאר האזורים (ממוצע לסניף, מנורמל למספר הסניפים באזור). אין כאן פירוט ברמת סניף בודד.</div>
+        ${promoBookletPickerHtml()}
+      </div>
+      ${promoNationalSummaryTableHtml(report)}
+      ${promoNationalSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, 'אין ממצאי חריגת אפס כרגע.', 5)}
+      ${promoNationalSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, 'אין ממצאי פער כרגע.', 5)}
+      ${promoNationalSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, 'אין ממצאי חוזקה כרגע.', 5)}
+    `;
+  }
+  const areaMode = isAreaViewer();
+  let report, scopeLabel;
+  if(areaMode){
+    const areaBranches = BRANCH_DIRECTORY.filter(b=>b.area===session.areaLabel).map(b=>b.name);
+    report = buildPromoAreaReport(areaBranches);
+    scopeLabel = `אזור ${session.areaLabel} (${areaBranches.length} סניפים)`;
+  } else if(session.role==='branch' && session.branchInfo){
+    report = buildPromoBranchReport(session.branchInfo.name);
+    scopeLabel = session.branchInfo.name;
+  } else {
+    return '';
+  }
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div style="font-weight:500;font-size:15px;margin-bottom:4px;">ניתוח מכר מבצעים — ${scopeLabel}</div>
+      <div style="font-size:12.5px;color:var(--text-secondary);">השוואה מול חציון ${areaMode?'הרשת (למעט סניפי האזור)':'שאר הסניפים'}. לרוב המבצעים אין רשימת השתתפות רשמית — הזכאות בפועל לא אומתה.</div>
+      ${promoBookletPickerHtml()}
+    </div>
+    ${promoAnalysisSectionHtml('בדיקת חריגה — אפס מימושים מול פעילות רשתית', 'anomaly', report.anomaly, areaMode, 'אין ממצאי חריגת אפס כרגע.')}
+    ${promoAnalysisSectionHtml('בירור פער — מתחת לחציון', 'gap', report.gap, areaMode, 'אין ממצאי פער כרגע.')}
+    ${promoAnalysisSectionHtml('לשמר חוזקה — מעל החציון', 'strength', report.strength, areaMode, 'אין ממצאי חוזקה כרגע.')}
+    ${report.scopedOut.length ? `
+      <div style="margin-top:6px;">
+        <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px;">ממצאים שהוצאו מהניתוח</h3>
+        <div class="card">
+          ${report.scopedOut.map(s=>`<div class="admin-row"><div class="admin-row-main"><div class="t" style="font-size:13px;">${s.title||''} <span style="font-family:monospace;font-size:11px;color:var(--muted);">#${s.code}</span></div><div class="m">${s.reason}</div></div></div>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
 }
 
-function planoImportFileSelected(file){
+function cellFillHex(sheet, ri, ci){
+  if(!sheet || typeof XLSX==='undefined') return null;
+  try{
+    const addr = XLSX.utils.encode_cell({r:ri, c:ci});
+    const cell = sheet[addr];
+    if(cell && cell.s && cell.s.fgColor && cell.s.fgColor.rgb && cell.s.patternType==='solid'){
+      return '#' + cell.s.fgColor.rgb.slice(-6).toUpperCase();
+    }
+  }catch(e){}
+  return null;
+}
+function contrastTextColor(hex){
+  const h = (hex||'').replace('#','');
+  if(h.length<6) return '#1a1a1a';
+  const r = parseInt(h.substr(0,2),16)/255, g = parseInt(h.substr(2,2),16)/255, b = parseInt(h.substr(4,2),16)/255;
+  const lin = c => c<=0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4);
+  const L = 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b);
+  return L > 0.45 ? '#1a1a1a' : '#ffffff';
+}
+function managerChip(comp, name){
+  if(!name) return '';
+  const hex = comp && comp.managerColors ? comp.managerColors[name] : null;
+  if(!hex) return `<span class="mgr-chip mgr-chip-plain">${name}</span>`;
+  const textColor = contrastTextColor(hex);
+  return `<span class="mgr-chip" style="background:${hex};color:${textColor};border-color:${textColor==='#ffffff'?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.15)'};">${name}</span>`;
+}
+/* קורא את טבלת האקסל הגולמית (ערכים + צבעי רקע כפי שהם בקובץ) כדי להציג אותה
+   בדיוק כמו שמחלקת השיווק רגילה לשלוח במייל היומי — בלי לפרש/לעצב מחדש.
+   טווח העמודות: מעמודה A (רצועת צבע הקבוצה) ועד עמודת מנהל אזור, לפי כל הכותרות שנמצאו. */
+function extractRawSalesTable(rows, sheet, headers){
+  if(!headers || !headers.length) return null;
+  const h0 = headers[0];
+  const colTypes = {};
+  colTypes[h0.targetCol] = 'int';
+  colTypes[h0.salesCol] = 'money';
+  colTypes[h0.pctCol] = 'pct';
+  const colStart = 0;
+  const colEnd = Math.max(...headers.map(h=>h.managerCol));
+  const rowStart = h0.rowIndex;
+  let rowEnd = rows.length - 1;
+  while(rowEnd > rowStart){
+    const row = rows[rowEnd];
+    const hasVal = row && row.slice(colStart, colEnd+1).some(v=>v!==null && v!==undefined && v!=='');
+    if(hasVal) break;
+    rowEnd--;
+  }
+  const tableRows = [];
+  for(let ri=rowStart; ri<=rowEnd; ri++){
+    const row = rows[ri] || [];
+    const mgrCellVal = (row[h0.managerCol]||'').toString().trim();
+    const cells = [];
+    for(let ci=colStart; ci<=colEnd; ci++){
+      if(ci===h0.managerCol && isExcludedManagerName(mgrCellVal)){
+        cells.push({text:'', bg:null}); /* מנהל האזור הוסר — הסניף עצמו נשאר, ללא שיוך */
+        continue;
+      }
+      const raw = row[ci];
+      const text = formatSheetCellValue(raw, colTypes[ci]);
+      cells.push({text, bg: cellFillHex(sheet, ri, ci)});
+    }
+    tableRows.push({cells});
+  }
+  return tableRows;
+}
+function parseCompetitionSheet(rows, sheet){
+  const HEADER_NAME = 'שם חנות';
+  const groupLabelRe = /^קבוצה\s*(\d+)/;
+  const rankRe = /^מקום\s+(\S+)\s*[:：]?\s*(.*)$/;
+  const headers = [];
+  rows.forEach((row,ri)=>{
+    if(!row) return;
+    for(let ci=0; ci<row.length; ci++){
+      if((row[ci]||'').toString().trim() === HEADER_NAME){
+        headers.push({rowIndex:ri, nameCol:ci, targetCol:ci+1, salesCol:ci+2, pctCol:ci+3, managerCol:ci+4});
+      }
+    }
+  });
+  console.log('[parseCompetitionSheet] headers found:', headers.length, headers);
+  if(!headers.length){
+    console.warn('[parseCompetitionSheet] לא נמצאה אף כותרת "שם חנות" בקובץ — בודקים דגימת תאים מהשורות הראשונות:',
+      rows.slice(0,5).map(r=>r ? r.slice(0,6) : r));
+    return null;
+  }
+
+  const prizeSectionEnd = headers[0].rowIndex;
+  const prizesByNum = {};
+  const groupColorsByNum = {};
+  for(let ri=0; ri<prizeSectionEnd; ri++){
+    const row = rows[ri]; if(!row) continue;
+    for(let ci=0; ci<row.length; ci++){
+      const v = (row[ci]||'').toString().trim();
+      const m = v.match(groupLabelRe);
+      if(!m) continue;
+      const num = parseInt(m[1],10);
+      const colorHex = cellFillHex(sheet, ri, ci);
+      if(colorHex) groupColorsByNum[num] = colorHex;
+      const list = [];
+      let rr = ri+1;
+      while(rr < prizeSectionEnd){
+        const nextRow = rows[rr];
+        const cellVal = nextRow ? (nextRow[ci]||'').toString().trim() : '';
+        if(!cellVal || groupLabelRe.test(cellVal)) break;
+        const rm = cellVal.match(rankRe);
+        if(rm){
+          list.push({rank: HEB_ORDINAL_RANK[rm[1]] || (list.length+1), label:'מקום '+rm[1], text: rm[2].trim()});
+        } else {
+          list.push({rank:list.length+1, label:'', text:cellVal});
+        }
+        rr++;
+      }
+      prizesByNum[num] = list;
+    }
+  }
+
+
+  const groups = [];
+  const managerColors = {};
+  headers.forEach((h,hi)=>{
+    const endRow = hi+1 < headers.length ? headers[hi+1].rowIndex : rows.length;
+    const branches = [];
+    let groupNum = null;
+    let target = null;
+    for(let ri=h.rowIndex+1; ri<endRow; ri++){
+      const row = rows[ri]; if(!row) continue;
+      for(let ci=0; ci<h.nameCol; ci++){
+        const v = (row[ci]||'').toString().trim();
+        const m = v.match(groupLabelRe);
+        if(m) groupNum = parseInt(m[1],10);
+      }
+      const rawName = (row[h.nameCol]||'').toString().trim();
+      if(!rawName || /סה[״"]?כ/.test(rawName)) continue;
+      const t = row[h.targetCol], s = row[h.salesCol], mgr = row[h.managerCol];
+      let mgrName = (mgr||'').toString().trim();
+      const isExcludedMgr = isExcludedManagerName(mgrName);
+      if(isExcludedMgr){
+        console.log('[parseCompetitionSheet] נמצא מנהל מוחרג בשורה', ri, '— מקורי:', JSON.stringify(mgrName), '← מנוקה');
+        mgrName = ''; /* הסניף עצמו נשאר, ללא שיוך למנהל אזור */
+      }
+      if(target===null && typeof t === 'number') target = t;
+      const rowCells = {
+        name: {text: rawName, bg: cellFillHex(sheet, ri, h.nameCol)},
+        target: {text: formatSheetCellValue(t, 'int'), bg: cellFillHex(sheet, ri, h.targetCol)},
+        sales: {text: formatSheetCellValue(s, 'money'), bg: cellFillHex(sheet, ri, h.salesCol)},
+        pct: {text: formatSheetCellValue(row[h.pctCol], 'pct'), bg: cellFillHex(sheet, ri, h.pctCol)},
+        manager: isExcludedMgr ? {text:'', bg:null} : {text: mgrName, bg: cellFillHex(sheet, ri, h.managerCol)}
+      };
+      branches.push({
+        rawName,
+        name: normalizeBranchName(rawName),
+        target: (typeof t === 'number') ? t : (target||0),
+        sales: (typeof s === 'number') ? s : 0,
+        areaManager: mgrName,
+        rowCells
+      });
+      if(mgrName && !managerColors[mgrName]){
+        const hex = cellFillHex(sheet, ri, h.managerCol);
+        if(hex) managerColors[mgrName] = hex;
+      }
+    }
+    if(!branches.length) return;
+    if(groupNum===null) groupNum = hi+1;
+    groups.push({groupNum, name:'קבוצה '+groupNum, target: target||0, colorHex: groupColorsByNum[groupNum]||null, prizes: prizesByNum[groupNum]||[], branches});
+  });
+  groups.sort((a,b)=>a.groupNum-b.groupNum);
+  if(!groups.length){
+    console.warn('[parseCompetitionSheet] נמצאו כותרות אך אף קבוצה/סניף לא חולץ מהן.');
+    return null;
+  }
+  groups.managerColors = managerColors;
+  groups.rawTable = extractRawSalesTable(rows, sheet, headers);
+  const h0 = headers[0];
+  groups.headerRowCells = [h0.nameCol, h0.targetCol, h0.salesCol, h0.pctCol, h0.managerCol].map(ci => ({
+    text: (rows[h0.rowIndex][ci]||'').toString().trim(),
+    bg: cellFillHex(sheet, h0.rowIndex, ci)
+  }));
+  console.log('[parseCompetitionSheet] הצלחה — קבוצות:', groups.length, 'שורות rawTable:', groups.rawTable ? groups.rawTable.length : null);
+  const allManagerNames = new Set();
+  let totalBranches = 0, has47 = false;
+  groups.forEach(g=>g.branches.forEach(b=>{
+    totalBranches++;
+    allManagerNames.add(JSON.stringify(b.areaManager));
+    if(b.rawName && b.rawName.indexOf('47')===0) has47 = true;
+  }));
+  console.log('[parseCompetitionSheet] סה"כ סניפים:', totalBranches, '| שמות מנהלי אזור שנמצאו:', [...allManagerNames], '| סניף 47 נמצא:', has47);
+  return groups;
+}
+function matchBranchInCompetition(comp, directoryEntry){
+  if(!comp.groups || !comp.groups.length || !directoryEntry) return null;
+  const target = normalizeBranchName(directoryEntry.name);
+  // Exact normalized-name identity always wins outright — name is the authoritative
+  // key, so an exact match short-circuits before the area-code signal (a secondary,
+  // sometimes-stale disambiguator) can override it.
+  for(const g of comp.groups){
+    for(const b of g.branches){ if(b.name === target) return {group:g, branch:b}; }
+  }
+  let best=null, bestScore=Infinity;
+  for(const g of comp.groups){
+    for(const b of g.branches){
+      let score = branchMatchScore(target, b.name);
+      if(directoryEntry.area && b.areaManager){
+        score += (b.areaManager.indexOf(directoryEntry.area)===0) ? -0.5 : 2.0;
+      }
+      if(score < bestScore){ bestScore = score; best = {group:g, branch:b}; }
+    }
+  }
+  return (best && bestScore < 3.2) ? best : null;
+}
+
+/* ---- Excel attach + logo attach, both live inside the single add/edit competition form ---- */
+let pendingImportGroups = null;
+let pendingImportManagerColors = null;
+let pendingImportRawTable = null;
+let pendingImportHeaderRowCells = null;
+let pendingLogoDataUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new logo
+let pendingHeroDesktopUrl = undefined; // undefined = untouched, null = explicitly removed, string = new Cloudinary URL
+let pendingHeroMobileUrl = undefined;
+let formCurrentLogo = null; // logo currently on the item being edited (or null for a new item)
+let pendingMaterialFile = null; // {url, type, size} set after a successful Cloudinary upload this form session
+let pendingMaterialThumbUrl = undefined; // undefined = untouched this session, null = removed, string = new Cloudinary URL
+let pendingInstructionImageUrl = undefined; // undefined = untouched this session, null = explicitly removed, string = new Cloudinary URL
+function triggerCompetitionImport(){
+  // Quick shortcut: opens the same unified form and immediately prompts for the Excel file.
+  openForm('competitions');
+  setTimeout(()=>{ const el = document.getElementById('f-excel-input'); if(el) el.click(); }, 50);
+}
+function detectDateRangeFromRows(rows){
+  // Best-effort: looks for exactly two DD.MM.YYYY-style dates in the top of the sheet
+  // (e.g. a "תוקף המבצע" cell or a header like "23.08.2026 - 02.10.2026"). If it finds
+  // anything other than exactly two, it stays silent rather than risk guessing wrong —
+  // the marketing user can always type the dates in manually.
+  const dateRe = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g;
+  const found = [];
+  const limit = Math.min(rows.length, 15);
+  for(let ri=0; ri<limit; ri++){
+    const row = rows[ri]; if(!row) continue;
+    for(let ci=0; ci<row.length; ci++){
+      const v = (row[ci]||'').toString();
+      let m;
+      dateRe.lastIndex = 0;
+      while((m = dateRe.exec(v))){
+        const str = `${m[1].padStart(2,'0')}.${m[2].padStart(2,'0')}.${m[3]}`;
+        if(!found.includes(str)) found.push(str);
+      }
+    }
+  }
+  if(found.length !== 2) return null;
+  const [a,b] = found;
+  return parseHebDate(a) <= parseHebDate(b) ? {start:a, end:b} : {start:b, end:a};
+}
+function handleFormExcelFile(evt){
+  const file = evt.target.files[0];
   if(!file) return;
+  loadXlsxLib().then(function(){
   const reader = new FileReader();
-  reader.onload = function(){
-    let obj;
-    try { obj = JSON.parse(reader.result); }
-    catch(e){ toast('הקובץ אינו JSON תקין'); return; }
-    const v = planoValidateSeed(obj);
-    if(!v.ok){
-      document.getElementById('modal-body').innerHTML = `
-        <h3>הקובץ לא יובא</h3>
-        <p style="font-size:14.5px;color:var(--text-secondary);margin:0 0 10px;">נמצאו בעיות בקובץ. שום דבר לא נשמר.</p>
-        <ul style="font-size:14px;line-height:1.6;padding-right:18px;margin:0;max-height:40vh;overflow:auto;">${v.errors.slice(0,30).map(function(e){ return `<li>${planoEsc(e)}</li>`; }).join('')}</ul>
-        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>`;
-      document.getElementById('modal-overlay').classList.add('open');
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellStyles:true});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+      const groups = parseCompetitionSheet(rows, sheet);
+      if(!groups){
+        toast('לא הצלחתי לזהות מבנה תחרות בקובץ. ודאו שקיימות עמודות שם חנות / יעד / מכירות / אחוז מהיעד / מנהל אזור.');
+        evt.target.value = '';
+        return;
+      }
+      pendingImportGroups = groups;
+      pendingImportManagerColors = groups.managerColors || {};
+      pendingImportRawTable = groups.rawTable || null;
+      pendingImportHeaderRowCells = groups.headerRowCells || null;
+      const totalBranches = groups.reduce((s,g)=>s+g.branches.length,0);
+      const missingPrizes = groups.filter(g=>!g.prizes.length).length;
+      const statusEl = document.getElementById('f-excel-status');
+      if(statusEl){
+        statusEl.innerHTML = `✅ זוהו ${groups.length} קבוצות ו-${totalBranches} סניפים מהקובץ (יוחלו בעת השמירה)${missingPrizes ? ` · לא זוהו פרסים עבור ${missingPrizes} קבוצות` : ''}`;
+      }
+      const titleGuess = ((rows[0]||[]).find(v=>v)||'').toString().replace(/['"\\]/g,'').trim();
+      const titleEl = document.getElementById('f-title');
+      if(titleEl && !titleEl.value && titleGuess) titleEl.value = titleGuess;
+      const catEl = document.getElementById('f-category');
+      if(catEl && !catEl.value) catEl.value = 'מכירות';
+      const dateRange = detectDateRangeFromRows(rows);
+      if(dateRange){
+        const startEl = document.getElementById('f-start');
+        const endEl = document.getElementById('f-end');
+        if(startEl && !startEl.value) startEl.value = dateRange.start;
+        if(endEl && !endEl.value) endEl.value = dateRange.end;
+        toast(`זוהה גם טווח תאריכים בקובץ: ${dateRange.start} – ${dateRange.end}`);
+      }
+    }catch(err){
+      console.error(err);
+      toast('שגיאה בקריאת קובץ האקסל.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    toast(err.message);
+  });
+  evt.target.value = '';
+}
+function logoPreviewBoxHtml(src){
+  return src ? `<img src="${src}" alt="לוגו">` : '<span class="logo-preview-empty">אין לוגו</span>';
+}
+function logoRemoveHtml(src){
+  return src ? `<button type="button" class="link-btn" onclick="clearLogoField()">🗑 הסרת לוגו</button>` : '';
+}
+function renderLogoPreview(){
+  const src = pendingLogoDataUrl!==undefined ? pendingLogoDataUrl : formCurrentLogo;
+  const box = document.getElementById('f-logo-preview');
+  const rm = document.getElementById('f-logo-remove-wrap');
+  if(box) box.innerHTML = logoPreviewBoxHtml(src);
+  if(rm) rm.innerHTML = logoRemoveHtml(src);
+}
+function handleLogoFileChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG / SVG)'); evt.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      // Downscale on a canvas so a large phone photo doesn't bloat the in-memory app state.
+      const maxW = 480;
+      const scale = Math.min(1, maxW/(img.width||maxW));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.width||maxW)*scale));
+      canvas.height = Math.max(1, Math.round((img.height||maxW)*scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      pendingLogoDataUrl = canvas.toDataURL('image/png');
+      renderLogoPreview();
+    };
+    img.onerror = function(){ toast('לא ניתן היה לקרוא את קובץ התמונה'); };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  evt.target.value = '';
+}
+function clearLogoField(){
+  pendingLogoDataUrl = null;
+  renderLogoPreview();
+}
+function handleHeroFileChange(evt, which){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById(`f-hero-${which}-status`);
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    if(which==='desktop') pendingHeroDesktopUrl = result.secure_url;
+    else pendingHeroMobileUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+  evt.target.value = '';
+}
+function handleInstructionImageFileChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('f-instr-image-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    pendingInstructionImageUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+    renderInstructionImagePreview();
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+  evt.target.value = '';
+}
+function clearInstructionImage(){
+  pendingInstructionImageUrl = null;
+  renderInstructionImagePreview();
+}
+function renderInstructionImagePreview(){
+  const wrap = document.getElementById('f-instr-image-preview-wrap');
+  if(!wrap) return;
+  const item = formState.editId ? appData.instructions.find(x=>x.id==formState.editId) : null;
+  const src = pendingInstructionImageUrl!==undefined ? pendingInstructionImageUrl : (item ? item.imageUrl : null);
+  const statusEl = document.getElementById('f-instr-image-status');
+  if(src){
+    wrap.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+      <img src="${src}" alt="תמונה להמחשה" style="width:100px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--gridline);">
+      <button type="button" class="link-btn" onclick="clearInstructionImage()">🗑 הסרת תמונה</button>
+    </div>`;
+  } else {
+    wrap.innerHTML = '';
+  }
+  if(statusEl && src===null) statusEl.textContent = '';
+}
+function handleMaterialFileChange(evt){
+  const file = evt.target.files[0];
+
+  if(!file) return;
+  const statusEl = document.getElementById('f-material-file-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את הקובץ...';
+  uploadFileToCloudinary(file).then(function(result){
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    pendingMaterialFile = {
+      url: result.secure_url,
+      type: ext || 'קובץ',
+      size: formatFileSize(file.size)
+    };
+    if(statusEl) statusEl.innerHTML = `✅ הועלה בהצלחה: ${ext} · ${formatFileSize(file.size)}`;
+    const nameEl = document.getElementById('f-name');
+    if(nameEl && !nameEl.value) nameEl.value = file.name.replace(/\.[^.]+$/, '');
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת הקובץ');
+  });
+}
+function handleMaterialThumbChange(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  if(!file.type || file.type.indexOf('image/')!==0){ toast('נא לבחור קובץ תמונה (PNG / JPG)'); evt.target.value=''; return; }
+  const statusEl = document.getElementById('f-material-thumb-status');
+  if(statusEl) statusEl.textContent = '⏳ מעלה את התמונה...';
+  uploadFileToCloudinary(file).then(function(result){
+    pendingMaterialThumbUrl = result.secure_url;
+    if(statusEl) statusEl.innerHTML = '✅ הועלה בהצלחה';
+  }).catch(function(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '❌ ההעלאה נכשלה: ' + err.message;
+    toast('שגיאה בהעלאת התמונה');
+  });
+}
+function handleMaterialFolderUpload(evt){
+  const files = [...evt.target.files];
+  if(!files.length) return;
+  const detectedName = (files[0].webkitRelativePath || '').split('/')[0] || 'תיקייה מיובאת';
+  const folderName = (prompt('שם קטגוריה לקבצים מהתיקייה (אפשר לשנות מהשם המקורי):', detectedName) || '').trim() || detectedName;
+  toast(`מעלה ${files.length} קבצים מתוך "${folderName}"...`);
+  let done = 0, failed = 0;
+  const uploadOne = (file) => uploadFileToCloudinary(file).then(function(result){
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    const obj = {
+      name: file.name.replace(/\.[^.]+$/, ''),
+      category: folderName,
+      type: ext || 'קובץ',
+      size: formatFileSize(file.size),
+      fileUrl: result.secure_url,
+      date: todayHeb(),
+      time: new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
+      unread: true,
+      tags: [],
+      thumbUrl: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if(firebaseReady){
+      return db.collection('materials').add(obj);
+    } else {
+      obj.id = nextIds.materials++;
+      appData.materials.push(obj);
+      return Promise.resolve();
+    }
+  }).then(()=>{ done++; }).catch(err=>{ console.error('folder upload item failed:', file.name, err); failed++; });
+
+  Promise.all(files.map(uploadOne)).then(()=>{
+    renderContent();
+    toast(`הועלו ${done} מתוך ${files.length} קבצים מתוך "${folderName}"` + (failed ? ` (${failed} נכשלו)` : ''));
+  });
+  evt.target.value = '';
+}
+/* בחירת קבצים ספציפיים (לא תיקייה שלמה) — משתמשת בחלון בחירת קבצים רגיל של
+   הדפדפן/המערכת, שמאפשר לראות ולסמן קבצים בודדים (עם Ctrl/Shift), בשונה
+   מבחירת תיקייה (webkitdirectory) שמכריחה להעלות הכל-או-כלום ואינה מציגה
+   קבצים בכלל בתוך חלון הבחירה. מכיוון שאין כאן שם תיקייה לשאוב ממנו קטגוריה
+   אוטומטית, מבקשים אותה פעם אחת מהמשתמש. */
+function handleMaterialFilesUpload(evt){
+  const files = [...evt.target.files];
+  if(!files.length) return;
+  const category = (prompt('שם קטגוריה לקבצים שנבחרו:', '') || '').trim() || 'ללא קטגוריה';
+  toast(`מעלה ${files.length} קבצים נבחרים...`);
+  let done = 0, failed = 0;
+  const uploadOne = (file) => uploadFileToCloudinary(file).then(function(result){
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    const obj = {
+      name: file.name.replace(/\.[^.]+$/, ''),
+      category,
+      type: ext || 'קובץ',
+      size: formatFileSize(file.size),
+      fileUrl: result.secure_url,
+      date: todayHeb(),
+      time: new Date().toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'}),
+      unread: true,
+      tags: [],
+      thumbUrl: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if(firebaseReady){
+      return db.collection('materials').add(obj);
+    } else {
+      obj.id = nextIds.materials++;
+      appData.materials.push(obj);
+      return Promise.resolve();
+    }
+  }).then(()=>{ done++; }).catch(err=>{ console.error('file upload item failed:', file.name, err); failed++; });
+
+  Promise.all(files.map(uploadOne)).then(()=>{
+    renderContent();
+    toast(`הועלו ${done} מתוך ${files.length} קבצים` + (failed ? ` (${failed} נכשלו)` : ''));
+  });
+  evt.target.value = '';
+}
+function addCustomMaterialTag(){
+  const input = document.getElementById('f-material-new-tag');
+  const label = input.value.trim();
+  if(!label) return;
+  const id = 'custom_' + label.replace(/\s+/g,'_').replace(/[^\wא-ת_]/g,'');
+  if(allMaterialTags().some(t=>t.id===id)){ toast('התגית כבר קיימת'); input.value=''; return; }
+  const CUSTOM_TAG_COLORS = ['#0ea5e9','#8b5cf6','#f59e0b','#10b981','#ec4899','#6366f1'];
+  const color = CUSTOM_TAG_COLORS[Math.floor(Math.random()*CUSTOM_TAG_COLORS.length)];
+  const tagObj = {id, label, color, icon:'🏷'};
+  appData.materialTags.push(tagObj);
+  if(firebaseReady){
+    db.collection('materialTags').doc(id).set(tagObj).catch(err=>toast('שגיאה בשמירת התגית: '+err.message));
+  }
+  const list = document.getElementById('f-material-tags-list');
+  if(list){
+    const label2 = document.createElement('label');
+    label2.style.cssText = 'display:flex;align-items:center;gap:5px;font-weight:400;font-size:13px;background:#f2f3f5;border-radius:99px;padding:5px 10px;';
+    label2.innerHTML = `<input type="checkbox" class="f-material-tag-cb" value="${id}" checked> 🏷 ${label}`;
+    list.appendChild(label2);
+  }
+  input.value = '';
+  toast('התגית נוספה');
+}
+
+/* ---- Daily sales report import (updates an existing competition's sales figures) ----
+   Flexible parser: finds a header row containing a branch-name column (שם חנות/סניף)
+   and a sales column (מכירות/סכום/סה"כ) on the same row, then reads cumulative sales
+   per branch below it. Matching prefers the branch's store code (most reliable), then
+   exact normalized name, then fuzzy fallback — reusing the same matching machinery
+   already validated for competition-group imports. */
+function parseDailyReportSheet(rows){
+  const nameRe = /^(שם חנות|שם סניף|סניף)$/;
+  const salesRe = /(מכירות|סכום|סה[״"]?כ)/;
+  let headerRow=-1, nameCol=-1, salesCol=-1;
+  for(let ri=0; ri<rows.length && headerRow<0; ri++){
+    const row = rows[ri]; if(!row) continue;
+    for(let ci=0; ci<row.length; ci++){
+      const v = (row[ci]||'').toString().trim();
+      if(!nameRe.test(v)) continue;
+      for(let cj=0; cj<row.length; cj++){
+        if(cj===ci) continue;
+        const v2 = (row[cj]||'').toString().trim();
+        if(salesRe.test(v2)){ headerRow=ri; nameCol=ci; salesCol=cj; break; }
+      }
+      if(headerRow>=0) break;
+    }
+  }
+  if(headerRow<0) return null;
+  const items = [];
+  for(let ri=headerRow+1; ri<rows.length; ri++){
+    const row = rows[ri]; if(!row) continue;
+    const rawName = (row[nameCol]||'').toString().trim();
+    if(!rawName || /סה[״"]?כ/.test(rawName)) continue;
+    const salesVal = row[salesCol];
+    if(typeof salesVal !== 'number') continue;
+    const codeMatch = rawName.match(/^0*(\d+)/);
+    items.push({ rawName, storeCode: codeMatch ? codeMatch[1] : null, name: normalizeBranchName(rawName), sales: salesVal });
+  }
+  return items.length ? items : null;
+}
+function matchDailyReportItem(comp, item){
+  if(item.storeCode){
+    for(const g of comp.groups){
+      for(const b of g.branches){
+        const bCode = b.rawName.match(/^0*(\d+)/);
+        if(bCode && bCode[1]===item.storeCode) return {group:g, branch:b};
+      }
+    }
+  }
+  for(const g of comp.groups){
+    for(const b of g.branches){ if(b.name===item.name) return {group:g, branch:b}; }
+  }
+  let best=null, bestScore=Infinity;
+  for(const g of comp.groups){
+    for(const b of g.branches){
+      const score = branchMatchScore(item.name, b.name);
+      if(score < bestScore){ bestScore=score; best={group:g, branch:b}; }
+    }
+  }
+  return (best && bestScore < 2.0) ? best : null;
+}
+let dailyReportTargetCompId = null;
+function triggerDailyReportImport(compId){
+  dailyReportTargetCompId = compId;
+  document.getElementById('daily-report-input').click();
+}
+function handleDailyReportFile(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const compId = dailyReportTargetCompId;
+  loadXlsxLib().then(function(){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellStyles:true});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+      const comp = appData.competitions.find(c=>c.id==compId);
+      if(!comp){ toast('התחרות לא נמצאה.'); return; }
+
+      /* אם הדוח היומי הוא בפועל אותו מבנה מלא (עם קבוצות/מנהלי אזור/צבעים) —
+         מחליפים לגמרי את הקבוצות, צבעי המנהלים והטבלה הגולמית מהקובץ הטרי,
+         ולא רק את מספרי המכירות. כך כל תיקון מבני (הסרת/שינוי מנהל אזור,
+         סניף שחוזר וכו') נכנס לתוקף גם דרך העדכון היומי, לא רק דרך "עריכה מלאה". */
+      const fullParse = parseCompetitionSheet(rows, sheet);
+      let updated = 0, totalItems = 0, unmatched = [];
+
+      if(fullParse){
+        comp.groups = fullParse;
+        comp.managerColors = fullParse.managerColors || {};
+        comp.rawTable = fullParse.rawTable || null;
+        comp.headerRowCells = fullParse.headerRowCells || null;
+        updated = fullParse.reduce((s,g)=>s+g.branches.length,0);
+        totalItems = updated;
+        console.log('[עדכון יומי] זוהה מבנה מלא — הקבוצות, צבעי המנהלים והטבלה הגולמית רועננו במלואם.');
+      } else {
+        const items = parseDailyReportSheet(rows);
+        if(!items){
+          toast('לא הצלחתי לזהות בקובץ עמודות של שם סניף וסכום מכירות.');
+          return;
+        }
+        totalItems = items.length;
+        items.forEach(item=>{
+          const m = matchDailyReportItem(comp, item);
+          if(m){ m.branch.sales = item.sales; updated++; } else unmatched.push(item.rawName);
+        });
+      }
+
+      comp.salesUpdatedAt = todayHeb() + ' ' + new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+      if(firebaseReady){
+        db.collection('competitions').doc(comp.id).update({
+          groups: comp.groups, managerColors: comp.managerColors || {}, rawTable: comp.rawTable || null,
+          headerRowCells: comp.headerRowCells || null, salesUpdatedAt: comp.salesUpdatedAt,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        })
+          .then(()=>toast(`עודכנו ${updated} מתוך ${totalItems} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : '')))
+          .catch(err=>toast('שגיאה בשמירת הדוח ל-Firestore: '+err.message));
+      } else {
+        renderContent();
+        toast(`עודכנו ${updated} מתוך ${totalItems} סניפים בדוח.` + (unmatched.length ? ` (${unmatched.length} לא זוהו — ראו קונסול)` : ''));
+      }
+      if(unmatched.length) console.warn('שורות דוח יומי שלא זוהו:', unmatched);
+    }catch(err){
+      console.error(err);
+      toast('שגיאה בקריאת קובץ הדוח.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  }).catch(function(err){
+    toast(err.message);
+  });
+  evt.target.value = '';
+}
+
+/* מסמן קטע שלם (תחרויות/חומרים/אירועים) כ"נקרא" עבור הצופה הנוכחי בלבד —
+   לא רץ עבור מחלקת השיווק. כל פריט "לא נקרא" מקבל רשומת קריאה אישית
+   (ראו markItemRead/isItemRead), כך שזה משפיע רק על מי שבאמת צפה, לא על כל
+   הסניפים/מנהלי האזור ברשת יחד. */
+function markSectionRead(type){
+  if(session.role==='marketing') return;
+  const arr = appData[type];
+  if(!arr || !arr.length) return;
+  const toMark = arr.filter(x=>!isItemRead(type, x.id));
+  if(!toMark.length) return;
+  toMark.forEach(x=>markItemRead(type, x.id));
+  renderNav();
+}
+function viewCompetitions(){
+  markSectionRead('competitions');
+  const order = {active:0, upcoming:1, ended:2};
+  const list = [...appData.competitions].sort((a,b)=>order[a.status]-order[b.status]);
+  return `
+    <div class="page-head">
+      <h1>תחרויות</h1>
+      <p>${getText('competitions_desc')}</p>
+    </div>
+    ${list.length ? list.map(c=>compCard(c)).join('') : `
+    <div class="card"><div class="empty-state">
+      עדיין אין תחרויות פעילות.${session.role==='marketing' ? ' לחצו על "ניהול תוכן" כדי להוסיף תחרות ראשונה.' : ''}
+    </div></div>`}
+  `;
+}
+function formatCountdownParts(ms){
+  if(ms<0) ms=0;
+  const totalSec = Math.floor(ms/1000);
+  const days = Math.floor(totalSec/86400);
+  const hours = Math.floor((totalSec%86400)/3600);
+  const mins = Math.floor((totalSec%3600)/60);
+  const secs = totalSec%60;
+  return {days,hours,mins,secs};
+}
+function countdownSegsHtml(p){
+  // Visual order right-to-left (page is RTL): seconds, minutes, hours, days — days end up on the left.
+  return `
+        <span class="cd-seg"><b>${String(p.secs).padStart(2,'0')}</b><i>שנ'</i></span><span class="cd-sep">:</span>
+        <span class="cd-seg"><b>${String(p.mins).padStart(2,'0')}</b><i>דק'</i></span><span class="cd-sep">:</span>
+        <span class="cd-seg"><b>${String(p.hours).padStart(2,'0')}</b><i>שעות</i></span><span class="cd-sep">:</span>
+        <span class="cd-seg"><b>${p.days}</b><i>ימים</i></span>`;
+}
+function countdownBlockHtml(id, cls, label, targetTs, now){
+  const p = formatCountdownParts(targetTs-now);
+  return `
+    <div class="comp-countdown countdown-${cls}" data-countdown-target="${targetTs}" data-countdown-id="${id}">
+      <span class="countdown-label">${label}</span>
+      <span class="countdown-timer" id="${id}">${countdownSegsHtml(p)}</span>
+    </div>`;
+}
+function compCountdownHtml(c){
+  const now = Date.now();
+  const startTs = parseHebDate(c.start);
+  const endTs = parseHebDate(c.end) + 24*60*60*1000 - 1;
+  if(now >= endTs){ return `<div class="comp-countdown countdown-ended">🏁 המבצע הסתיים</div>`; }
+  if(now < startTs){
+    return countdownBlockHtml(`cd-${c.id}`, 'upcoming', '⏳ המבצע יתחיל בעוד', startTs, now);
+  }
+  return countdownBlockHtml(`cd-${c.id}`, 'active', '⏳ נותרו להשלמת היעד', endTs, now);
+}
+function tickCountdowns(){
+  document.querySelectorAll('.comp-countdown[data-countdown-target]').forEach(el=>{
+    const targetTs = parseInt(el.getAttribute('data-countdown-target'),10);
+    const cdId = el.getAttribute('data-countdown-id');
+    const timerEl = document.getElementById(cdId);
+    if(!timerEl) return;
+    const remaining = targetTs - Date.now();
+    if(remaining <= 0){
+      el.outerHTML = cdId.indexOf('cd-end-')===0 ? '' : '<div class="comp-countdown countdown-ended">🏁 המבצע הסתיים</div>';
       return;
     }
-    planoPendingImport = obj;
-    const st = v.stats;
-    const existing = planoData.departments.length;
-    document.getElementById('modal-body').innerHTML = `
-      <h3>ייבוא פלנוגרמות</h3>
-      <div style="font-size:14.5px;line-height:1.7;color:var(--text-primary);">
-        ${st.departments} מחלקות, ${st.subcategories} תתי-קטגוריות, ${st.entries} משבצות עדיפות, ${st.items} מוצרים ומותגים.<br>
-        ${st.newOrMoved} מסומנים "${planoEsc(planoNewLabel())}", ${st.alsoAt} מוצגים ביותר ממקום אחד.
-      </div>
-      <p style="font-size:14px;color:var(--text-secondary);margin:12px 0 0;line-height:1.6;">
-        ${existing ? `הייבוא יחליף את כל ${existing} המחלקות הקיימות. מחלקה שהתוכן שלה לא השתנה תשמור על תאריך העדכון שלה.` : 'זה הייבוא הראשון.'}
-        ${planoPublished ? '<br><b>הפלנוגרמות כבר פורסמו — השינוי יופיע מיד בסניפים.</b>' : ''}
-      </p>
-      <div class="modal-actions">
-        <button class="btn-secondary" onclick="planoPendingImport=null;closeModal()">ביטול</button>
-        <button class="btn-confirm" id="plano-import-go" onclick="planoRunImport()">ייבוא</button>
-      </div>`;
-    document.getElementById('modal-overlay').classList.add('open');
-  };
-  reader.onerror = function(){ toast('קריאת הקובץ נכשלה'); };
-  reader.readAsText(file, 'utf-8');
-}
-
-function planoRunImport(){
-  const obj = planoPendingImport;
-  if(!obj || !firebaseReady || !db){ closeModal(); return; }
-  const btn = document.getElementById('plano-import-go');
-  if(btn){ btn.disabled = true; btn.textContent = 'מייבא…'; }
-  const today = planoToday();
-  db.collection('planograms').get().then(function(snap){
-    const existing = {};
-    snap.forEach(function(doc){ if(doc.id.charAt(0) !== '_') existing[doc.id] = doc.data(); });
-    const batch = db.batch();
-    const newIds = {};
-    let changed = 0, unchanged = 0, added = 0, removed = 0;
-    obj.departments.forEach(function(d){
-      newIds[d.id] = true;
-      const data = JSON.parse(JSON.stringify(d));
-      delete data.lastUpdated;
-      const prev = existing[d.id];
-      let lastUpdated;
-      if(prev){
-        const prevCmp = Object.assign({}, prev); delete prevCmp.lastUpdated; delete prevCmp.importedAt; delete prevCmp.id;
-        const nextCmp = Object.assign({}, data); delete nextCmp.importedAt; delete nextCmp.id;
-        delete prevCmp.contentUpdatedAt;
-        if(planoCanonical(prevCmp) === planoCanonical(nextCmp)){
-          lastUpdated = prev.lastUpdated || d.lastUpdated || today; unchanged++;
-          /* תוכן זהה — שומרים את זמן העדכון המדויק הקודם (לשורת "עודכן לאחרונה") */
-          if(prev.contentUpdatedAt) data.contentUpdatedAt = prev.contentUpdatedAt;
-        }
-        else { lastUpdated = today; changed++; data.contentUpdatedAt = firebase.firestore.FieldValue.serverTimestamp(); }
-      } else {
-        lastUpdated = d.lastUpdated || today; added++;
-        data.contentUpdatedAt = firebase.firestore.FieldValue.serverTimestamp();
-      }
-      data.lastUpdated = lastUpdated;
-      data.importedAt = today;
-      batch.set(db.collection('planograms').doc(d.id), data);
-    });
-    Object.keys(existing).forEach(function(id){
-      if(!newIds[id]){ batch.delete(db.collection('planograms').doc(id)); removed++; }
-    });
-    const cfg = obj.config || {};
-    batch.set(db.collection('config').doc('planogramLegend'), {
-      defaultShelfRules: cfg.defaultShelfRules || PLANO_DEFAULT_RULES,
-      newOrMovedLabel: cfg.newOrMovedLabel || PLANO_NEW_LABEL_DEFAULT,
-      schemaVersion: obj.schemaVersion || 1,
-      source: obj.source || null,
-      importedAt: today,
-      importedBy: currentUserEmail || null
-    }, {merge:true});
-    return batch.commit().then(function(){
-      planoPendingImport = null;
-      closeModal();
-      const parts = [];
-      if(added) parts.push(added + ' חדשות');
-      if(changed) parts.push(changed + ' עודכנו');
-      if(unchanged) parts.push(unchanged + ' ללא שינוי');
-      if(removed) parts.push(removed + ' הוסרו');
-      toast('הייבוא הושלם: ' + parts.join(', '));
-      planoReload();
-    });
-  }).catch(function(err){
-    console.error('planograms: ייבוא נכשל', err);
-    if(btn){ btn.disabled = false; btn.textContent = 'ייבוא'; }
-    toast('הייבוא נכשל: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
+    const p = formatCountdownParts(remaining);
+    timerEl.innerHTML = countdownSegsHtml(p);
   });
 }
 
-function planoConfirmPublish(publish){
-  document.getElementById('modal-body').innerHTML = publish ? `
-    <h3>לפרסם את הפלנוגרמות לסניפים?</h3>
-    <p style="font-size:14.5px;line-height:1.6;color:var(--text-secondary);margin:0;">כל הסניפים ומנהלי האזור יראו את "פלנוגרמות" תחת רכש. אפשר להסתיר שוב בכל רגע.</p>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm" onclick="planoSetPublished(true)">פרסם לסניפים</button>
-    </div>` : `
-    <h3>להסתיר את הפלנוגרמות מהסניפים?</h3>
-    <p style="font-size:14.5px;line-height:1.6;color:var(--text-secondary);margin:0;">המסך יישאר גלוי רק לצוות הרכש ולהנהלת המערכת, עד שתפרסמו שוב.</p>
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal()">ביטול</button>
-      <button class="btn-confirm btn-danger" onclick="planoSetPublished(false)">הסתר מהסניפים</button>
-    </div>`;
+/* ---------- מכר מבצעים (רכש) ---------- */
+/* בחירת סניפים להשוואה — גלובלית לכל המוצרים (לא נבחרת מחדש בכל מוצר),
+   נשמרת ב-localStorage לפי זהות הצופה, כפי שהוחלט בשיחה. */
+function promoCompareKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompare_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function getPromoCompareBranches(){
+  try{ return JSON.parse(localStorage.getItem(promoCompareKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareBranches(arr){
+  try{ localStorage.setItem(promoCompareKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareBranch(name){
+  savePromoCompareBranches(getPromoCompareBranches().filter(n=>n!==name));
+  renderContent();
+}
+function openPromoComparePicker(){
+  const current = getPromoCompareBranches();
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת סניף להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div id="promo-pick-list" style="max-height:360px;overflow-y:auto;">טוען סניפים…</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
+  document.getElementById('modal-overlay').classList.add('open');
+  loadBranchDirectory().then(function(){
+    const listEl = document.getElementById('promo-pick-list');
+    if(!listEl) return;
+    const rows = BRANCH_DIRECTORY.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'))
+      .filter(b=>current.indexOf(b.name)===-1)
+      .map(b=>`<div class="preview-pick-row" onclick="addPromoCompareBranch('${b.name.replace(/'/g,"\\'")}')"><span>${b.name}</span></div>`)
+      .join('');
+    listEl.innerHTML = rows || '<div class="empty-state">כל הסניפים כבר נבחרו.</div>';
+  });
+}
+function addPromoCompareBranch(name){
+  const current = getPromoCompareBranches();
+  if(current.indexOf(name)===-1) savePromoCompareBranches([...current, name]);
+  closeModal();
+  renderContent();
+}
+/* בחירת אזורים להשוואה (למנהלי אזור) - אותו רעיון בדיוק כמו בחירת סניפים,
+   רק שהיחידה היא אזור שלם ולא סניף בודד. */
+function promoCompareAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoCompareAreas_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function promoNationalExcludedAreasKey(){
+  const vid = (typeof currentPushIdentity==='function' && currentPushIdentity()) || 'anon';
+  return 'nizatHubPromoNationalExcluded_' + vid.replace(/[^a-zA-Z0-9:_@.-]/g,'_');
+}
+function allRealAreaLabels(){
+  return Object.keys(AREA_MANAGER_INFO)
+    .filter(email=>AREA_MANAGER_INFO[email].areaName!==null)
+    .map(email=>AREA_MANAGER_INFO[email].label)
+    .sort((a,b)=>a.localeCompare(b,'he'));
+}
+/* ארבל/עופר (תצוגה ארצית): במקום לשמור "אילו אזורים נבחרו" (רשימת הכללה,
+   שמתחילה ריקה וגורמת להם להוסיף כל אזור ידנית), שומרים "אילו אזורים
+   הוסרו" (רשימת החרגה). כך ברירת המחדל היא תמיד "כל 6 האזורים", בלי תלות
+   עדינה בהאם נשמר משהו בעבר תחת מפתח כלשהו - הרבה יותר עמיד מהגרסה
+   הקודמת שניסתה להסתמך על "localStorage ריק = ביקור ראשון". */
+function getPromoCompareAreas(){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    return allRealAreaLabels().filter(a=>excluded.indexOf(a)===-1);
+  }
+  try{ return JSON.parse(localStorage.getItem(promoCompareAreasKey())||'[]'); }catch(e){ return []; }
+}
+function savePromoCompareAreas(arr){
+  try{ localStorage.setItem(promoCompareAreasKey(), JSON.stringify(arr)); }catch(e){}
+}
+function removePromoCompareArea(area){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    if(excluded.indexOf(area)===-1) excluded.push(area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    renderContent();
+    return;
+  }
+  savePromoCompareAreas(getPromoCompareAreas().filter(a=>a!==area));
+  renderContent();
+}
+function addPromoCompareArea(area){
+  if(hasPromoNationalAccess()){
+    let excluded;
+    try{ excluded = JSON.parse(localStorage.getItem(promoNationalExcludedAreasKey())||'[]'); }catch(e){ excluded = []; }
+    excluded = excluded.filter(a=>a!==area);
+    try{ localStorage.setItem(promoNationalExcludedAreasKey(), JSON.stringify(excluded)); }catch(e){}
+    closeModal();
+    renderContent();
+    return;
+  }
+  const current = getPromoCompareAreas();
+  if(current.indexOf(area)===-1) savePromoCompareAreas([...current, area]);
+  closeModal();
+  renderContent();
+}
+function openPromoCompareAreaPicker(){
+  const current = getPromoCompareAreas();
+  const allAreas = allRealAreaLabels();
+  const rows = allAreas.filter(a=>a!==session.areaLabel && current.indexOf(a)===-1)
+    .map(a=>`<div class="preview-pick-row" onclick="addPromoCompareArea('${a.replace(/'/g,"\\'")}')"><span>${a}</span></div>`).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <h3>הוספת מנהל איזור להשוואה</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">הבחירה חלה על כל המוצרים ברשימה.</p>
+    <div style="max-height:360px;overflow-y:auto;">${rows || '<div class="empty-state">כל מנהלי האיזור כבר נבחרו.</div>'}</div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
+  `;
   document.getElementById('modal-overlay').classList.add('open');
 }
-function planoSetPublished(val){
-  if(!firebaseReady || !db){ closeModal(); return; }
-  const today = planoToday();
-  const patch = val
-    ? {published:true, publishedAt: today, publishedBy: currentUserEmail || null}
-    : {published:false, hiddenAt: today, hiddenBy: currentUserEmail || null};
-  db.collection('config').doc('planogramLegend').set(patch, {merge:true}).then(function(){
-    closeModal();
-    planoData.legend = Object.assign({}, planoData.legend || {}, patch);
-    planoWriteCache(planoData.departments, planoData.legend);
-    planoApplyPublished(val);
-    toast(val ? 'הפלנוגרמות פורסמו לסניפים' : 'הפלנוגרמות הוסתרו מהסניפים');
-    planoRerender();
-  }).catch(function(err){
-    console.error('planograms: עדכון פרסום נכשל', err);
-    toast('השמירה נכשלה: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'));
-  });
+function isAreaViewer(){ return session.role==='area' && !!session.areaLabel; }
+/* עופר וארבל: role='area' עם areaName=null (תצוגה ארצית, לא אזור ספציפי).
+   מבחינת "מכר מבצעים" הם לא אמורים לרדת לרמת סניף בודד, אלא לראות תמונה
+   ארצית לפי אזורים - זה מה ש-buildPromoNationalReport נותן. */
+function isNationalViewer(){ return session.role==='area' && !!session.areaLabel && !session.areaName; }
+/* אנשי צוות ספציפיים (רכש/שיווק) שצריכים לראות בדיוק את אותה תצוגה ארצית
+   של ארבל/עופר במודול "מכר מבצעים" - גם אם ה-role שלהם הוא 'marketing'
+   ואין להם session.areaLabel כלל. רשימה סגורה של מיילים, לא כל מי
+   שבמחלקת שיווק/רכש - כדי לא להעניק את זה בטעות למישהו שלא ביקשו עבורו. */
+const PROMO_NATIONAL_ACCESS_EMAILS = [
+  'yulia@nizat.co.il', 'tradeo@nizat.co.il', 'nofar@nizat.co.il',
+  'edith@nizat.co.il', 'eliran@nizat.co.il'
+];
+function hasPromoNationalAccess(){
+  return isNationalViewer() || (session.role==='marketing' && PROMO_NATIONAL_ACCESS_EMAILS.indexOf(currentUserEmail)!==-1);
 }
+/* בונה את שורות הנתונים למכר מבצעים לפי שאילתת חיפוש נתונה - ברירת מחדל
+   (שאילתה ריקה) ממוינת לפי אלף-בית של כותרת המוצר. */
+function buildPromoRows(query){
+  const products = [...(appData.promoProducts||[])];
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  const q = (query||'').trim().toLowerCase();
+  return products
+    .filter(p => !q || (p.title||'').toLowerCase().includes(q))
+    .map(p=>{
+      const branches = p.branches || [];
+      const med = median(branches.map(b=>b.sales||0)) || 0;
+      const mine = computeMyPromoValue(p);
+      let rank = null, total = null;
+      if(mine){
+        if(areaMode){
+          const grouped = groupPromoProductByArea(p).sort((a,b)=>b.med-a.med);
+          rank = grouped.findIndex(a=>a.area===session.areaLabel) + 1;
+          total = grouped.length;
+        } else {
+          const matched = matchMyBranchInPromoProduct(p, session.branchInfo);
+          const sorted = [...branches].sort((a,b)=>b.sales-a.sales);
+          rank = matched ? sorted.indexOf(matched)+1 : null;
+          total = branches.length;
+        }
+      }
+      return {product: p, med, mine, rank, total};
+    })
+    .sort((a,b)=> (a.product.title||'').localeCompare(b.product.title||'', 'he'));
+}
+function renderPromoRowsHtml(rows, hadProducts){
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  if(!rows.length) return `<div class="card"><div class="empty-state">${hadProducts ? 'לא נמצאו מוצרים תואמים לחיפוש.' : 'עדיין אין נתוני מכר מבצעים.'}</div></div>`;
+  return rows.map(r=>promoProductCard(r, areaMode)).join('');
+}
+/* עדכון קליל של תיבת החיפוש - מעדכן רק את תיבת ההצעות ואת רשימת השורות
+   בפועל (DOM ממוקד), בלי לקרוא ל-renderContent המלא. זה מה שמונע מהשדה
+   "להיהרס" ולאבד פוקוס באמצע הקלדה/מחיקה, וגם חוסך חישוב מיותר של כל
+   118 המוצרים מחדש על כל הקשה. */
+function updatePromoSearch(value){
+  ui.promoSearchQuery = value;
+  const q = value.trim().toLowerCase();
+  const suggEl = document.getElementById('promo-suggestions');
+  const rowsEl = document.getElementById('promo-rows');
+  if(suggEl){
+    if(!q){
+      suggEl.style.display = 'none';
+      suggEl.innerHTML = '';
+    } else {
+      const matches = [...(appData.promoProducts||[])]
+        .filter(p=>(p.title||'').toLowerCase().includes(q))
+        .sort((a,b)=>(a.title||'').localeCompare(b.title||'','he'))
+        .slice(0,10);
+      suggEl.style.display = matches.length ? 'block' : 'none';
+      suggEl.innerHTML = matches.map(p=>`
+        <div style="padding:9px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid var(--gridline);" onclick="selectPromoSuggestion('${(p.title||'').replace(/'/g,"\\'")}')">${p.title}</div>
+      `).join('');
+    }
+  }
+  if(rowsEl){
+    const rows = buildPromoRows(value);
+    rowsEl.innerHTML = renderPromoRowsHtml(rows, (appData.promoProducts||[]).length>0);
+  }
+}
+function selectPromoSuggestion(title){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = title;
+  updatePromoSearch(title);
+  const suggEl = document.getElementById('promo-suggestions');
+  if(suggEl){ suggEl.style.display='none'; suggEl.innerHTML=''; }
+}
+function clearPromoSearch(){
+  const input = document.getElementById('promo-search-input');
+  if(input) input.value = '';
+  updatePromoSearch('');
+}
+function setPromoTab(tab){ ui.promoTab = tab; renderContent(); }
+/* תקופת המכר של הנתונים המוצגים. הייבוא האוטומטי מהמייל שומר על כל מוצר
+   שדה period (למשל "4.10-10.10.26", מתוך כותרת המייל). בהעלאה ידנית אין
+   תקופה — מציגים במקום זה את תאריך ההעלאה (updatedAt). */
+function promoSalesPeriodHtml(products){
+  if(!products.length) return '';
+  const withPeriod = products.find(p=>p.period);
+  const periodHtml = withPeriod
+    ? `<div style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;padding:4px 10px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);">📅 תקופת המכר: <b>${withPeriod.period}</b></div>`
+    : '';
+  /* מתי הנתונים עלו לאפליקציה בפועל — שורה אחידה כמו בכל שאר המסכים. */
+  return periodHtml + lastUpdatedHtmlForList(products);
+}
+function viewPromoSales(){
+  const products = [...(appData.promoProducts||[])];
+  const areaMode = isAreaViewer() || hasPromoNationalAccess();
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const initialRows = buildPromoRows(ui.promoSearchQuery||'');
+  const tab = ui.promoTab || 'analysis';
+
+  return `
+    <div class="page-head">
+      <h1>מכר מבצעים</h1>
+      <p>ניתוח מימושי מבצעים מול חוברת המבצעים, ועיון חופשי לפי מוצר.</p>
+      ${promoSalesPeriodHtml(products)}
+    </div>
+    <div class="admin-tabs" style="margin-bottom:16px;">
+      <button class="admin-tab ${tab==='analysis'?'active':''}" onclick="setPromoTab('analysis')">דוח פעולה</button>
+      <button class="admin-tab ${tab==='browse'?'active':''}" onclick="setPromoTab('browse')">עיון לפי מוצר</button>
+    </div>
+    ${tab==='analysis' ? viewPromoAnalysis() : viewPromoBrowse(products, areaMode, compareList, initialRows)}
+  `;
+}
+function viewPromoBrowse(products, areaMode, compareList, initialRows){
+  return `
+    <div class="field" style="margin-bottom:14px;position:relative;">
+      <div style="display:flex;gap:0;">
+        <input type="text" id="promo-search-input" placeholder="חיפוש מוצר..." value="${ui.promoSearchQuery||''}"
+          oninput="updatePromoSearch(this.value)">
+        <button class="icon-btn" style="border-radius:0 8px 8px 0;" onclick="clearPromoSearch()" title="ניקוי חיפוש">✕</button>
+      </div>
+      <div id="promo-suggestions" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:20;background:var(--surface-1);border:1px solid var(--gridline);border-radius:10px;margin-top:4px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);"></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
+      <span style="font-size:12.5px;color:var(--text-secondary);">השוואה ל${areaMode?'מנהלי איזור אחרים':'סניפים'}:</span>
+      ${compareList.map(name=>`
+        <span style="font-size:12px;padding:4px 8px 4px 6px;border-radius:8px;background:var(--bg-accent,rgba(24,95,165,0.08));color:var(--blue-dark,#185FA5);display:inline-flex;align-items:center;gap:4px;">
+          ${areaMode ? name : name.replace('ניצת ','')}
+          <button style="border:none;background:none;padding:0;cursor:pointer;color:inherit;font-size:13px;line-height:1;" onclick="${areaMode?'removePromoCompareArea':'removePromoCompareBranch'}('${name.replace(/'/g,"\\'")}')">✕</button>
+        </span>
+      `).join('')}
+      <button class="icon-btn" style="width:auto;padding:4px 10px;font-size:12px;" onclick="${areaMode?'openPromoCompareAreaPicker':'openPromoComparePicker'}()">+ הוספת ${areaMode?'מנהל איזור':'סניף'}</button>
+    </div>
+    <div id="promo-rows">${renderPromoRowsHtml(initialRows, products.length>0)}</div>
+  `;
+}
+function promoProductCard(r, areaMode){
+  const p = r.product, mine = r.mine, med = r.med;
+  const compareList = areaMode ? getPromoCompareAreas() : getPromoCompareBranches();
+  const groupedByArea = areaMode ? groupPromoProductByArea(p) : null;
+  const valueForEntity = (name) => {
+    if(areaMode){
+      const g = groupedByArea.find(a=>a.area===name);
+      return g ? Math.round(g.med*10)/10 : 0;
+    }
+    const b = (p.branches||[]).find(x=>x.name===name);
+    return b ? b.sales : 0;
+  };
+  const maxVal = Math.max(med, mine?mine.sales:0, ...compareList.map(valueForEntity), 1);
+  const myPct = mine ? Math.min(100, (mine.sales/maxVal)*100) : 0;
+  const barColor = !mine ? 'var(--muted)' : (mine.sales>=med*1.05 ? 'var(--good,#3B6D11)' : (mine.sales>=med*0.85 ? 'var(--blue,#185FA5)' : 'var(--critical,#A32D2D)'));
+  const unitLabel = mine ? mine.unitLabel : 'יחידות שנמכרו';
+  const mineRowLabel = areaMode ? session.areaLabel : 'הסניף שלכם';
+  return `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+        <div style="font-weight:500;font-size:15px;">${p.title}</div>
+        ${r.rank ? `<span style="font-size:12px;padding:3px 10px;border-radius:8px;background:${barColor==='var(--good,#3B6D11)'?'var(--bg-success,#EAF3DE)':barColor==='var(--critical,#A32D2D)'?'var(--bg-danger,#FCEBEB)':'var(--gridline,#f0f0f0)'};color:${barColor};white-space:nowrap;flex:none;">מקום ${r.rank} מתוך ${r.total}</span>` : ''}
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">חציון הרשת: ${med.toFixed(1)} יחידות</div>
+      ${mine ? `
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+          <span style="font-size:22px;font-weight:500;">${mine.sales}</span>
+          <span style="font-size:13px;color:var(--text-secondary);">${unitLabel}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${mine.label}</div>
+        <div style="position:relative;height:8px;background:var(--gridline,#eee);border-radius:4px;margin-bottom:12px;">
+          <div style="position:absolute;right:0;top:0;height:100%;width:${myPct}%;background:${barColor};border-radius:4px;"></div>
+        </div>
+        ${areaMode ? (function(){
+          const branchRows = myAreaBranchBreakdown(p);
+          if(!branchRows.length) return '';
+          const maxBranchVal = Math.max(...branchRows.map(x=>x.sales), 1);
+          return `
+          <div style="border-top:1px solid var(--gridline);padding-top:10px;margin-bottom:${compareList.length?'12px':'0'};">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">פירוט לפי סניף באזור שלכם:</div>
+            ${branchRows.map(b=>`
+              <div style="display:flex;align-items:center;gap:10px;padding:3px 0;">
+                <span style="font-size:12px;width:130px;flex:none;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.name.replace('ניצת ','')}</span>
+                <div style="flex:1;height:14px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                  <div style="height:100%;width:${Math.min(100,(b.sales/maxBranchVal)*100)}%;background:var(--muted);border-radius:4px;"></div>
+                </div>
+                <span style="font-size:12px;width:28px;text-align:left;color:var(--text-secondary);">${b.sales}</span>
+              </div>
+            `).join('')}
+          </div>`;
+        })() : ''}
+      ` : `<div style="font-size:12px;color:var(--muted);margin-bottom:${compareList.length?'12px':'0'};">${hasPromoNationalAccess() && compareList.length ? 'השוואה בין מנהלי האזור:' : 'אין נתונים זמינים.'}</div>`}
+      ${compareList.length ? `
+        <div style="border-top:1px solid var(--gridline);padding-top:10px;">
+          ${mine ? `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${mineRowLabel}</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${myPct}%;background:var(--blue,#185FA5);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:32px;text-align:left;font-weight:500;">${mine.sales}</span>
+            </div>
+          ` : ''}
+          ${compareList.map(name=>{
+            const val = valueForEntity(name);
+            const pct = Math.min(100, (val/maxVal)*100);
+            return `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0;">
+              <span style="font-size:12px;width:110px;flex:none;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${areaMode ? name : name.replace('ניצת ','')}</span>
+              <div style="flex:1;height:18px;background:var(--gridline,#eee);border-radius:4px;position:relative;">
+                <div style="height:100%;width:${pct}%;background:var(--muted);border-radius:4px;"></div>
+              </div>
+              <span style="font-size:12px;width:32px;text-align:left;color:var(--text-secondary);">${val}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+function viewStandsBranch(){
+  const myName = session.branchInfo ? session.branchInfo.name : null;
+  const myEmail = session.branchInfo ? session.branchInfo.email : null;
+  const items = [];
+  appData.standCampaigns.forEach(camp=>{
+    camp.branches.forEach((b,idx)=>{ if(b.matchedBranchName===myName) items.push({camp, b, idx, status:getStandBranchStatus(camp,b)}); });
+  });
+  const pending = items.filter(x=>!x.status.confirmed);
+  const confirmed = items.filter(x=>x.status.confirmed);
+  /* באנר חובה-לאישור: כל קמפיין שנותרו לו 3 ימים או פחות להורדה, ושהסניף הזה
+     עדיין לא אישר קבלת התזכורת עבורו — ממשיך להופיע כל עוד לא נלחץ "אישרתי". */
+  const now = Date.now();
+  const urgentUnacked = items.filter(x=>{
+    const t = parseHebDate(x.camp.takedownDate);
+    if(isNaN(t)) return false;
+    const daysLeft = (t-now)/86400000;
+    return daysLeft<=3 && !hasAckedTakedown(x.camp.id, myEmail);
+  });
+  return `
+    <div class="page-head">
+      <h1>סטנדים לאישור</h1>
+      <p>סטנדים שהוצבו בסניף שלכם וממתינים לאישור שהם תקינים ובמקום.</p>
+    </div>
+    ${urgentUnacked.map(x=>`
+      <div class="card" style="background:rgba(208,59,59,0.06);border:1px solid rgba(208,59,59,0.3);margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="font-size:22px;">⏰</span>
+          <div style="flex:1;">
+            <div style="font-weight:700;color:var(--critical);margin-bottom:4px;">תזכורת דחופה: יש להוריד את הסטנד "${x.camp.label}"</div>
+            <div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;">יש להוריד עד <span dir="ltr">${x.camp.takedownDate}</span>. אנא אשרו שראיתם את התזכורת.</div>
+            <button class="btn-confirm" onclick="ackStandTakedown('${x.camp.id}')">אישרתי, ראיתי את התזכורת</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+    <div class="card">
+      ${pending.length ? pending.map(x=>standCardHtml(x.camp, x.b, x.idx, true)).join('') : '<div class="empty-state">אין סטנדים הממתינים לאישור כרגע. 🎉</div>'}
+    </div>
+    ${confirmed.length ? `
+    <h3 style="font-size:14px;margin:22px 0 10px;color:var(--text-secondary);">אושרו</h3>
+    <div class="card">${confirmed.map(x=>standCardHtml(x.camp, x.b, x.idx, false, x.status.confirmedAt)).join('')}</div>` : ''}
+  `;
+}
+function viewStandsMarketing(){
+  const list = [...appData.standCampaigns].sort((a,b)=>parseHebDate(a.takedownDate)-parseHebDate(b.takedownDate));
+  return `
+    <div class="page-head">
+      <h1>סטנדים לאישור</h1>
+      <p>${getText('stands_desc')}</p>
+    </div>
+    <div class="admin-toolbar">
+      <div style="font-size:13px;color:var(--text-secondary);">${list.length} קמפיינים</div>
+      <button class="btn-import" onclick="triggerStandsImport()">📥 העלאת קובץ סטנדים</button>
+    </div>
+    <input type="file" id="stands-file-input" accept=".xlsx,.xls" style="display:none;" onchange="handleStandsFile(event)">
+    <div class="card">
+      ${list.map(camp=>{
+        const statuses = camp.branches.map(b=>getStandBranchStatus(camp,b));
+        const confirmedCount = statuses.filter(s=>s.confirmed).length;
+        const daysLeft = Math.ceil((parseHebDate(camp.takedownDate)-Date.now())/86400000);
+        return `
+        <div class="admin-row" style="align-items:flex-start;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;width:100%;flex-wrap:wrap;gap:6px;">
+            <div class="admin-row-main">
+              <div class="t"><span class="stand-color-dot" style="background:${camp.colorHex};"></span> ${camp.label}${camp.demo ? ' <span class="badge ended">🧪 נתוני הדגמה</span>' : ''}</div>
+              <div class="m">${camp.branches.length} סניפים · אושרו ${confirmedCount}/${camp.branches.length}${camp.installDate ? ` · עלייה ${camp.installDate}` : ''} · יש להוריד עד <span dir="ltr">${camp.takedownDate}</span>${daysLeft>=0 ? ` (עוד ${daysLeft} ימים)` : ' (התאריך עבר)'}</div>
+              ${lastUpdatedHtml(camp)}
+            </div>
+            <button class="icon-btn" onclick="openEditStandModal('${camp.id}')" title="עריכה">✎</button>
+          </div>
+          <button class="comp-group-toggle" onclick="toggleStandTable('${camp.id}')">פירוט סניפים <span id="stand-arrow-${camp.id}">▾</span></button>
+          <div class="comp-group-table" id="stand-table-${camp.id}">
+            ${camp.branches.map(b=>({ b, status:getStandBranchStatus(camp,b) })).sort((a,b)=>Number(a.status.confirmed)-Number(b.status.confirmed)).map(x=>`
+              <div class="comp-group-table-row">
+                <span class="n">${x.b.matchedBranchName}</span>
+                <span class="m">${x.status.confirmed ? '✅ '+x.status.confirmedAt : '⏳ ממתין'}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        `;
+      }).join('') || '<div class="empty-state">עדיין לא הועלה קובץ סטנדים. לחצו על "העלאת קובץ סטנדים".</div>'}
+    </div>
+  `;
+}
+

@@ -1059,6 +1059,7 @@ function planoViewList(){
   return `
     <div class="plano-wrap">
       ${planoHeader()}
+      ${lastUpdatedHtmlForList((planoData.departments||[]).map(function(d){ return {updatedAt: d.contentUpdatedAt || null, lastUpdated: d.lastUpdated || null}; }))}
       ${planoBanners()}
       ${planoAdminBar()}
       ${planoData.departments.length ? planoSearchBox(false) : ''}
@@ -1243,8 +1244,8 @@ function planoViewDept(d){
       <h1 class="plano-dept-title">${planoEsc(d.name)}</h1>
       <div class="plano-dept-meta">
         <span>מחלקה ${planoEsc(d.number)}</span>
-        ${d.lastUpdated ? `<span>עודכן: ${planoEsc(d.lastUpdated)}</span>` : ''}
       </div>
+      ${lastUpdatedHtml({updatedAt: d.contentUpdatedAt || null, lastUpdated: d.lastUpdated || null})}
       ${planoTargetBarHtml(d, subId)}
       ${planoDeptActionsHtml(d, sub)}
       ${planoImagesHtml(d.referenceImages, 'כך המחלקה צריכה להיראות')}
@@ -2122,10 +2123,16 @@ function planoRunImport(){
       if(prev){
         const prevCmp = Object.assign({}, prev); delete prevCmp.lastUpdated; delete prevCmp.importedAt; delete prevCmp.id;
         const nextCmp = Object.assign({}, data); delete nextCmp.importedAt; delete nextCmp.id;
-        if(planoCanonical(prevCmp) === planoCanonical(nextCmp)){ lastUpdated = prev.lastUpdated || d.lastUpdated || today; unchanged++; }
-        else { lastUpdated = today; changed++; }
+        delete prevCmp.contentUpdatedAt;
+        if(planoCanonical(prevCmp) === planoCanonical(nextCmp)){
+          lastUpdated = prev.lastUpdated || d.lastUpdated || today; unchanged++;
+          /* תוכן זהה — שומרים את זמן העדכון המדויק הקודם (לשורת "עודכן לאחרונה") */
+          if(prev.contentUpdatedAt) data.contentUpdatedAt = prev.contentUpdatedAt;
+        }
+        else { lastUpdated = today; changed++; data.contentUpdatedAt = firebase.firestore.FieldValue.serverTimestamp(); }
       } else {
         lastUpdated = d.lastUpdated || today; added++;
+        data.contentUpdatedAt = firebase.firestore.FieldValue.serverTimestamp();
       }
       data.lastUpdated = lastUpdated;
       data.importedAt = today;
