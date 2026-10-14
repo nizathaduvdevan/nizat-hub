@@ -79,6 +79,12 @@ function enterApp(role, payload){
   /* אם האפליקציה נפתחה מלחיצה על Push ("#go=purchasing:promoSales..."),
      עוברים ישר למסך שעודכן במקום להישאר בדף הבית. */
   if(typeof consumePendingDeepLink==='function') consumePendingDeepLink();
+  /* הרשאות נוספות לאנשי צוות (permissions.js) — למשל "צפייה כמשתמש"
+     למי שקיבל אותה במסך ניהול ההרשאות. */
+  if(role==='marketing' && typeof initPermissionsSync==='function'){
+    initPermissionsSync();
+    if(typeof applyEmbedPreviewIfNeeded==='function') applyEmbedPreviewIfNeeded();
+  }
 }
 /* מעדכן את שני כפתורי ה-Push (הפעלה / עזרה כשחסום) לפי מצב ההרשאה בפועל.
    נקרא גם מ-enterApp וגם בכל מקום שבו רוצים לרענן את התצוגה (למשל אחרי
@@ -134,12 +140,12 @@ function showPushBlockedHelp(){
   document.getElementById('modal-overlay').classList.add('open');
 }
 /* ============================================================
-   צפייה כמשתמש (מחלקת שיווק בלבד) — שכבת תצוגה בלבד, לא נוגעת
-   ב-Firebase Auth/session אמיתי. realSession שומר את הזהות האמיתית.
+   צפייה כמשתמש — שכבת תצוגה בלבד, לא נוגעת ב-Firebase Auth/session
+   אמיתי. realSession שומר את הזהות האמיתית. זמין לבעלי גישה מלאה ולמי
+   שקיבל את ההרשאה "צפייה כמשתמש" במסך ניהול ההרשאות (permissions.js).
 ============================================================ */
 function openPreviewPicker(){
-  const isFullAccess = staffDepartments(currentUserEmail).length===Object.keys(DEPARTMENTS).length;
-  if(!(isFullAccess || (previewMode && realSession && realSession.role==='marketing'))) return;
+  if(!canUsePreviewMode()) return;
   document.getElementById('modal-body').innerHTML = `
     <h3>צפייה כמשתמש</h3>
     <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 12px;">בחרו איש צוות, סניף, או מנהל אזור כדי לראות בדיוק את המסכים שהם רואים.</p>
@@ -159,8 +165,9 @@ function openPreviewPicker(){
     ).join('');
     /* אנשי צוות ממחלקות מוגבלות (לא בעלי גישה מלאה) — כדי לבדוק בפועל מה
        הם רואים, בלי לבקש מהם להתחבר בעצמם. */
+    const myRealEmail = realLoggedInEmail();
     const staffRows = Object.keys(STAFF)
-      .filter(email => staffDepartments(email).length < Object.keys(DEPARTMENTS).length)
+      .filter(email => email !== myRealEmail && staffDepartments(email).length < Object.keys(DEPARTMENTS).length)
       .map(email=>{
         const disp = marketingDisplayFor(email);
         return `<div class="preview-pick-row" onclick="startPreviewAsStaff('${email}')"><span>${disp.name}</span><span style="color:var(--muted);font-size:12px;">${disp.label.split(' · ')[1]||''}</span></div>`;
@@ -181,7 +188,7 @@ function startPreviewAsBranch(email){
   session.branchInfo = branchInfo;
   session.areaName = null;
   session.areaLabel = null;
-  previewMode = {label: branchInfo.name};
+  previewMode = {label: branchInfo.name, kind: 'branch', email: email};
   document.getElementById('user-label').textContent = branchInfo.manager ? `${branchInfo.manager} · ${session.branchName}` : session.branchName;
   document.getElementById('user-avatar').textContent = branchInfo.manager ? branchInfo.manager.slice(0,2) : branchInfo.name.slice(0,2);
   closeModal();
@@ -196,7 +203,7 @@ function startPreviewAsArea(email){
   session.areaLabel = info.label;
   session.branchName = null;
   session.branchInfo = null;
-  previewMode = {label: info.label};
+  previewMode = {label: info.label, kind: 'area', email: email};
   document.getElementById('user-label').textContent = info.title || (info.areaName ? `מנהל אזור · ${info.label}` : `${info.label} · תצוגה ארצית`);
   document.getElementById('user-avatar').textContent = info.label.slice(0,2);
   closeModal();
@@ -210,7 +217,7 @@ function startPreviewAsStaff(email){
   if(realUserEmail===null) realUserEmail = currentUserEmail;
   currentUserEmail = email;
   const disp = marketingDisplayFor(email);
-  previewMode = {label: disp.name};
+  previewMode = {label: disp.name, kind: 'staff', email: email};
   document.getElementById('user-label').textContent = disp.label;
   document.getElementById('user-avatar').textContent = disp.name.slice(0,2);
   closeModal();
@@ -218,6 +225,7 @@ function startPreviewAsStaff(email){
 }
 function exitPreviewMode(){
   if(!realSession) return;
+  if(typeof closePhonePreview==='function') closePhonePreview();
   session = realSession;
   realSession = null;
   if(realUserEmail !== null){ currentUserEmail = realUserEmail; realUserEmail = null; }
@@ -233,15 +241,27 @@ function renderPreviewBanner(){
   if(!banner || !toggleBtn) return;
   if(previewMode){
     banner.style.display = 'flex';
-    banner.innerHTML = `<span>👁 צפייה כמשתמש: <b>${previewMode.label}</b> — זו תצוגה בלבד, פעולות שמירה מושבתות</span><button onclick="exitPreviewMode()">יציאה ממצב תצוגה</button>`;
+    /* בתוך מסגרת "תצוגת טלפון" (iframe) — פס קצר בלי כפתורים, כדי שלא
+       יתפוס מקום במסך הקטן ולא יאפשר לצאת מהתצוגה מתוך המסגרת. */
+    if(typeof isEmbeddedPreview==='function' && isEmbeddedPreview()){
+      banner.innerHTML = `<span>👁 ${esc(previewMode.label)} · תצוגה בלבד</span>`;
+    } else {
+      const canPhone = previewMode.kind && previewMode.email && window.innerWidth > 700;
+      banner.innerHTML = `<span>👁 צפייה כמשתמש: <b>${esc(previewMode.label)}</b> — זו תצוגה בלבד, פעולות שמירה מושבתות</span>${canPhone ? `<button onclick="openPhonePreview()">📱 תצוגת טלפון</button>` : ''}<button onclick="openPreviewPicker()">החלפת משתמש</button><button onclick="exitPreviewMode()">יציאה ממצב תצוגה</button>`;
+    }
     toggleBtn.style.display = 'none';
   } else {
     banner.style.display = 'none';
     banner.innerHTML = '';
-    toggleBtn.style.display = (session.role==='marketing' && staffDepartments(currentUserEmail).length===Object.keys(DEPARTMENTS).length) ? 'flex' : 'none';
+    const isEmbed = typeof isEmbeddedPreview==='function' && isEmbeddedPreview();
+    toggleBtn.style.display = (!isEmbed && session.role==='marketing' && canUsePreviewMode()) ? 'flex' : 'none';
   }
 }
 function logout(){
+  if(typeof closePhonePreview==='function') closePhonePreview();
+  if(typeof unsubMyPermissions!=='undefined' && unsubMyPermissions){ unsubMyPermissions(); unsubMyPermissions = null; }
+  if(typeof unsubAllPermissions!=='undefined' && unsubAllPermissions){ unsubAllPermissions(); unsubAllPermissions = null; }
+  if(typeof permissionsSyncedFor!=='undefined'){ permissionsSyncedFor = null; myPermissions = {}; allPermissionDocs = null; }
   document.getElementById('app-screen').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   clearIdentity();

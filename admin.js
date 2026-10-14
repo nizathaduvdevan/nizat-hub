@@ -49,10 +49,12 @@ function viewAdmin(){
     {id:'stats', label:'סטטיסטיקות'},
     {id:'texts', label:'טקסטים באתר'},
     {id:'pwa', label:'התקנות PWA'},
-    {id:'broadcast', label:'שידור עדכון (Push)'}
+    {id:'broadcast', label:'שידור עדכון (Push)'},
+    {id:'permissions', label:'ניהול הרשאות'}
   ];
   const tabs = allTabs.filter(t => {
     if(t.id==='promoUpload') return canManageDepartment('purchasing');
+    if(t.id==='permissions') return typeof isPermissionOwner==='function' && isPermissionOwner() && !previewMode;
     return isMarketingDept || MARKETING_ONLY_TABS.indexOf(t.id) === -1;
   });
   const deptLabel = myDepts.length===1 ? (DEPARTMENTS[myDepts[0]]||{}).label : null;
@@ -92,6 +94,11 @@ function viewAdmin(){
           <a href="javascript:void(0)" onclick="setAdminTab('pwa')">התקנות אפליקציה <span style="color:var(--muted);font-weight:400;">— מי התקין את HUB</span></a>
         </div>
       ` : ''}
+      ${(typeof isPermissionOwner==='function' && isPermissionOwner() && !previewMode) ? `
+        <div class="admin-secondary">
+          <a href="javascript:void(0)" onclick="setAdminTab('permissions')">🔐 ניהול הרשאות <span style="color:var(--muted);font-weight:400;">— מי יכול לעשות מה באפליקציה</span></a>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -128,6 +135,7 @@ function viewAdmin(){
     ${ui.adminTab==='texts' ? adminTexts() : ''}
     ${ui.adminTab==='pwa' ? adminPwaInstalls() : ''}
     ${ui.adminTab==='broadcast' ? adminBroadcast() : ''}
+    ${ui.adminTab==='permissions' ? adminPermissions() : ''}
   `;
 }
 /* מיפוי ברירת מחדל בין קיצור העמודה באקסל לשם הסניף המלא - נבנה יחד עם
@@ -867,6 +875,7 @@ function toggleBroadcastReadDetails(id){
   if(el) el.style.display = (el.style.display==='none') ? 'block' : 'none';
 }
 function sendBroadcastPush(){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const title = val('broadcast-title');
   const body = val('broadcast-body');
   if(!title || !body){ toast('נא למלא כותרת ותוכן'); return; }
@@ -926,6 +935,7 @@ function adminTexts(){
   `;
 }
 function saveSiteTexts(){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const keys = Object.keys(SITE_TEXT_LABELS);
   const obj = {};
   keys.forEach(k=>{
@@ -1270,6 +1280,7 @@ function openForm(type, editId){
   if(type==='instructions') renderInstructionImagePreview();
 }
 function saveForm(){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const {type, editId} = formState;
   let obj;
   if(type==='events'){
@@ -1421,6 +1432,7 @@ function confirmDelete(type, id){
   document.getElementById('modal-overlay').classList.add('open');
 }
 function doDelete(){
+  if(previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
   const {type, id} = pendingDelete;
   if(FIRESTORE_BACKED_TYPES.indexOf(type) !== -1 && firebaseReady){
     closeModal();
