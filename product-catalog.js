@@ -406,7 +406,8 @@ function catShowSyncResult(res){
     <div style="font-size:14px;line-height:1.8;">
       נמצאו <b>${res.total}</b> מוצרים במבצע ב-${res.categories} קטגוריות באתר${res.validUntil ? ` · בתוקף עד <b>${catFmtDayKey(res.validUntil)}</b>` : ' · <span style="color:var(--critical);">לא נמצא תאריך תוקף באתר</span>'}.<br>
       ${res.skippedGeneric ? `<span style="color:var(--text-secondary);font-size:13px;">${res.skippedGeneric} הנחות "5% לחברי מועדון" לא נספרו כמבצע.</span><br>` : ''}
-      ${res.brandOffers ? `<span style="color:var(--text-secondary);font-size:13px;">מבצעי "לחברי מועדון": ${res.brandOffers} מותגים, נמצאו ${res.brandLogos || 0} לוגואים.</span><br>` : ''}
+      <span style="color:var(--text-secondary);font-size:13px;">לוגואים של מותגים (לחברי מועדון): ${res.brandLogos || 0}${res.bookletLogos && res.bookletLogos.found ? ` · ${res.bookletLogos.found} חדשים מהחוברת` : ''}.</span><br>
+      ${res.bookletLogos && (res.bookletLogos.notFound || []).length ? `<span style="color:var(--critical);font-size:13px;">לא נמצא לוגו ל: ${res.bookletLogos.notFound.map(catEsc).join(', ')}</span><br>` : ''}
       ${(res.failedCategories || []).length ? `<span style="color:var(--critical);font-size:13px;">${res.failedCategories.length} קטגוריות לא נטענו.</span><br>` : ''}
       ${res.dryRun ? '<span style="color:var(--text-secondary);font-size:13px;">בדיקה בלבד — שום דבר לא נשמר.</span>' : ''}
     </div>
