@@ -91,6 +91,7 @@ function nosInjectStyleOnce(){
 ============================================================ */
 let nosFeedItems = null;
 let nosFeedLoaded = false;
+let nosCatWaiting = false;
 
 function viewNewOnShelf(){
   nosInjectStyleOnce();
@@ -139,7 +140,17 @@ function nosRenderFeed(){
     byId[item.batchId].products.push(item);
   });
 
+  /* תמונות מהאתר: הקטלוג נטען מהמטמון (או קריאה אחת), ואז מציירים שוב */
+  if(typeof catEnsureLoaded === 'function' && typeof cat !== 'undefined' && !cat.list.length && !nosCatWaiting){
+    nosCatWaiting = true;
+    catEnsureLoaded();
+    setTimeout(function(){ nosCatWaiting = false; if(cat.list.length && document.getElementById('nos-feed-root')) nosRenderFeed(); }, 2500);
+  }
+  const pendingStudio = isAdmin && nosFeedItems.some(i => /הרצל/.test(i.supplier||'') && i.imageUrl && !i.imageUrlOriginal && !i.studioReverted);
   root.innerHTML = `
+    ${pendingStudio ? `<div class="nos-flag-row" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+      <span>יש תמונות של הרצל שעוד לא עברו עיבוד סטודיו.</span>
+      <button class="nos-icon-btn" onclick="nosRunStudioBackfill(this)">✨ עיבוד תמונות הרצל</button></div>` : ''}
     <input type="file" id="nosImageUploadInput" accept="image/*" style="display:none" onchange="nosImageFileSelected(this.files[0])">
     ${batches.map(b => `
     <div class="nos-batch">
@@ -157,35 +168,27 @@ function nosRenderFeed(){
   `).join('')}`;
 }
 
-/* ---------- שיפור תמונות בתצוגה (Cloudinary) ----------
-   התמונות של "חדש על המדף" (בעיקר צילומי טלפון שמגיעים מהספקים / מהרצל)
-   לעיתים קטנות, מטושטשות או כהות. Cloudinary מעבד תמונה לפי פקודות בכתובת
-   שלה — הקובץ המקורי לא משתנה, וזה חל אוטומטית גם על כל מה שכבר עלה:
-     שלב 3 (רק "הרצל" — צילומי טלפון AS IS): הסרת רקע ב-AI, חיתוך השוליים,
-            מירכוז על רקע לבן מרובע + שיפור וחידוד → נראה כמו תמונת מוצר
-            מקצועית של ספק. בפעם הראשונה ש-Cloudinary מעבד תמונה כזו הוא עשוי
-            להחזיר "בעיבוד" (HTTP 423) — אז מוצג זמנית שלב 2, ובכניסה הבאה
-            כבר התמונה הנקייה.
-     שלב 2: הגדלה חכמה (AI upscale) רק לתמונות צרות מ-700px + שלב 1
-     שלב 1: שיפור אוטומטי (בהירות/ניגודיות/צבע) + חידוד + איכות ופורמט אוטומטיים
-     שלב 0: התמונה המקורית
-   אם שלב לא נתמך בחשבון ה-Cloudinary (למשל upscale) או נכשל — הדפדפן יורד
-   אוטומטית לשלב הקודם (nosImgFallback), כך שתמונה אף פעם לא "נשברת". */
+/* ---------- תמונות: תמונה מהאתר > תמונת "סטודיו" > שיפור עדין ----------
+   1. אם המוצר כבר עלה לאתר (העובדת במחסן מצלמת אותו בצורה מקצועית), הקטלוג
+      באפליקציה (product-catalog.js) מכיר את קוד הפריט ואת התמונה מהאתר —
+      מציגים אותה אוטומטית במקום הצילום שהגיע במייל.
+   2. תמונות של הרצל (צילומי טלפון) עוברות בשרת עיבוד "סטודיו" חינמי
+      (studio_image.py ב-Cloud Functions): הגדלה, הסרת רקע, רקע לבן וצל.
+      המקור נשמר ב-imageUrlOriginal, וצוות רכש יכול להחזיר אליו.
+   3. כל השאר: שיפור עדין ב-Cloudinary (בהירות/חידוד/הגדלה לתמונות קטנות),
+      עם ירידה אוטומטית לשלב הקודם אם משהו לא נתמך — תמונה אף פעם לא נשברת. */
 const NOS_IMG_ENHANCE = [
   '',                                                                         // 0 — מקור
   'e_improve/e_sharpen:70/c_limit,w_1000/q_auto:good/f_auto',                 // 1 — שיפור
-  'if_w_lt_700/e_upscale/if_end/e_improve/e_sharpen:70/c_limit,w_1000/q_auto:good/f_auto', // 2 — + הגדלה
-  'e_background_removal/e_trim/c_pad,w_900,h_900,b_white/e_improve/e_sharpen:60/q_auto:good/f_jpg' // 3 — סטודיו (הרצל)
+  'if_w_lt_700/e_upscale/if_end/e_improve/e_sharpen:70/c_limit,w_1000/q_auto:good/f_auto' // 2 — + הגדלה
 ];
-/* ספקים שהתמונות שלהם הן צילומי טלפון ומקבלים "סטודיו" (שלב 3) */
-const NOS_STUDIO_SUPPLIERS = /הרצל/;
 function nosImgUrl(url, level){
   if(!url || !level || url.indexOf('res.cloudinary.com') === -1 || url.indexOf('/upload/') === -1) return url;
   return url.replace('/upload/', '/upload/' + NOS_IMG_ENHANCE[level] + '/');
 }
-/* <img> משופרת עם ירידה הדרגתית לשלב הקודם אם משהו נכשל */
-function nosImgAttrs(url, supplier){
-  const top = NOS_STUDIO_SUPPLIERS.test(String(supplier || '')) ? 3 : 2;
+/* <img> עם ירידה הדרגתית לשלב הקודם אם משהו נכשל. top=0 → המקור כמו שהוא. */
+function nosImgAttrs(url, top){
+  top = (top == null) ? 2 : top;
   return `src="${nosImgUrl(url, top)}" data-orig="${url}" data-level="${top}" onerror="nosImgFallback(this)"`;
 }
 function nosImgFallback(img){
@@ -194,20 +197,38 @@ function nosImgFallback(img){
   img.dataset.level = String(level);
   img.src = nosImgUrl(img.dataset.orig, level);
 }
-function nosOpenImageModal(url, supplier){
+/* תמונה מקצועית מהאתר לפי קוד הפריט (מהקטלוג), או null */
+function nosSiteImage(p){
+  if(!p || !p.code || typeof cat === 'undefined' || !cat.byCode || typeof catKey !== 'function') return null;
+  const c = cat.byCode[catKey(p.code)] || cat.byCode[String(p.code)];
+  return (c && c.img && typeof catImageUrl === 'function') ? catImageUrl(c) : null;
+}
+/* איזו תמונה להציג למוצר: {url, level, kind: 'site'|'studio'|'photo'} */
+function nosDisplayImage(p){
+  const site = nosSiteImage(p);
+  if(site) return {url: site, level: 0, kind: 'site'};
+  if(!p.imageUrl) return null;
+  if(p.imageUrlOriginal) return {url: p.imageUrl, level: 0, kind: 'studio'};
+  return {url: p.imageUrl, level: 2, kind: 'photo'};
+}
+function nosOpenImageModal(url, level, originalUrl){
   document.getElementById('modal-body').innerHTML = `
     <div style="text-align:center;">
-      <img ${nosImgAttrs(url, supplier)} style="max-width:100%; max-height:80vh; border-radius:8px;">
+      <img ${nosImgAttrs(url, level == null ? 2 : level)} style="max-width:100%; max-height:70vh; border-radius:8px;">
+      ${originalUrl ? `<div style="margin-top:10px;"><a href="${originalUrl}" target="_blank" rel="noopener" style="font-size:13px;color:var(--text-secondary);">📷 הצילום המקורי שהתקבל</a></div>` : ''}
     </div>
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
 }
 
 function nosProductCard(p, isAdmin){
-  const img = p.imageUrl
+  const di = nosDisplayImage(p);
+  const origForZoom = di && di.kind !== 'photo' ? (p.imageUrlOriginal || p.imageUrl || '') : '';
+  const img = di
     ? `<div class="nos-img-wrap">
-         <img class="nos-card-img" ${nosImgAttrs(p.imageUrl, p.supplier)} alt="${p.name||''}" loading="lazy">
-         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${p.imageUrl}', '${String(p.supplier||'').replace(/'/g,'')}')">${icon('search')}</div>
+         <img class="nos-card-img" ${nosImgAttrs(di.url, di.level)} alt="${p.name||''}" loading="lazy">
+         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${di.url}', ${di.level}, '${origForZoom}')">${icon('search')}</div>
        </div>`
     : `<div class="nos-card-img-placeholder">אין תמונה</div>`;
   const extraFields = Object.keys(p.fields||{})
@@ -223,6 +244,7 @@ function nosProductCard(p, isAdmin){
           <div class="nos-img-actions">
             <button onclick="nosTriggerImageUpload('${p.id}')">📷 החלף</button>
             ${p.imageUrl ? `<button onclick="nosDeleteImage('${p.id}')">מחק תמונה</button>` : ''}
+            ${p.imageUrlOriginal ? `<button onclick="nosRevertStudio('${p.id}')" title="ביטול עיבוד הסטודיו">↩️ למקור</button>` : ''}
           </div>
         ` : ''}
         <div class="nos-card-body">
@@ -238,6 +260,39 @@ function nosProductCard(p, isAdmin){
 }
 
 /* ---------- Admin management: delete product / batch, replace / remove image ---------- */
+
+/* ביטול עיבוד ה"סטודיו" לתמונה אחת — חוזרים לצילום המקורי */
+function nosRevertStudio(docId){
+  const item = (nosFeedItems||[]).find(i => i.id === docId);
+  if(!item || !item.imageUrlOriginal) return;
+  db.collection('newOnShelf').doc(docId).update({
+    imageUrl: item.imageUrlOriginal, imageUrlOriginal: null, studioReverted: true,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(() => { toast('הוחזר לצילום המקורי'); nosLoadFeed(); })
+    .catch(err => toast('שגיאה: ' + err.message));
+}
+
+/* עיבוד "סטודיו" לתמונות הרצל שכבר פורסמו (לפני שהעיבוד האוטומטי הופעל) */
+function nosRunStudioBackfill(btn){
+  if(btn){ btn.disabled = true; btn.textContent = 'מעבד תמונות… (עד כמה דקות)'; }
+  firebase.auth().currentUser.getIdToken()
+    .then(idToken => fetch(NOS_CLOUD_FUNCTION_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+      body: JSON.stringify({mode:'studio_backfill'})
+    }))
+    .then(r => r.json())
+    .then(res => {
+      if(btn){ btn.disabled = false; btn.textContent = '✨ עיבוד תמונות הרצל'; }
+      if(res.error){ toast('שגיאה: ' + res.error); return; }
+      toast(`עובדו ${res.processed} תמונות${res.failed ? `, ${res.failed} נכשלו` : ''}${res.remaining ? ` · נשארו ${res.remaining} — לחצו שוב` : ''}`);
+      nosLoadFeed();
+    })
+    .catch(err => {
+      if(btn){ btn.disabled = false; btn.textContent = '✨ עיבוד תמונות הרצל'; }
+      toast('שגיאה בתקשורת עם השרת: ' + err.message);
+    });
+}
 
 function nosDeleteProduct(docId){
   if(!confirm('למחוק את המוצר הזה? הפעולה בלתי הפיכה.')) return;
@@ -458,20 +513,26 @@ function nosDrop(ev, targetFileIdx, targetProductIdx){
   if(!nosDragSource) return;
   const files = nosUploadState.previewSummary.files;
   const targetProduct = files[targetFileIdx].products[targetProductIdx];
+  /* תמונה = זוג {url, orig} — המקור של עיבוד ה"סטודיו" עובר יחד איתה */
   const oldTargetUrl = targetProduct.imageUrl || null;
+  const oldTargetOrig = targetProduct.imageUrlOriginal || null;
 
-  let sourceUrl = null;
+  let sourceUrl = null, sourceOrig = null;
   if(nosDragSource.kind === 'product'){
     const sourceProduct = files[nosDragSource.fileIdx].products[nosDragSource.index];
     sourceUrl = sourceProduct.imageUrl;
+    sourceOrig = sourceProduct.imageUrlOriginal || null;
     sourceProduct.imageUrl = oldTargetUrl; // swap — the displaced image goes where the dragged one came from
+    sourceProduct.imageUrlOriginal = oldTargetOrig;
   } else {
     const list = files[nosDragSource.fileIdx].unmatchedImages;
     sourceUrl = list[nosDragSource.index].url;
+    sourceOrig = list[nosDragSource.index].orig || null;
     list.splice(nosDragSource.index, 1); // consumed — no longer "unmatched"
-    if(oldTargetUrl) list.push({url: oldTargetUrl}); // displaced image becomes unmatched instead of vanishing
+    if(oldTargetUrl) list.push({url: oldTargetUrl, orig: oldTargetOrig}); // displaced image becomes unmatched instead of vanishing
   }
   targetProduct.imageUrl = sourceUrl;
+  targetProduct.imageUrlOriginal = sourceOrig;
 
   nosDragSource = null;
   nosRenderPreview(nosUploadState.previewSummary);
