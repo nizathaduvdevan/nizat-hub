@@ -36,7 +36,19 @@ const CAT_SITE = 'https://www.nizat.com/';
 const CAT_IMG_BASE = CAT_SITE + 'ProductsImages/';
 const CAT_ADMIN_EMAILS = ['eliran@nizat.co.il', 'yulia@nizat.co.il', 'ai@nizat.co.il'];
 /* מחלקות פנימיות שלא מוצגות לעובדים */
-const CAT_HIDDEN_DEPTS = ['תפעול', 'כללי', 'מוצרים ללא מעמ*'];
+const CAT_HIDDEN_DEPTS = ['תפעול', 'כללי', 'מוצרים ללא מעמ*', 'לא פעיל1', 'לא פעיל2'];
+/* אייקון לכל מחלקה (לפי השם המדויק במערכת). מחלקה חדשה שלא ברשימה מקבלת 🛍️ */
+const CAT_DEPT_ICONS = {
+  'אם וילד': '🍼', 'אסייתי': '🥢', 'אפייה': '🧁', 'אקולוגי': '🌱', 'ביצים': '🥚', 'בית קפה': '☕',
+  'גרנולות/מוזלי ודייסות': '🥣', 'דגני בוקר': '🥣', 'דגנים וקטניות': '🌾', 'דגנים וקטניות תפזורת': '🫘',
+  'חטיפים מלוחים': '🥨', 'טבעוני': '🥦', 'לחם ומוצריו': '🍞', 'ללא גלוטן': '🌾', 'מוצרים מתוקים': '🍫',
+  'ממרחים': '🍯', 'משקאות': '🧃', 'עוגיות': '🍪', 'פירות וירקות*': '🥕', 'פירות יבשים ואגוזים': '🥜',
+  'פסטות': '🍝', 'קוסמטיקה טואלטיקה': '🧴', 'קיטו ודל פחמימה': '🥑', 'קירור טבעוני': '🧊', 'קירור מן החי': '🧀',
+  'קפואים': '❄️', 'קרקרים ופריכיות': '🍘', 'שימורים ורטבים': '🥫', 'שמנים וחומצים': '🫒',
+  'תבלינים ומלחים': '🧂', 'תה קפה וחליטות': '🍵', 'תוספים': '💊', 'תחליפי חלב': '🥛'
+};
+/* רקעים צבעוניים עדינים לאייקונים — מתחלפים לפי המחלקה */
+const CAT_DEPT_TINTS = ['#FDE7D3', '#E3F1D6', '#DCEBFA', '#F7E0EC', '#FFF1C7', '#E6E0F7', '#D8F1EC', '#FBE3DF'];
 const CAT_PAGE_SIZE = 40;
 const CAT_CHUNK_MAX_BYTES = 850000;   /* מגבלת מסמך ב-Firestore היא 1MiB */
 const CAT_STATUS_FOUND = 'נמצא באתר';
@@ -422,16 +434,22 @@ function catInjectStyleOnce(){
     .cat-chip{flex:none;border:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);border-radius:99px;
       padding:7px 13px;font-family:inherit;font-size:13px;cursor:pointer;white-space:nowrap;}
     .cat-chip.active{background:var(--brand-primary);border-color:var(--brand-primary);color:#fff;}
-    .cat-chip.promo.active{background:var(--orange);border-color:var(--orange);}
+    .cat-chip.promo{background:rgba(176,24,40,0.08);border-color:rgba(176,24,40,0.35);color:var(--orange);font-weight:700;}
+    .cat-chip.promo.active{background:var(--orange);border-color:var(--orange);color:#fff;}
+    html[data-theme="dark"] .cat-chip.promo:not(.active){background:rgba(236,131,90,0.12);border-color:rgba(236,131,90,0.4);color:#f09a7a;}
     .cat-chip .cat-chip-n{opacity:.7;font-size:12px;margin-inline-start:4px;}
     .cat-sub{font-size:12.5px;color:var(--muted);margin:-2px 0 12px;}
     .cat-depts{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-    .cat-dept{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:right;background:var(--surface-1);
-      border:1px solid var(--border);border-radius:14px;padding:14px 13px;cursor:pointer;font-family:inherit;color:var(--text-primary);min-height:72px;}
+    .cat-dept{display:flex;flex-direction:row;align-items:flex-start;gap:10px;text-align:right;background:var(--surface-1);
+      border:1px solid var(--border);border-radius:14px;padding:12px 11px;cursor:pointer;font-family:inherit;color:var(--text-primary);min-height:72px;
+      box-shadow:0 1px 2px rgba(11,11,11,0.04), 0 2px 10px rgba(11,11,11,0.05);}
     .cat-dept:hover{border-color:var(--brand-primary);}
-    .cat-dept-name{font-size:14.5px;font-weight:700;line-height:1.3;}
+    .cat-dept-ic{width:40px;height:40px;flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:21px;line-height:1;}
+    .cat-dept-txt{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;}
+    .cat-dept-name{font-size:14px;font-weight:700;line-height:1.3;}
     .cat-dept-meta{font-size:12px;color:var(--muted);}
-    .cat-dept-meta .cat-promo-n{color:var(--orange);font-weight:600;}
+    .cat-dept-promo{display:inline-block;margin-top:3px;font-size:11.5px;font-weight:700;color:#fff;background:var(--orange);
+      border-radius:99px;padding:2px 9px;white-space:nowrap;}
     .cat-list{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
     .cat-row{display:flex;gap:12px;align-items:center;width:100%;text-align:right;background:transparent;border:none;
       border-bottom:1px solid var(--gridline);padding:10px 12px;cursor:pointer;font-family:inherit;color:var(--text-primary);}
@@ -468,7 +486,8 @@ function catInjectStyleOnce(){
     .cat-copy{border:none;background:transparent;color:var(--brand-primary-dark);cursor:pointer;font-family:inherit;font-size:12.5px;padding:0 6px;}
     html[data-theme="dark"] .cat-thumb, html[data-theme="dark"] .cat-pd-img{background:#f4f4f2;}
     html[data-theme="dark"] .cat-pd-promo{background:rgba(236,131,90,0.10);border-color:rgba(236,131,90,0.35);}
-    html[data-theme="dark"] .cat-pd-promo-label, html[data-theme="dark"] .cat-dept-meta .cat-promo-n{color:#f09a7a;}
+    html[data-theme="dark"] .cat-pd-promo-label{color:#f09a7a;}
+    html[data-theme="dark"] .cat-dept-ic{filter:saturate(0.9);opacity:0.92;}
     html[data-theme="dark"] .cat-more, html[data-theme="dark"] .cat-copy{color:#a8d878;}
     @media (min-width:700px){ .cat-depts{grid-template-columns:repeat(3,1fr);} }
   `;
@@ -556,6 +575,12 @@ function catBodyHtml(){
   `;
 }
 
+function catDeptIcon(name){
+  return CAT_DEPT_ICONS[name] || '🛍️';
+}
+function catDeptTint(name){
+  return CAT_DEPT_TINTS[parseInt(catHash(name), 10) % CAT_DEPT_TINTS.length];
+}
 function catDeptGridHtml(){
   const promoCounts = {};
   if(catPromo.loaded){
@@ -564,8 +589,12 @@ function catDeptGridHtml(){
   return `<div class="cat-depts">${cat.depts.map(function(d, di){
     const pc = promoCounts[d.name] || 0;
     return `<button class="cat-dept" onclick="catOpenDept(${di})">
-      <span class="cat-dept-name">${catEsc(d.name)}</span>
-      <span class="cat-dept-meta">${d.count} מוצרים${pc ? ` · <span class="cat-promo-n">${pc} במבצע</span>` : ''}</span>
+      <span class="cat-dept-ic" style="background:${catDeptTint(d.name)}" aria-hidden="true">${catDeptIcon(d.name)}</span>
+      <span class="cat-dept-txt">
+        <span class="cat-dept-name">${catEsc(d.name.replace(/\*$/, ''))}</span>
+        <span class="cat-dept-meta">${d.count} מוצרים</span>
+        ${pc ? `<span class="cat-dept-promo">🏷️ ${pc} במבצע</span>` : ''}
+      </span>
     </button>`;
   }).join('')}</div>`;
 }
