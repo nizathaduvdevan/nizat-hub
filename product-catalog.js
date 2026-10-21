@@ -20,9 +20,8 @@
    הטלפון שומר עותק ב-localStorage. בכל פתיחה נקרא רק _meta (קריאה אחת);
    החלקים נטענים מחדש רק אם הגרסה השתנתה. אותו עיקרון כמו planogramItems.
 
-   מבצעים: appData.promoBooklet (כבר מסונכרן לכולם ע"י firebase-init.js)
-   + purchasingPromoItems (ברקוד → קוד מבצע), שנטען פעם אחת ונשמר במטמון
-   עד שהחוברת מתחלפת (או 12 שעות לכל היותר).
+   מבצעים: מסונכרנים אוטומטית מאתר nizat.com ע"י Cloud Function מתוזמנת
+   (sitePromos/current), ומוצגים רק עד "תוקף המבצעים" שמופיע באתר.
 
    ניווט: ui.catDept = המחלקה הפתוחה (null = רשימת המחלקות). נשמר בהיסטוריה
    (navigation.js) כך שכפתור "חזרה" במובייל חוזר מהמחלקה לרשימה.
@@ -30,8 +29,7 @@
 
 const CAT_COLLECTION = 'productCatalog';
 const CAT_CACHE_KEY = 'nizatHubCatalogV1';
-const CAT_PROMO_CACHE_KEY = 'nizatHubCatalogPromoV1';
-const CAT_PROMO_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const CAT_PROMO_CACHE_KEY = 'nizatHubCatalogSitePromosV1';
 const CAT_SITE = 'https://www.nizat.com/';
 const CAT_IMG_BASE = CAT_SITE + 'ProductsImages/';
 const CAT_ADMIN_EMAILS = ['eliran@nizat.co.il', 'yulia@nizat.co.il', 'ai@nizat.co.il'];
@@ -90,8 +88,11 @@ let catState = {
 let catPromo = {
   loaded: false,
   loading: false,
-  sig: null,
-  map: {}          /* קוד פריט מנורמל → קוד מבצע */
+  fetched: false,      /* נקרא מ-Firestore בהפעלה הנוכחית */
+  syncedAtMs: null,
+  validUntil: null,    /* 'YYYY-MM-DD' — "תוקף המבצעים עד" מהאתר */
+  total: 0,
+  map: {}              /* מזהה מוצר באתר → {t: נוסח, s: מחיר מבצע, p: מחיר רגיל} */
 };
 let catPendingImport = null;
 
@@ -276,80 +277,141 @@ function catEnsureLoaded(){
 }
 
 /* ============================================================
-   מבצעים — חיבור לחוברת המבצעים הנוכחית
+   מבצעים — מסונכרנים מאתר nizat.com
+   ------------------------------------------------------------
+   המבצעים באתר זהים לסניפים. ה-Cloud Function sync_site_promos (בפרויקט
+   הפונקציות, sync_site_promos.py) סורקת את עמוד "מבצעי מועדון" באתר כמה
+   פעמים ביום וכותבת מסמך אחד: sitePromos/current
+     {syncedAtMs, validUntil:'YYYY-MM-DD', total, data:'{"27713":{"t":"ב- 20% הנחה","s":12.72,"p":15.9}, …}'}
+   המפתח הוא מזהה המוצר באתר — המספר שבסוף הקישור לדף המוצר (-i27713) —
+   כך שהחיבור למוצרי הקטלוג מדויק, בלי ניחוש לפי שם.
+   מבצע מוצג רק עד validUntil ("תוקף המבצעים עד…" מהאתר). כשהאתר עובר
+   לחודש הבא, הסנכרון הבא מביא את המבצעים החדשים — המשכיות אוטומטית.
+   עלות: קריאה אחת בכל כניסה לקטלוג (פעם אחת לכל פתיחת אפליקציה).
 ============================================================ */
-function catBooklet(){
-  return (typeof appData !== 'undefined' && appData.promoBooklet) ? appData.promoBooklet : {};
+const CAT_SYNC_URL = 'https://us-central1-nizat-hub.cloudfunctions.net/sync_site_promos_now';
+const CAT_PROMO_NO_DATE_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;  /* בלי תאריך תוקף: עד יומיים מהסנכרון */
+
+function catTodayKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
-function catBookletSig(){
-  const keys = Object.keys(catBooklet()).sort();
-  return keys.length ? catHash(keys.join('|')) : '';
+function catFmtDayKey(k){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(k || '');
+  return m ? parseInt(m[3], 10) + '.' + parseInt(m[2], 10) : '';
+}
+function catFmtDateTime(ms){
+  if(!ms) return '';
+  const d = new Date(ms);
+  return catFmtDate(ms) + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+/* מזהה המוצר באתר מתוך הקישור לדף המוצר (…-i27713) */
+function catSiteId(p){
+  if(!p || !p.url) return '';
+  const m = String(p.url).match(/-i(\d+)\s*$/);
+  return m ? m[1] : '';
+}
+function catPromoSet(doc){
+  let map = {};
+  try { map = JSON.parse(doc.data || '{}') || {}; } catch(e){ map = {}; }
+  catPromo.map = map;
+  catPromo.syncedAtMs = doc.syncedAtMs || null;
+  catPromo.validUntil = doc.validUntil || null;
+  catPromo.total = doc.total != null ? doc.total : Object.keys(map).length;
+  catPromo.loaded = true;
 }
 function catPromoEnsureLoaded(){
-  const sig = catBookletSig();
-  if(!sig){ catPromo.map = {}; catPromo.sig = ''; catPromo.loaded = true; return; }
-  if(catPromo.loading) return;
-  if(catPromo.loaded && catPromo.sig === sig) return;
-  /* מטמון מקומי: תקף כל עוד החוברת לא התחלפה, ולא יותר מ-12 שעות */
-  try {
-    const raw = localStorage.getItem(CAT_PROMO_CACHE_KEY);
-    const c = raw ? JSON.parse(raw) : null;
-    if(c && c.sig === sig && c.map && (Date.now() - (c.savedAt || 0)) < CAT_PROMO_MAX_AGE_MS){
-      catPromo.map = c.map; catPromo.sig = sig; catPromo.loaded = true;
-      return;
-    }
-  } catch(e){}
+  if(catPromo.loading || catPromo.fetched) return;
+  /* הצגה מיידית מהמטמון, ואז רענון (קריאה אחת) */
+  if(!catPromo.loaded){
+    try {
+      const raw = localStorage.getItem(CAT_PROMO_CACHE_KEY);
+      const c = raw ? JSON.parse(raw) : null;
+      if(c && c.data != null) catPromoSet(c);
+    } catch(e){}
+  }
   if(!catFirestoreReady()){ catPromo.loaded = true; return; }
   catPromo.loading = true;
-  db.collection('purchasingPromoItems').get().then(function(snap){
-    const map = {};
-    snap.forEach(function(doc){
-      const d = doc.data() || {};
-      if(!d.code) return;
-      map[catKey(doc.id)] = String(d.code);
-    });
-    catPromo.map = map;
-    catPromo.sig = sig;
-    catPromo.loaded = true;
-    catPromo.loading = false;
-    try { localStorage.setItem(CAT_PROMO_CACHE_KEY, JSON.stringify({sig: sig, map: map, savedAt: Date.now()})); } catch(e){}
-    catRerender();
+  db.collection('sitePromos').doc('current').get().then(function(doc){
+    const d = doc.exists ? (doc.data() || {}) : {data: '{}', syncedAtMs: null, validUntil: null, total: 0};
+    const st = {data: d.data || '{}', syncedAtMs: d.syncedAtMs || null, validUntil: d.validUntil || null, total: d.total || 0};
+    catPromoSet(st);
+    try { localStorage.setItem(CAT_PROMO_CACHE_KEY, JSON.stringify(st)); } catch(e){}
   }).catch(function(err){
-    console.warn('catalog: טעינת פריטי מבצע נכשלה', err);
-    catPromo.loading = false;
+    console.warn('catalog: טעינת המבצעים נכשלה', err);
     catPromo.loaded = true;
-    catPromo.sig = sig;
+  }).then(function(){
+    catPromo.loading = false;
+    catPromo.fetched = true;
+    catRerender();
   });
 }
-/* תיאור מחיר המבצע — אותו ניסוח כמו ב"חוברת מבצעים" (pbPriceLabel) */
-function catPromoPriceLabel(b){
-  if(typeof pbPriceLabel === 'function') return pbPriceLabel({template: b.template, price: b.price});
-  const t = String(b.template || '').trim();
-  if(b.price == null) return t;
-  return t ? t + ' ' + catFmtPrice(b.price) : catFmtPrice(b.price);
+/* האם המבצעים שסונכרנו בתוקף היום */
+function catPromoActive(){
+  if(!catPromo.loaded || !catPromo.syncedAtMs) return false;
+  if(catPromo.validUntil) return catTodayKey() <= catPromo.validUntil;
+  return (Date.now() - catPromo.syncedAtMs) < CAT_PROMO_NO_DATE_MAX_AGE_MS;
 }
-/* המבצע הפעיל של מוצר (או null) */
+/* המבצע של מוצר אם הוא בתוקף היום (או null) */
 function catPromoFor(p){
-  if(!p) return null;
-  const promoCode = catPromo.map[catKey(p.code)];
-  if(!promoCode) return null;
-  const booklet = catBooklet();
-  let b = booklet[promoCode];
-  if(!b) return null;
-  if(b.mergedInto && booklet[b.mergedInto]) b = booklet[b.mergedInto];
+  if(!catPromoActive()) return null;
+  const sid = catSiteId(p);
+  const x = sid ? catPromo.map[sid] : null;
+  if(!x || !x.t) return null;
   return {
-    code: promoCode,
-    label: catPromoPriceLabel(b) || 'במבצע',
-    title: b.title || '',
-    note: b.note || '',
-    restricted: b.restricted || null
+    label: x.t,
+    sale: (x.s != null && x.s > 0) ? Number(x.s) : null,
+    regular: (x.p != null && x.p > 0) ? Number(x.p) : null,
+    until: catPromo.validUntil
   };
 }
-function catRestrictedText(r){
-  if(!r) return '';
-  if(Array.isArray(r)) return r.join(', ');
-  if(typeof r === 'object') return Object.keys(r).filter(function(k){ return r[k]; }).join(', ');
-  return String(r);
+/* יש היום מבצעים להצגה? */
+function catHasActivePromos(){
+  return catPromoActive() && Object.keys(catPromo.map || {}).length > 0;
+}
+
+/* ---------- ניהול (מנהלי-על): סנכרון ידני / בדיקה ---------- */
+function catCallSync(dryRun, btn){
+  if(!catCanManage() || typeof firebase === 'undefined' || !firebase.auth().currentUser){ toast('אין הרשאה'); return; }
+  const label = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = dryRun ? 'בודק…' : 'מסנכרן… (כ-2 דקות)'; }
+  firebase.auth().currentUser.getIdToken().then(function(token){
+    return fetch(CAT_SYNC_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+      body: JSON.stringify({dryRun: !!dryRun})
+    });
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if(btn){ btn.disabled = false; btn.textContent = label; }
+    if(res.error){ toast('שגיאה: ' + res.error); return; }
+    catShowSyncResult(res);
+    if(!dryRun && res.written){
+      catPromo.fetched = false;
+      catPromo.loaded = false;
+      catPromoEnsureLoaded();
+    }
+  }).catch(function(err){
+    if(btn){ btn.disabled = false; btn.textContent = label; }
+    toast('הסנכרון נכשל: ' + (err && err.message ? err.message : 'שגיאת רשת'));
+  });
+}
+function catShowSyncResult(res){
+  const samples = (res.samples || []).map(function(s){
+    const p = cat.list.find(function(x){ return catSiteId(x) === String(s.id); });
+    return `<tr><td>${catEsc(s.n || (p && p.name) || s.id)}</td><td style="white-space:nowrap;">${catEsc(s.t)}${s.s ? ` · ${catFmtPrice(s.s)}` : ''}</td><td>${p ? '✓' : '—'}</td></tr>`;
+  }).join('');
+  const inCatalog = Object.keys(catPromo.map || {}).length;
+  document.getElementById('modal-body').innerHTML = `
+    <h3>${res.dryRun ? 'בדיקת סנכרון מבצעים' : (res.written ? 'המבצעים סונכרנו' : 'הסנכרון לא עדכן')}</h3>
+    <div style="font-size:14px;line-height:1.8;">
+      נמצאו <b>${res.total}</b> מוצרים במבצע ב-${res.categories} קטגוריות באתר${res.validUntil ? ` · בתוקף עד <b>${catFmtDayKey(res.validUntil)}</b>` : ' · <span style="color:var(--critical);">לא נמצא תאריך תוקף באתר</span>'}.<br>
+      ${res.skippedGeneric ? `<span style="color:var(--text-secondary);font-size:13px;">${res.skippedGeneric} הנחות "5% לחברי מועדון" לא נספרו כמבצע.</span><br>` : ''}
+      ${(res.failedCategories || []).length ? `<span style="color:var(--critical);font-size:13px;">${res.failedCategories.length} קטגוריות לא נטענו.</span><br>` : ''}
+      ${res.dryRun ? '<span style="color:var(--text-secondary);font-size:13px;">בדיקה בלבד — שום דבר לא נשמר.</span>' : ''}
+    </div>
+    ${samples ? `<table class="cat-pd-table" style="margin-top:10px;font-size:12.5px;"><tr><td>מוצר</td><td>מבצע</td><td>בקטלוג</td></tr>${samples}</table>` : ''}
+    <div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">סגירה</button></div>`;
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 /* ============================================================
@@ -462,6 +524,9 @@ function catInjectStyleOnce(){
     .cat-row-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .cat-row-side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}
     .cat-price{font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;}
+    .cat-price.sale{color:var(--orange);}
+    .cat-price-was{font-size:11.5px;color:var(--muted);text-decoration:line-through;white-space:nowrap;margin-top:-4px;}
+    html[data-theme="dark"] .cat-price.sale{color:#f09a7a;}
     .cat-promo-pill{font-size:11px;font-weight:700;color:#fff;background:var(--orange);border-radius:99px;padding:2px 8px;white-space:nowrap;}
     .cat-more{display:block;width:100%;margin:12px 0 0;padding:11px;border-radius:10px;border:1px solid var(--border);
       background:var(--surface-1);color:var(--brand-primary-dark);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;}
@@ -537,7 +602,9 @@ function viewProductCatalog(){
 function catChipsHtml(dept){
   if(!cat.list.length) return '';
   const chips = [];
-  chips.push(`<button class="cat-chip promo ${catState.promoOnly ? 'active' : ''}" onclick="catTogglePromo()">🏷️ רק במבצע</button>`);
+  if(catHasActivePromos() || catState.promoOnly){
+    chips.push(`<button class="cat-chip promo ${catState.promoOnly ? 'active' : ''}" onclick="catTogglePromo()">🏷️ רק במבצע</button>`);
+  }
   if(dept && !catState.query && dept.groups.length > 1){
     chips.push(`<button class="cat-chip ${!catState.group ? 'active' : ''}" onclick="catSetGroup(-1)">הכל<span class="cat-chip-n">${dept.count}</span></button>`);
     dept.groups.forEach(function(g, gi){
@@ -563,7 +630,7 @@ function catBodyHtml(){
   const items = catFilteredList();
   if(!items.length){
     if(searching) return `<div class="cat-empty">לא נמצאו מוצרים עבור "${catEsc(catState.query)}"${ui.catDept ? ' במחלקה הזו' : ''}${catState.promoOnly ? ' במבצע' : ''}.</div>`;
-    if(catState.promoOnly) return `<div class="cat-empty">${catPromo.loaded ? 'אין כרגע מוצרים במבצע כאן.' : 'טוען מבצעים…'}</div>`;
+    if(catState.promoOnly) return `<div class="cat-empty">${catPromo.loaded ? 'אין כרגע מבצעים בתוקף כאן.' : 'טוען מבצעים…'}</div>`;
     return `<div class="cat-empty">אין מוצרים להצגה.</div>`;
   }
   const shown = items.slice(0, catState.limit);
@@ -614,8 +681,9 @@ function catRowHtml(p){
       <span class="cat-row-meta">${metaParts.join(' · ')}</span>
     </span>
     <span class="cat-row-side">
-      ${p.price != null ? `<span class="cat-price">${catFmtPrice(p.price)}</span>` : ''}
-      ${promo ? `<span class="cat-promo-pill">מבצע</span>` : ''}
+      ${promo && promo.sale ? `<span class="cat-price sale">${catFmtPrice(promo.sale)}</span>` + (p.price != null || promo.regular ? `<span class="cat-price-was">${catFmtPrice(promo.regular || p.price)}</span>` : '')
+        : (p.price != null ? `<span class="cat-price">${catFmtPrice(p.price)}</span>` : '')}
+      ${promo ? `<span class="cat-promo-pill">${catEsc(promo.label.length <= 16 ? promo.label : 'מבצע')}</span>` : ''}
     </span>
   </button>`;
 }
@@ -625,10 +693,28 @@ function catAdminHtml(){
   const m = cat.meta;
   return `
     <div class="cat-admin">
-      <span>🔧 ניהול: ${m ? `יובא ${catFmtDate(m.importedAt)} · ${m.total} מוצרים${m.importedBy ? ` · ע"י ${catEsc(m.importedBy)}` : ''}` : 'הקטלוג עוד לא יובא'}</span>
+      <span>🔧 ניהול: ${m ? `יובא ${catFmtDate(m.importedAt)} · ${m.total} מוצרים${m.importedBy ? ` · ע"י ${catEsc(m.importedBy)}` : ''}` : 'הקטלוג עוד לא יובא'}
+        ${catPromoAdminText() ? `<br>🏷️ ${catPromoAdminText()}` : ''}</span>
       <input type="file" id="cat-import-input" accept=".xlsx,.xls" style="display:none;" onchange="catImportFileSelected(this.files[0]);this.value='';">
-      <button class="btn-add" style="flex:none;" onclick="document.getElementById('cat-import-input').click()">📥 ייבוא קטלוג מאקסל</button>
+      <span style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-add" style="flex:none;" onclick="document.getElementById('cat-import-input').click()">📥 ייבוא קטלוג מאקסל</button>
+        <button class="btn-add" style="flex:none;" onclick="catCallSync(false, this)">🔄 סנכרון מבצעים עכשיו</button>
+        <button class="btn-add" style="flex:none;" onclick="catCallSync(true, this)">🧪 בדיקה</button>
+      </span>
     </div>`;
+}
+
+/* שורת מצב המבצעים — רק למנהלי-על */
+function catPromoAdminText(){
+  if(!catPromo.loaded) return '';
+  if(!catPromo.syncedAtMs) return 'המבצעים עוד לא סונכרנו מהאתר';
+  const synced = 'סונכרן ' + catFmtDateTime(catPromo.syncedAtMs);
+  const until = catPromo.validUntil ? ` · בתוקף עד ${catFmtDayKey(catPromo.validUntil)}` : '';
+  if(catPromoActive()){
+    const linked = cat.list.filter(function(p){ return !!catPromoFor(p); }).length;
+    return `${catPromo.total} מבצעים באתר, ${linked} מהם בקטלוג${until} · ${synced}`;
+  }
+  return `אין מבצעים בתוקף (${catPromo.validUntil ? 'התוקף הסתיים ב-' + catFmtDayKey(catPromo.validUntil) : 'הסנכרון ישן'}) · ${synced}`;
 }
 
 /* רינדור חלקי (בלי לאבד פוקוס בחיפוש) */
@@ -724,7 +810,6 @@ function catOpenProduct(i){
   if(!p) return;
   const promo = catPromoFor(p);
   const url = catProductUrl(p);
-  const restricted = promo ? catRestrictedText(promo.restricted) : '';
   const priceDate = cat.meta ? catFmtDate(cat.meta.importedAt) : '';
   const priceLabel = p.priceSrc === 'e' ? 'מחיר צרכן' : 'מחיר באתר';
   document.getElementById('modal-body').innerHTML = `
@@ -733,9 +818,8 @@ function catOpenProduct(i){
     ${promo ? `
       <div class="cat-pd-promo">
         <div class="cat-pd-promo-label">🏷️ במבצע: ${catEsc(promo.label)}</div>
-        ${promo.title ? `<div class="cat-pd-promo-sub">${catEsc(promo.title)}</div>` : ''}
-        ${promo.note ? `<div class="cat-pd-promo-sub">${catEsc(promo.note)}</div>` : ''}
-        ${restricted ? `<div class="cat-pd-promo-sub">רק בסניפים: ${catEsc(restricted)}</div>` : ''}
+        ${promo.sale ? `<div class="cat-pd-promo-sub">מחיר במבצע: <b>${catFmtPrice(promo.sale)}</b>${promo.regular ? ` במקום ${catFmtPrice(promo.regular)}` : ''}</div>` : ''}
+        ${promo.until ? `<div class="cat-pd-promo-sub">בתוקף עד ${catFmtDayKey(promo.until)}</div>` : ''}
       </div>` : ''}
     <table class="cat-pd-table">
       <tr><td>מק"ט</td><td>${catEsc(p.code)} <button class="cat-copy" onclick="catCopyCode(${p.i})">העתקה</button></td></tr>
