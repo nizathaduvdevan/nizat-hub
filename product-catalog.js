@@ -195,6 +195,7 @@ function catSetData(meta, rows){
   const deptMap = {};
   (rows || []).forEach(function(r){
     if(!Array.isArray(r) || !r[0]) return;
+    if(r[8] && /mfrimages/i.test(String(r[8]))) return;   /* לוגו יצרן במקום צילום — לא מוצג */
     const p = {
       i: list.length,
       code: String(r[0]),
@@ -897,7 +898,8 @@ function catParseTable(table){
     if(CAT_HIDDEN_DEPTS.indexOf(dept) !== -1){ stats.hidden++; continue; }
     const imgFull = str(get(row, 'img'));
     const img = imgFull.replace(/^https?:\/\/(www\.)?nizat\.com\/ProductsImages\//i, '');
-    if(!img || /^https?:/i.test(img)){ stats.noImage++; continue; }
+    /* mfrimages = לוגו יצרן שהאתר מציג למוצר שעוד אין לו צילום — לא תמונת מוצר */
+    if(!img || /^https?:/i.test(img) || /mfrimages/i.test(img)){ stats.noImage++; continue; }
     if(seen[code]){ stats.dup++; continue; }
     seen[code] = true;
 

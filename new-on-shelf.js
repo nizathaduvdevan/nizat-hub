@@ -201,7 +201,10 @@ function nosImgFallback(img){
 function nosSiteImage(p){
   if(!p || !p.code || typeof cat === 'undefined' || !cat.byCode || typeof catKey !== 'function') return null;
   const c = cat.byCode[catKey(p.code)] || cat.byCode[String(p.code)];
-  return (c && c.img && typeof catImageUrl === 'function') ? catImageUrl(c) : null;
+  /* מוצר שעלה לאתר עוד בלי צילום — האתר מציג במקומו את לוגו היצרן
+     (productsimages/mfrimages/...). זה לא צילום מוצר, אז לא מחליפים. */
+  if(!c || !c.img || /mfrimages/i.test(c.img) || typeof catImageUrl !== 'function') return null;
+  return catImageUrl(c);
 }
 /* איזו תמונה להציג למוצר: {url, level, kind: 'site'|'studio'|'photo'} */
 function nosDisplayImage(p){
