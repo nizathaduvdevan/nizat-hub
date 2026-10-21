@@ -376,5 +376,16 @@ function renderContent(){
   else if(ui.view==='giftCardForm') el.innerHTML = viewGiftCardForm();
   else if(ui.view==='managerCardForm') el.innerHTML = viewManagerCardForm();
   else if(ui.view==='aiChat') el.innerHTML = viewAiChat();
-  else if(ui.view==='productCatalog') el.innerHTML = viewProductCatalog();
+  else if(ui.view==='productCatalog'){
+    /* אם המכשיר עדיין מחזיק index.html ישן (בלי product-catalog.js) — טוענים
+       מחדש פעם אחת במקום שהכפתור "לא יגיב". */
+    if(typeof viewProductCatalog === 'function') el.innerHTML = viewProductCatalog();
+    else {
+      el.innerHTML = '<div class="card"><div class="empty-state">טוען גרסה חדשה של האפליקציה…</div></div>';
+      try {
+        if(!sessionStorage.getItem('nizatHubCatReload')){ sessionStorage.setItem('nizatHubCatReload','1'); location.reload(); }
+        else el.innerHTML = '<div class="card"><div class="empty-state">הקטלוג עדיין לא זמין במכשיר הזה. סגרו את האפליקציה לגמרי ופתחו אותה שוב.</div></div>';
+      } catch(e){ location.reload(); }
+    }
+  }
 }
