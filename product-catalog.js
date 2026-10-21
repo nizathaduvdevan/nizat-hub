@@ -544,6 +544,8 @@ function catInjectStyleOnce(){
     .cat-pd-table{width:100%;border-collapse:collapse;font-size:13.5px;}
     .cat-pd-table td{padding:7px 0;border-bottom:1px solid var(--gridline);vertical-align:top;}
     .cat-pd-table td:first-child{color:var(--muted);width:96px;}
+    .cat-price-note{font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.5;}
+    .cat-pd-disclaimer{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 0;}
     .cat-pd-actions{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
     .cat-pd-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:11px;border-radius:10px;font-family:inherit;font-size:14.5px;
       font-weight:600;text-decoration:none;cursor:pointer;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);}
@@ -593,6 +595,7 @@ function viewProductCatalog(){
         oninput="catOnSearch(this.value)" onfocus="catState.focus=true" onblur="catOnBlur()">
       ${catState.query ? `<button class="cat-clear" onclick="catClearSearch()" aria-label="ניקוי החיפוש">✕</button>` : ''}
     </div>
+    <div class="cat-price-note">ℹ️ המחירים לידיעה בלבד. המחיר הקובע הוא המחיר בקופה.</div>
     <div id="cat-chips">${catChipsHtml(dept)}</div>
     <div id="cat-body">${catBodyHtml()}</div>
     ${catAdminHtml()}
@@ -827,6 +830,7 @@ function catOpenProduct(i){
       ${p.supplier ? `<tr><td>ספק</td><td>${catEsc(p.supplier)}</td></tr>` : ''}
       ${p.price != null ? `<tr><td>${priceLabel}</td><td><b>${catFmtPrice(p.price)}</b>${priceDate ? ` <span style="color:var(--muted);font-size:12px;">· נכון ל-${priceDate}</span>` : ''}</td></tr>` : ''}
     </table>
+    ${(p.price != null || (promo && promo.sale)) ? `<div class="cat-pd-disclaimer">המחירים מוצגים לפי אתר ניצת הדובדבן ולידיעה בלבד. המחיר הקובע הוא המחיר בקופה.</div>` : ''}
     <div class="cat-pd-actions">
       ${url ? `<a class="cat-pd-btn primary" href="${catEsc(url)}" target="_blank" rel="noopener">לדף המוצר באתר ↗</a>` : ''}
       ${catPlanoHas(p) ? `<button class="cat-pd-btn" onclick="catGoToShelf(${p.i})">📍 איפה זה על המדף?</button>` : ''}
