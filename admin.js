@@ -783,6 +783,7 @@ function finalizePromoImport(mapping){
     if(statusEl) statusEl.textContent = `הועלו בהצלחה ${products.length} מוצרים.`;
     pendingPromoImportRows = null;
     toast('נתוני מכר מבצעים עודכנו בהצלחה');
+    if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'promoSales', icon:'📊', title:'מכר מבצעים עודכן', body:`נתוני מכר של ${products.length} מבצעים`});
   }).catch(function(err){
     if(statusEl) statusEl.textContent = 'שגיאה בהעלאה: ' + err.message;
   });

@@ -491,6 +491,7 @@ function ppuPublish(){
 
     db.collection('siteTexts').doc('purchasingPromoNotice').set(docPayload, {merge:true})
       .catch(err => { console.error('siteTexts write failed', err); toast('הפרסום הצליח, אבל שמירת הקישורים לקבצים נכשלה: ' + err.message); });
+    if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'promoBoard', icon:'📖', title:`חוברת מבצעים חדשה: ${ppuMonthLabel(result.booklet_month || st.bookletMonth)}`, body:`${result.total_promos} מבצעים להזמנה ולשילוט`});
     ppuSetStatus('success', `פורסם בהצלחה! ${result.total_promos} מבצעים נכתבו ל-Firestore ונשמרו בארכיון כחוברת של ${ppuMonthLabel(result.booklet_month || st.bookletMonth)}. אפשר לבדוק עכשיו במסך "חוברת מבצעים".`);
   })
   .catch(err => {

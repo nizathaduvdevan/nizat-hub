@@ -1,18 +1,26 @@
 /* ============================================================
    INIT
 ============================================================ */
+/* מסך הטעינה (auth-pending, ר' main.css) מוסר ברגע שידוע שצריך להציג את
+   טופס ההתחברות: אין משתמש מחובר, המייל לא מזוהה, שגיאה, או אחרי 8 שניות
+   כרשת ביטחון. כשיש משתמש מחובר — enterApp מסתיר את כל מסך ההתחברות. */
+function markAuthResolved(){
+  const el = document.getElementById('login-screen');
+  if(el) el.classList.remove('auth-pending');
+}
+setTimeout(markAuthResolved, 8000);
 function initLogin(){
-  if (!firebaseReady) return; // no Firebase configured — stays on the login screen (demo mode)
+  if (!firebaseReady){ markAuthResolved(); return; } // no Firebase configured — stays on the login screen (demo mode)
   // Firebase שומר session מחובר בין רענוני עמוד בעצמו. כשהוא משוחזר, טוענים
   // את ספר הסניפים מ-Firestore (רק עכשיו, אחרי אימות) ומזהים תפקיד לפיו —
   // בלי להסתמך על סימון ב-localStorage בלבד לפני שיש session אמיתי.
   fbAuth.onAuthStateChanged(function(user){
-    if (!user) return;
+    if (!user){ markAuthResolved(); return; }
     const email = normalizeEmail(user.email);
     currentUserEmail = email;
     loadBranchDirectory().then(function(){
-      resolveSessionForEmail(email);
-    });
+      if(!resolveSessionForEmail(email)) markAuthResolved();
+    }).catch(function(){ markAuthResolved(); });
   });
 }
 function normalizeEmail(v){ return (v||'').trim().toLowerCase(); }
@@ -264,6 +272,7 @@ function logout(){
   if(typeof permissionsSyncedFor!=='undefined'){ permissionsSyncedFor = null; myPermissions = {}; allPermissionDocs = null; }
   document.getElementById('app-screen').style.display='none';
   document.getElementById('login-screen').style.display='flex';
+  markAuthResolved();
   clearIdentity();
   session = {role:null, branchName:null, branchInfo:null, areaName:null, areaLabel:null};
   ui = {view:"dashboard", adminTab:null, adminDept:null, materialFilter:"הכל", department:null, conversationOpenKey:null};

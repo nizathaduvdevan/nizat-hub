@@ -406,6 +406,7 @@ function catShowSyncResult(res){
     <div style="font-size:14px;line-height:1.8;">
       נמצאו <b>${res.total}</b> מוצרים במבצע ב-${res.categories} קטגוריות באתר${res.validUntil ? ` · בתוקף עד <b>${catFmtDayKey(res.validUntil)}</b>` : ' · <span style="color:var(--critical);">לא נמצא תאריך תוקף באתר</span>'}.<br>
       ${res.skippedGeneric ? `<span style="color:var(--text-secondary);font-size:13px;">${res.skippedGeneric} הנחות "5% לחברי מועדון" לא נספרו כמבצע.</span><br>` : ''}
+      ${res.brandOffers ? `<span style="color:var(--text-secondary);font-size:13px;">מבצעי "לחברי מועדון": ${res.brandOffers} מותגים, נמצאו ${res.brandLogos || 0} לוגואים.</span><br>` : ''}
       ${(res.failedCategories || []).length ? `<span style="color:var(--critical);font-size:13px;">${res.failedCategories.length} קטגוריות לא נטענו.</span><br>` : ''}
       ${res.dryRun ? '<span style="color:var(--text-secondary);font-size:13px;">בדיקה בלבד — שום דבר לא נשמר.</span>' : ''}
     </div>
@@ -1004,6 +1005,7 @@ function catRunImport(){
     catPendingImport = null;
     closeModal();
     toast('הקטלוג יובא: ' + meta.total + ' מוצרים');
+    if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'productCatalog', icon:'🛒', title:'קטלוג המוצרים עודכן', body:`${meta.total} מוצרים`});
     catRerender();
   }).catch(function(err){
     console.error('catalog: ייבוא נכשל', err);

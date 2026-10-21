@@ -45,13 +45,18 @@ function parseHebDateTimeStr(s){
 /* תגית אחת לכל פריט בפיד: "חדש" (מעולם לא נקרא) / "עודכן" (נקרא, אבל השתנה
    מאז) / "נקרא" (נקרא ולא השתנה). למחלקת שיווק (אין viewerId) לא מציגים
    תגית בכלל — מעקב "נקרא" לא רלוונטי אליהם. */
+/* סף "חדש": פריט שפורסם/עודכן לפני יותר מ-FEED_NEW_MAX_AGE_DAYS ימים לא
+   מקבל יותר תגית "חדש"/"עודכן", גם אם הסניף לא פתח אותו (אחרת תוכן ישן
+   נשאר "חדש" לנצח). פריט שנקרא — "נקרא" כמו קודם. */
+const FEED_NEW_MAX_AGE_DAYS = 7;
 function feedItemBadge(typeKey, itemId, ts){
   const vid = currentViewerId();
   if(!vid) return '';
   const rec = (appData.itemReads||[]).find(r=>r.type===typeKey && r.itemId==itemId && r.viewerId===vid);
-  if(!rec) return `<span class="df-badge df-new">חדש</span>`;
+  const isRecent = ts && (Date.now() - ts) < FEED_NEW_MAX_AGE_DAYS * 86400000;
+  if(!rec) return isRecent ? `<span class="df-badge df-new">חדש</span>` : '';
   const readAtMs = parseHebDateTimeStr(rec.readAt);
-  if(!isNaN(readAtMs) && ts > readAtMs + 60000) return `<span class="df-badge df-new">עודכן</span>`;
+  if(isRecent && !isNaN(readAtMs) && ts > readAtMs + 60000) return `<span class="df-badge df-new">עודכן</span>`;
   return `<span class="df-badge df-read">נקרא</span>`;
 }
 /* לחיצה על הוראה בפיד "חדש עבורכם" צריכה לפתוח את ההודעה הספציפית עצמה,
@@ -60,6 +65,38 @@ function feedItemBadge(typeKey, itemId, ts){
    שנוצר כבר "נולד" פתוח — בלי תלות בסדר טעינה או בפעולת DOM נפרדת אחרי
    הרינדור. תחרויות/אירועים ממשיכים לנווט כרגיל דרך goToDeptScreen — אין
    להם מסך "פריט בודד" מקביל. */
+/* חומרים וסרטונים בפיד — מקובצים: העלאת תיקייה שלמה (עשרות קבצים באותו
+   יום ובאותה קטגוריה) מופיעה כשורה אחת ולא מציפה את הפיד. מזהה השורה הוא
+   הפריט החדש בקבוצה, כך שסימון "נקרא" במסך החומרים (markSectionRead)
+   מכבה גם את התגית בפיד. */
+function materialFeedItems(){
+  const groups = {};
+  (appData.materials||[]).forEach(function(m){
+    const ts = itemFeedTimestampMs(m);
+    const d = new Date(ts || 0);
+    const dayKey = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    const cat = m.isVideo ? 'סרטוני הדרכה' : (m.category || 'חומרים');
+    const key = itemDepartment(m) + '|' + dayKey + '|' + cat;
+    const g = groups[key] = groups[key] || {items: [], cat: cat, department: itemDepartment(m), isVideo: !!m.isVideo};
+    g.items.push({m: m, ts: ts});
+  });
+  return Object.keys(groups).map(function(k){
+    const g = groups[k];
+    g.items.sort(function(a, b){ return b.ts - a.ts; });
+    const top = g.items[0];
+    const n = g.items.length;
+    return {
+      type: 'material', typeKey: 'materials', id: top.m.id, ts: top.ts, edited: false,
+      title: n > 1 ? `${n} ${g.isVideo ? 'סרטונים חדשים' : 'חומרים חדשים'}: ${g.cat}` : (top.m.name || top.m.title || 'חומר חדש'),
+      department: g.department, view: g.isVideo ? 'videos' : 'materials'
+    };
+  });
+}
+/* חומר מהפיד: פותחים את מסך החומרים (או הסרטונים) של המחלקה. */
+function openMaterialFromFeed(deptKey, materialId, view){
+  markItemRead('materials', materialId);
+  goToDeptScreen(deptKey, view || 'materials');
+}
 function openInstructionFromFeed(deptKey, instructionId){
   openInstructionIds.add(String(instructionId));
   ui.department = deptKey;
@@ -82,6 +119,14 @@ function globalFeedItemHtml(f){
     onclick = `openAppUpdate('${f.id}')`;
     icon = f.icon;
     kind = 'עדכון';
+  } else if(f.type==='feedEvent'){
+    onclick = `openFeedEvent('${f.id}')`;
+    icon = f.icon;
+    kind = 'עדכון';
+  } else if(f.type==='material'){
+    onclick = `openMaterialFromFeed('${f.department}','${f.id}','${f.view||'materials'}')`;
+    icon = '📁';
+    kind = 'חומר';
   } else {
     const screenId = f.type==='instruction'?'instructions':f.type==='event'?'events':'competitions';
     onclick = f.type==='instruction' ? `openInstructionFromFeed('${f.department}','${f.id}')` : `goToDeptScreen('${f.department}','${screenId}')`;
@@ -92,8 +137,8 @@ function globalFeedItemHtml(f){
     <div class="dashboard-feed-item" onclick="${onclick}">
       <span class="df-icon">${icon}</span>
       <div class="df-main">
-        <div class="df-title">${f.type==='appUpdate' ? esc(f.title) : f.title}</div>
-        ${f.type==='appUpdate' && f.body ? `<div class="df-meta">${esc(f.body)}</div>` : ''}
+        <div class="df-title">${(f.type==='appUpdate' || f.type==='feedEvent' || f.type==='material') ? esc(f.title) : f.title}</div>
+        ${(f.type==='appUpdate' || f.type==='feedEvent') && f.body ? `<div class="df-meta">${esc(f.body)}</div>` : ''}
         <div class="df-meta">${kind} · <span dir="ltr">${fmtFeedDateTime(f.ts)}</span></div>
       </div>
       <span class="badge cat" style="margin-inline-start:6px;flex:none;">${(DEPARTMENTS[f.department]||{}).short || 'שיווק'}</span>
@@ -106,8 +151,10 @@ function viewGlobalHome(){
     ...appData.instructions.map(i=>({type:'instruction', typeKey:'instructions', ts:itemFeedTimestampMs(i), edited:itemWasEditedAfterPublish(i), title:i.title, id:i.id, department:itemDepartment(i)})),
     ...appData.competitions.map(c=>({type:'competition', typeKey:'competitions', ts:itemFeedTimestampMs(c), edited:itemWasEditedAfterPublish(c), title:c.title, id:c.id, department:itemDepartment(c)})),
     ...appData.events.filter(isEventVisibleToViewer).map(e=>({type:'event', typeKey:'events', ts:itemFeedTimestampMs(e), edited:itemWasEditedAfterPublish(e), title:e.title, id:e.id, department:itemDepartment(e)})),
-    ...(typeof appUpdateFeedItems==='function' ? appUpdateFeedItems() : [])
-  ].sort((a,b)=> b.ts-a.ts).slice(0,8);
+    ...materialFeedItems(),
+    ...(typeof appUpdateFeedItems==='function' ? appUpdateFeedItems() : []),
+    ...(typeof feedEventItems==='function' ? feedEventItems() : [])
+  ].sort((a,b)=> b.ts-a.ts).slice(0,10);
   const greetName = session.role==='area' ? session.areaLabel
     : session.role==='marketing' ? marketingDisplayFor(currentUserEmail).name
     : (session.branchInfo && session.branchInfo.manager ? session.branchInfo.manager : session.branchName);

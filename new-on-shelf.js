@@ -461,6 +461,7 @@ function nosPublish(){
         return;
       }
       nosSetStatus('success', `פורסם בהצלחה! ${result.totalProducts} מוצרים נכתבו ל-Firestore.`);
+      if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'newOnShelf', icon:'🆕', title:'חדש על המדף: מוצרים חדשים', body:`${result.totalProducts} מוצרים חדשים`});
       nosUploadState = { files:[], previewSummary:null };
       nosRenderFileList();
       document.getElementById('nosPreviewRoot').innerHTML = '';

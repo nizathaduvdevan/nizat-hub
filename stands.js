@@ -232,6 +232,7 @@ function saveStandsImport(){
       .then(()=>{
         const totalBranchesAffected = newCampaigns.reduce((s,c)=>s+c.branches.length,0);
         toast(`נוצרו ${newCampaigns.length} קמפיינים חדשים · ${totalBranchesAffected} סניפים סומנו לאישור.`);
+        if(typeof postFeedEvent==='function') postFeedEvent({department:'marketing', view:'stands', icon:'🪧', title: newCampaigns.length > 1 ? `${newCampaigns.length} סטנדים חדשים לאישור` : 'סטנד חדש לאישור', body:'יש לאשר הקמה בסניף'});
       })
       .catch(err=>toast('שגיאה בשמירת הקמפיינים: '+err.message));
     return;

@@ -67,6 +67,10 @@
     src: url('fonts/FbSpoilerPas-700.woff2') format('woff2'), url('fonts/FbSpoilerPas-700.otf') format('opentype');
   }
   html,body{margin:0;padding:0;height:100%;max-width:100vw;overflow-x:hidden;}
+  /* ביטול "משיכה לרענון" בטלפון: משיכת המסך למטה טענה את האפליקציה מחדש
+     (ומסך ההתחברות הבהב לפני ההתחברות האוטומטית). הנתונים ממילא מתעדכנים
+     בזמן אמת מ-Firestore, כך שאין צורך ברענון ידני. */
+  html,body{overscroll-behavior-y:none;}
   body{
     font-family: 'FbSpoilerPas', system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
     background:var(--page);
@@ -80,6 +84,18 @@
   ::selection{background:rgba(69,122,31,0.25);}
 
   /* ---------- Login screen ---------- */
+  /* auth-pending: בזמן ש-Firebase משחזר את ההתחברות הקיימת (בכל פתיחה/רענון)
+     מוצג מסך טעינה עם הלוגו במקום טופס ההתחברות, כדי שלא "יקפוץ" מסך כניסה
+     למשתמש שכבר מחובר. auth.js מסיר את המחלקה ברגע שידוע שאין משתמש מחובר. */
+  #login-screen .auth-splash{display:none;}
+  #login-screen.auth-pending{background-image:none !important;background-color:var(--page);
+    display:flex !important;align-items:center;justify-content:center;}
+  #login-screen.auth-pending .login-overlay-box{display:none;}
+  #login-screen.auth-pending .auth-splash{display:flex;flex-direction:column;align-items:center;gap:18px;}
+  .auth-splash img{width:150px;height:auto;}
+  .auth-spinner{width:28px;height:28px;border-radius:50%;border:3px solid var(--gridline);border-top-color:var(--brand-primary);
+    animation:auth-spin .8s linear infinite;}
+  @keyframes auth-spin{to{transform:rotate(360deg);}}
   #login-screen{
     min-height:100vh;
     position:relative;

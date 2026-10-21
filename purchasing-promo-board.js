@@ -39,6 +39,9 @@ let promoBoardExpanded = {};
 let pbShowDone = false;          // false = רק מה שעוד לא טופל; true = רק מה שכבר סומן (לביטול)
 let pbOriginalFiles = null;      // {supplierUrl, displayUrl} מתוך siteTexts/purchasingPromoNotice
 let pbUndoTimer = null;
+/* לוגואים של מותגים (sitePromos/brandLogos — נאסף מהאתר ע"י ה-Cloud Function
+   sync_site_promos): שם מותג → {t: תמונה מוקטנת, f: תמונה מלאה}. */
+let pbBrandLogos = null;
 
 const PB_FILTER_DEFS = [
   {key:'supplier', label:'ספקים'},
@@ -91,6 +94,9 @@ function pbInjectStyleOnce(){
     .pb-item-row .pb-barcode{font-size:11.5px; color:var(--muted,#888);}
     .pb-item-row .pb-iname{font-weight:600;}
     .pb-thumb{width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
+    .pb-brand-logo{display:flex; align-items:center; gap:10px; margin:6px 0 10px;}
+    .pb-brand-logo img{height:48px; max-width:150px; object-fit:contain; background:#fff; border:1px solid var(--gridline,#ddd); border-radius:8px; padding:4px 10px;}
+    .pb-brand-logo .pb-brand-name{font-size:13px; font-weight:700; color:var(--text-secondary,#555); border:1px dashed var(--gridline,#ddd); border-radius:8px; padding:10px 14px;}
     .pb-thumb-placeholder{width:36px; height:36px; border-radius:6px; border:1px dashed var(--gridline,#ddd); flex-shrink:0; background:#f5f6f4;}
     .pb-thumb-wrap{position:relative; flex-shrink:0; width:36px; height:36px; cursor:pointer;}
     .pb-thumb-zoom{position:absolute; bottom:-3px; left:-3px; width:16px; height:16px; background:#fff; border:1px solid var(--gridline,#ddd); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:9px; box-shadow:0 1px 3px rgba(0,0,0,.25);}
@@ -181,6 +187,61 @@ function loadPromoBoardData(){
     renderPromoBoard();
   }).catch(function(err){ toast('שגיאה בטעינת נתוני לוח המבצעים: ' + err.message); });
   pbLoadOriginalFiles();
+  pbLoadBrandLogos();
+}
+function pbLoadBrandLogos(){
+  if(pbBrandLogos) return;
+  db.collection('sitePromos').doc('brandLogos').get().then(function(doc){
+    pbBrandLogos = doc.exists ? ((doc.data() || {}).logos || {}) : {};
+    if(promoBoardLoaded) renderPromoBoard();
+  }).catch(function(err){
+    console.warn('brandLogos load failed:', err);
+    pbBrandLogos = {};
+  });
+}
+/* מבצעי "לחברי מועדון: <מותג>" — מחזיר את שם המותג, או null */
+function pbClubBrand(row){
+  const m = String(row.title || '').match(/לחברי\s*מועדון\s*[:׃\-–]?\s*(.+)$/);
+  return m ? m[1].replace(/\*/g, '').trim() : null;
+}
+function pbBrandNorm(s){
+  return String(s || '').toLowerCase().replace(/[\s*'"`׳״.,\-–]/g, '');
+}
+function pbBrandLogoFor(brand){
+  const logos = pbBrandLogos || {};
+  const nb = pbBrandNorm(brand);
+  if(!nb) return null;
+  let hit = null;
+  Object.keys(logos).forEach(function(k){
+    const nk = pbBrandNorm(k);
+    if(!hit && nk === nb) hit = logos[k];
+  });
+  if(!hit){
+    Object.keys(logos).forEach(function(k){
+      const nk = pbBrandNorm(k);
+      if(!hit && nk && (nk.indexOf(nb) !== -1 || nb.indexOf(nk) !== -1)) hit = logos[k];
+    });
+  }
+  return hit;
+}
+/* במבצעי מועדון מציגים את לוגו המותג במקום תמונות המוצרים */
+function pbBrandLogoHtml(brand){
+  const logo = pbBrandLogoFor(brand);
+  if(!logo) return `<div class="pb-brand-logo"><span class="pb-brand-name">${brand}</span></div>`;
+  const full = logo.f || logo.t, thumb = logo.t || logo.f;
+  return `<div class="pb-brand-logo"><img src="${full}" data-thumb="${thumb}" data-brand="${String(brand).replace(/"/g, '')}" alt="" loading="lazy" onerror="pbBrandLogoFail(this)"></div>`;
+}
+/* תמונה מלאה לא נטענה → מנסים את המוקטנת; גם היא לא → שם המותג כטקסט */
+function pbBrandLogoFail(img){
+  if(img.dataset.f !== '1' && img.dataset.thumb && img.dataset.thumb !== img.src){
+    img.dataset.f = '1';
+    img.src = img.dataset.thumb;
+    return;
+  }
+  const span = document.createElement('span');
+  span.className = 'pb-brand-name';
+  span.textContent = img.dataset.brand || '';
+  img.replaceWith(span);
 }
 
 /* קישורים לקבצי ה-PDF המקוריים של החוברת. מסך ההעלאה של רכש שומר אותם
@@ -427,17 +488,20 @@ function renderPromoBoard(){
       const s = st(row.id);
       const items = row.items||[];
       const first = items[0], rest = items.slice(1);
+      const clubBrand = pbClubBrand(row);
+      const itemHtml = function(i){ return pbItemRowHtml(i, !!clubBrand); };
       html += `
         <div class="pb-promo">
           <div>
             <div class="pb-supplier">${row.supplier||''}</div>
             <div class="pb-id${row.needsCheck?' flag':''}">מבצע ${row.displayId}</div>
             <div class="pb-title">${row.title || '(שם לא זוהה)'}</div>
-            ${first ? pbItemRowHtml(first) : ''}
+            ${clubBrand ? pbBrandLogoHtml(clubBrand) : ''}
+            ${first ? itemHtml(first) : ''}
             ${rest.length ? `
               <button type="button" class="pb-show-items" onclick="pbToggleItems('${row.id}', ${rest.length})">הצג מוצרים נוספים (${rest.length})</button>
               <div class="pb-items-extra ${promoBoardExpanded[row.id]?'open':''}" id="pb-items-${row.id}">
-                ${rest.map(pbItemRowHtml).join('')}
+                ${rest.map(itemHtml).join('')}
               </div>
             ` : ''}
             <div class="pb-meta">
@@ -482,7 +546,8 @@ function renderPromoBoard(){
   }
 }
 
-function pbItemRowHtml(i){
+function pbItemRowHtml(i, noImage){
+  if(noImage) return `<div class="pb-item-row"><span class="pb-barcode">${i.barcode}</span><span class="pb-iname">${i.name}</span></div>`;
   const thumb = i.imageUrl
     ? `<div class="pb-thumb-wrap" onclick="pbOpenImageLightbox('${i.imageUrl.replace(/'/g,"\\'")}')">
          <img class="pb-thumb" src="${i.imageUrl}" alt="" loading="lazy" onerror="this.closest('.pb-thumb-wrap').outerHTML='<div class=\'pb-thumb-placeholder\'></div>'">

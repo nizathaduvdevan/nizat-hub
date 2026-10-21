@@ -875,6 +875,7 @@ function planoRunItemsImport(){
     planoPendingItems = null;
     closeModal();
     toast('מיקומי המוצרים יובאו: ' + meta.total + ' פריטים');
+    if(planoPublished) if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'planograms', icon:'📍', title:'מיקומי המוצרים במדף עודכנו', body:`${meta.total} פריטים`});
     planoRerender();
   }).catch(function(err){
     console.error('planograms: ייבוא מיקומי מוצרים נכשל', err);
@@ -2159,6 +2160,8 @@ function planoRunImport(){
       if(unchanged) parts.push(unchanged + ' ללא שינוי');
       if(removed) parts.push(removed + ' הוסרו');
       toast('הייבוא הושלם: ' + parts.join(', '));
+      /* בפיד רק אם הפלנוגרמות כבר פורסמו לסניפים (לפני כן הן לא גלויות להם) */
+      if(planoPublished && (added || changed || removed)) if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'planograms', icon:'🗂️', title:'הפלנוגרמות עודכנו', body: parts.join(', ')});
       planoReload();
     });
   }).catch(function(err){
@@ -2196,6 +2199,7 @@ function planoSetPublished(val){
     planoWriteCache(planoData.departments, planoData.legend);
     planoApplyPublished(val);
     toast(val ? 'הפלנוגרמות פורסמו לסניפים' : 'הפלנוגרמות הוסתרו מהסניפים');
+    if(val) if(typeof postFeedEvent==='function') postFeedEvent({department:'purchasing', view:'planograms', icon:'🗂️', title:'פלנוגרמות חדשות זמינות', body:'סידור המדפים לפי מחלקות'});
     planoRerender();
   }).catch(function(err){
     console.error('planograms: עדכון פרסום נכשל', err);
