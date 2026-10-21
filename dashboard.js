@@ -123,6 +123,14 @@ function viewGlobalHome(){
       </div>
       <h3 style="font-size:15px;margin:8px 0 12px;">הכלים שלי</h3>
       ${renderMyCalendarCard()}
+      <div class="aconv-home-card" onclick="goTo('productCatalog')">
+        <div class="aconv-home-icon">🛒</div>
+        <div class="aconv-home-main">
+          <div class="aconv-home-title">קטלוג מוצרים</div>
+          <div class="aconv-home-sub">חיפוש מוצר, מחיר ומבצעים</div>
+        </div>
+        <span class="aconv-home-arrow">›</span>
+      </div>
       <h3 style="font-size:15px;margin:8px 0 12px;">חדש עבורכם</h3>
       <div class="card" style="overflow:visible;">
         ${feed.length ? feed.map(globalFeedItemHtml).join('') : `<div class="empty-state">עדיין אין עדכונים. עדכונים חדשים מכל המחלקות יופיעו כאן.</div>`}
@@ -179,12 +187,11 @@ function viewGlobalHome(){
         <span class="home-tool-sub">יעדים, ביצועים והישגים</span>
       </div>
 
-      <div class="home-tool-card home-tool-card--soon" role="group" aria-label="פתיחת פנייה, בקשה או דיווח למחלקה, בקרוב">
-        <span class="home-tool-soon-tag">בקרוב</span>
-        <span class="home-tool-icon" aria-hidden="true">📝</span>
-        <span class="home-tool-title">פתיחת פנייה</span>
-        <span class="home-tool-sub">בקשה או דיווח למחלקה</span>
-      </div>
+      <button type="button" class="home-tool-card" onclick="goTo('productCatalog')" aria-label="קטלוג מוצרים, חיפוש מוצר, מחיר ומבצעים">
+        <span class="home-tool-icon" aria-hidden="true">🛒</span>
+        <span class="home-tool-title">קטלוג מוצרים</span>
+        <span class="home-tool-sub">חיפוש מוצר, מחיר ומבצעים</span>
+      </button>
 
       <button type="button" class="home-tool-card" onclick="goTo('aiChat')" aria-label="ידע ונהלים, שאלו את עוזר ה-AI">
         <span class="home-tool-icon" aria-hidden="true">📚</span>

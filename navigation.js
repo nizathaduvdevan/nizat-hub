@@ -303,6 +303,8 @@ function goTo(view, opts){
      היסטוריה (popstate) שלא אמור לאפס את זה. */
   if(view==='admin' && !opts.keepAdminTab) ui.adminTab = null;
   if(view==='planograms' && !opts.keepPlanoDept) ui.planoDept = null;
+  /* קטלוג מוצרים: כניסה רגילה תמיד מתחילה מרשימת המחלקות (product-catalog.js) */
+  if(view==='productCatalog' && !opts.keepCatDept) ui.catDept = null;
   ui.view = view;
   /* כניסה למסך = הסניף ראה את העדכונים האוטומטיים שבוצעו בו (תגית "חדש"
      בפיד הופכת ל"נקרא" והנקודה האדומה בניווט נעלמת). */
@@ -313,7 +315,7 @@ function goTo(view, opts){
   if(!suppressHistoryPush){
     // כל שינוי מסך נרשם כערך היסטוריה אמיתי — כך שכפתור "חזרה" (בדפדפן, במובייל,
     // או במחוות ה-swipe) מנווט בין המסכים בתוך ה-HUB במקום לצאת מהאתר לגמרי.
-    history.pushState({nizatHubView: view, nizatHubDept: ui.department, nizatHubAdminTab: ui.adminTab, nizatHubPlanoDept: ui.planoDept || null}, '', '#' + view);
+    history.pushState({nizatHubView: view, nizatHubDept: ui.department, nizatHubAdminTab: ui.adminTab, nizatHubPlanoDept: ui.planoDept || null, nizatHubCatDept: ui.catDept || null}, '', '#' + view);
   }
 }
 /* כניסה למחלקה מהמסך הגלובלי (לחיצה על אחד מכפתורי המחלקות). */
@@ -331,11 +333,13 @@ window.addEventListener('popstate', function(e){
   const dept = (e.state && ('nizatHubDept' in e.state)) ? e.state.nizatHubDept : null;
   const adminTab = (e.state && ('nizatHubAdminTab' in e.state)) ? e.state.nizatHubAdminTab : null;
   const planoDept = (e.state && ('nizatHubPlanoDept' in e.state)) ? e.state.nizatHubPlanoDept : null;
+  const catDept = (e.state && ('nizatHubCatDept' in e.state)) ? e.state.nizatHubCatDept : null;
   suppressHistoryPush = true;
   ui.department = dept;
   ui.adminTab = adminTab;
   ui.planoDept = planoDept;
-  goTo(view, {keepDepartment:true, keepAdminTab:true, keepPlanoDept:true});
+  ui.catDept = catDept;
+  goTo(view, {keepDepartment:true, keepAdminTab:true, keepPlanoDept:true, keepCatDept:true});
   suppressHistoryPush = false;
 });
 
@@ -372,4 +376,5 @@ function renderContent(){
   else if(ui.view==='giftCardForm') el.innerHTML = viewGiftCardForm();
   else if(ui.view==='managerCardForm') el.innerHTML = viewManagerCardForm();
   else if(ui.view==='aiChat') el.innerHTML = viewAiChat();
+  else if(ui.view==='productCatalog') el.innerHTML = viewProductCatalog();
 }
