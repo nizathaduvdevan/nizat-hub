@@ -157,10 +157,47 @@ function nosRenderFeed(){
   `).join('')}`;
 }
 
-function nosOpenImageModal(url){
+/* ---------- שיפור תמונות בתצוגה (Cloudinary) ----------
+   התמונות של "חדש על המדף" (בעיקר צילומי טלפון שמגיעים מהספקים / מהרצל)
+   לעיתים קטנות, מטושטשות או כהות. Cloudinary מעבד תמונה לפי פקודות בכתובת
+   שלה — הקובץ המקורי לא משתנה, וזה חל אוטומטית גם על כל מה שכבר עלה:
+     שלב 3 (רק "הרצל" — צילומי טלפון AS IS): הסרת רקע ב-AI, חיתוך השוליים,
+            מירכוז על רקע לבן מרובע + שיפור וחידוד → נראה כמו תמונת מוצר
+            מקצועית של ספק. בפעם הראשונה ש-Cloudinary מעבד תמונה כזו הוא עשוי
+            להחזיר "בעיבוד" (HTTP 423) — אז מוצג זמנית שלב 2, ובכניסה הבאה
+            כבר התמונה הנקייה.
+     שלב 2: הגדלה חכמה (AI upscale) רק לתמונות צרות מ-700px + שלב 1
+     שלב 1: שיפור אוטומטי (בהירות/ניגודיות/צבע) + חידוד + איכות ופורמט אוטומטיים
+     שלב 0: התמונה המקורית
+   אם שלב לא נתמך בחשבון ה-Cloudinary (למשל upscale) או נכשל — הדפדפן יורד
+   אוטומטית לשלב הקודם (nosImgFallback), כך שתמונה אף פעם לא "נשברת". */
+const NOS_IMG_ENHANCE = [
+  '',                                                                         // 0 — מקור
+  'e_improve/e_sharpen:70/c_limit,w_1000/q_auto:good/f_auto',                 // 1 — שיפור
+  'if_w_lt_700/e_upscale/if_end/e_improve/e_sharpen:70/c_limit,w_1000/q_auto:good/f_auto', // 2 — + הגדלה
+  'e_background_removal/e_trim/c_pad,w_900,h_900,b_white/e_improve/e_sharpen:60/q_auto:good/f_jpg' // 3 — סטודיו (הרצל)
+];
+/* ספקים שהתמונות שלהם הן צילומי טלפון ומקבלים "סטודיו" (שלב 3) */
+const NOS_STUDIO_SUPPLIERS = /הרצל/;
+function nosImgUrl(url, level){
+  if(!url || !level || url.indexOf('res.cloudinary.com') === -1 || url.indexOf('/upload/') === -1) return url;
+  return url.replace('/upload/', '/upload/' + NOS_IMG_ENHANCE[level] + '/');
+}
+/* <img> משופרת עם ירידה הדרגתית לשלב הקודם אם משהו נכשל */
+function nosImgAttrs(url, supplier){
+  const top = NOS_STUDIO_SUPPLIERS.test(String(supplier || '')) ? 3 : 2;
+  return `src="${nosImgUrl(url, top)}" data-orig="${url}" data-level="${top}" onerror="nosImgFallback(this)"`;
+}
+function nosImgFallback(img){
+  const level = parseInt(img.dataset.level || '0', 10) - 1;
+  if(level < 0){ img.onerror = null; return; }
+  img.dataset.level = String(level);
+  img.src = nosImgUrl(img.dataset.orig, level);
+}
+function nosOpenImageModal(url, supplier){
   document.getElementById('modal-body').innerHTML = `
     <div style="text-align:center;">
-      <img src="${url}" style="max-width:100%; max-height:80vh; border-radius:8px;">
+      <img ${nosImgAttrs(url, supplier)} style="max-width:100%; max-height:80vh; border-radius:8px;">
     </div>
   `;
   document.getElementById('modal-overlay').classList.add('open');
@@ -169,8 +206,8 @@ function nosOpenImageModal(url){
 function nosProductCard(p, isAdmin){
   const img = p.imageUrl
     ? `<div class="nos-img-wrap">
-         <img class="nos-card-img" src="${p.imageUrl}" alt="${p.name||''}">
-         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${p.imageUrl}')">${icon('search')}</div>
+         <img class="nos-card-img" ${nosImgAttrs(p.imageUrl, p.supplier)} alt="${p.name||''}" loading="lazy">
+         <div class="nos-zoom-btn" title="הגדל תמונה" onclick="nosOpenImageModal('${p.imageUrl}', '${String(p.supplier||'').replace(/'/g,'')}')">${icon('search')}</div>
        </div>`
     : `<div class="nos-card-img-placeholder">אין תמונה</div>`;
   const extraFields = Object.keys(p.fields||{})
