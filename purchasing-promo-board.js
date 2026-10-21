@@ -488,8 +488,9 @@ function renderPromoBoard(){
       const s = st(row.id);
       const items = row.items||[];
       const first = items[0], rest = items.slice(1);
+      /* מבצע "לחברי מועדון: <מותג>" — מציגים רק את לוגו המותג, בלי רשימת מוצרים */
       const clubBrand = pbClubBrand(row);
-      const itemHtml = function(i){ return pbItemRowHtml(i, !!clubBrand); };
+      const itemHtml = pbItemRowHtml;
       html += `
         <div class="pb-promo">
           <div>
@@ -497,8 +498,8 @@ function renderPromoBoard(){
             <div class="pb-id${row.needsCheck?' flag':''}">מבצע ${row.displayId}</div>
             <div class="pb-title">${row.title || '(שם לא זוהה)'}</div>
             ${clubBrand ? pbBrandLogoHtml(clubBrand) : ''}
-            ${first ? itemHtml(first) : ''}
-            ${rest.length ? `
+            ${(!clubBrand && first) ? itemHtml(first) : ''}
+            ${(!clubBrand && rest.length) ? `
               <button type="button" class="pb-show-items" onclick="pbToggleItems('${row.id}', ${rest.length})">הצג מוצרים נוספים (${rest.length})</button>
               <div class="pb-items-extra ${promoBoardExpanded[row.id]?'open':''}" id="pb-items-${row.id}">
                 ${rest.map(itemHtml).join('')}

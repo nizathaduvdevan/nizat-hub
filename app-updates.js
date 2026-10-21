@@ -12,14 +12,23 @@
         שנעלמת ברגע שהסניף נכנס למסך (markAppUpdatesReadForView).
      4. פתיחת קישור עמוק "#go=<department>:<view>&u=<updateId>" — מלחיצה על
         Push (דרך ה-Service Worker), או מטוסט כשהאפליקציה פתוחה.
+   ------------------------------------------------------------
+   אוקטובר 2026 — feedEvents: כל פעולה של מחלקה מתוך האפליקציה (פרסום חוברת
+   מבצעים, חדש על המדף, פלנוגרמות, ייבוא קטלוג, סטנדים, מכר מבצעים ידני…)
+   כותבת מסמך קטן לקולקציה feedEvents דרך postFeedEvent(), והוא מופיע בפיד
+   "חדש עבורכם" בדיוק כמו appUpdates. קולקציה נפרדת בכוונה: appUpdates מפעילה
+   Push בצד השרת, ו-feedEvents רק מוסיפה שורה לפיד (בלי Push).
    ============================================================ */
 const APP_UPDATES_MAX_AGE_DAYS = 30;
 const APP_UPDATES_LIMIT = 30;
 if(!appData.appUpdates) appData.appUpdates = [];
+if(!appData.feedEvents) appData.feedEvents = [];
 
 let unsubAppUpdates = null;
+let unsubFeedEvents = null;
 function initAppUpdatesSync(){
   if(!firebaseReady || !db) return;
+  initFeedEventsSync();
   if(unsubAppUpdates) unsubAppUpdates();
   const cutoff = new Date(Date.now() - APP_UPDATES_MAX_AGE_DAYS*86400000);
   unsubAppUpdates = db.collection('appUpdates')
@@ -37,6 +46,60 @@ function initAppUpdatesSync(){
     });
 }
 
+function initFeedEventsSync(){
+  if(unsubFeedEvents) unsubFeedEvents();
+  const cutoff = new Date(Date.now() - APP_UPDATES_MAX_AGE_DAYS*86400000);
+  unsubFeedEvents = db.collection('feedEvents')
+    .where('createdAt', '>=', cutoff)
+    .orderBy('createdAt', 'desc')
+    .limit(APP_UPDATES_LIMIT)
+    .onSnapshot(function(snap){
+      appData.feedEvents = snap.docs.map(function(doc){
+        return Object.assign({}, doc.data(), {id: doc.id});
+      });
+      renderNav();
+      renderContent();
+    }, function(err){
+      console.error('Firestore sync error (feedEvents):', err);
+    });
+}
+
+/* רישום פעולה לפיד "חדש עבורכם". נקרא מכל מסך העלאה/פרסום אחרי הצלחה.
+   opts: {department, view, title, body, icon}. נכשל בשקט (הפיד הוא תוספת —
+   לא סיבה להכשיל את הפעולה עצמה). רק אנשי צוות בזהות האמיתית שלהם. */
+function postFeedEvent(opts){
+  try {
+    if(typeof firebaseReady === 'undefined' || !firebaseReady || !db || !opts || !opts.title) return;
+    if(typeof previewMode !== 'undefined' && previewMode) return;
+    if(!currentUserEmail) return;
+    db.collection('feedEvents').add({
+      department: opts.department || 'marketing',
+      view: opts.view || null,
+      title: String(opts.title).slice(0, 200),
+      body: opts.body ? String(opts.body).slice(0, 300) : '',
+      icon: opts.icon || '🆕',
+      createdBy: currentUserEmail,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function(err){ console.warn('postFeedEvent נכשל:', err); });
+  } catch(e){ console.warn('postFeedEvent נכשל:', e); }
+}
+function feedEventItems(){
+  return (appData.feedEvents||[])
+    .filter(u=>u.department)
+    .map(u=>({
+      type:'feedEvent', typeKey:'feedEvents', id:u.id,
+      ts: tsToMillis(u.createdAt) || Date.now(),
+      edited:false, title:u.title || 'עדכון', body:u.body || '',
+      icon:u.icon || '🆕', department:u.department, view:u.view
+    }));
+}
+function openFeedEvent(id){
+  const u = (appData.feedEvents||[]).find(x=>x.id===id);
+  if(!u) return;
+  if(currentViewerId()) markItemRead('feedEvents', u.id);
+  openDeptView(u.department, u.view);
+}
+
 /* פריטים לפיד "חדש עבורכם" — באותו מבנה של שאר פריטי הפיד בדף הבית. */
 function appUpdateFeedItems(){
   return (appData.appUpdates||[])
@@ -52,7 +115,8 @@ function appUpdateFeedItems(){
 /* עדכונים שעוד לא נקראו ושמכוונים למסך מסוים — לנקודה האדומה בניווט. */
 function appUpdatesUnreadForView(viewId){
   if(!currentViewerId()) return 0;
-  return (appData.appUpdates||[]).filter(u=>u.view===viewId && !isItemRead('appUpdates', u.id)).length;
+  return (appData.appUpdates||[]).filter(u=>u.view===viewId && !isItemRead('appUpdates', u.id)).length
+    + (appData.feedEvents||[]).filter(u=>u.view===viewId && !isItemRead('feedEvents', u.id)).length;
 }
 
 /* כניסה למסך = ראיתי את מה שעודכן בו. */
@@ -60,6 +124,9 @@ function markAppUpdatesReadForView(viewId){
   if(!currentViewerId()) return;
   (appData.appUpdates||[]).forEach(u=>{
     if(u.view===viewId && !isItemRead('appUpdates', u.id)) markItemRead('appUpdates', u.id);
+  });
+  (appData.feedEvents||[]).forEach(u=>{
+    if(u.view===viewId && !isItemRead('feedEvents', u.id)) markItemRead('feedEvents', u.id);
   });
 }
 
@@ -74,6 +141,8 @@ function openAppUpdate(updateId){
 /* ניווט בטוח למסך במחלקה: אם המסך לא גלוי למשתמש הזה (למשל פלנוגרמות שעוד
    לא פורסמו), נכנסים לפחות לדף המחלקה במקום להציג מסך שבור. */
 function openDeptView(deptKey, view){
+  /* מסכים גלובליים שלא שייכים לניווט של מחלקה */
+  if(view === 'productCatalog'){ goTo('productCatalog'); return; }
   if(!deptKey || !DEPARTMENTS[deptKey]){ goTo('dashboard'); return; }
   const visible = visibleDepartmentScreens(deptKey).some(s=>s.id===view);
   if(view && visible) goToDeptScreen(deptKey, view);
