@@ -12,6 +12,7 @@ const DEPARTMENT_ADMIN_TILES = {
   marketing: [
     {tab:'competitions', icon:'🏆', title:'תחרויות', sub:'ניהול ומעקב מכירות'},
     {tab:'instructions', icon:'📋', title:'עדכונים ומשימות', sub:'פרסום לסניפים'},
+    {view:'marketingGuidelinesUpload', icon:'📑', title:'הנחיות שיווק', sub:'העלאה מ-Word'},
     {tab:'events', icon:'🗓', title:'אירועים', sub:'יומן הרשת'},
     {tab:'materials', icon:'🎨', title:'חומרים לשיווק', sub:'דיגיטל ורשתות'},
     {view:'stands', icon:'🪧', title:'סטנדים', sub:'סטנדים לסניפים'},

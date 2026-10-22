@@ -14,6 +14,8 @@ const DEPARTMENT_SCREENS = {
   marketing: [
     {id:'competitions', label:'תחרויות', icon:icon('trophy')},
     {id:'instructions', label:'הוראות ועדכונים', icon:icon('clipboard')},
+    /* הנחיות שיווק חודשיות — מקובץ ה-Word של מנהלת השיווק (marketing-guidelines.js) */
+    {id:'marketingGuidelines', label:'הנחיות שיווק', icon:icon('sign')},
     {id:'materials', label:'הורדה חומרי שיווק / דיגיטל ורשתות חברתיות', icon:icon('download')},
     {id:'videos', label:'סרטוני הדרכה', icon:icon('play')},
     {id:'events', label:'יומן אירועים', icon:icon('calendar')},
@@ -366,6 +368,8 @@ function renderContent(){
   else if(ui.view==='purchasingPromoUpload') el.innerHTML = viewPurchasingPromoUpload();
   else if(ui.view==='newOnShelf') el.innerHTML = viewNewOnShelf();
   else if(ui.view==='newOnShelfUpload') el.innerHTML = viewNewOnShelfUpload();
+  else if(ui.view==='marketingGuidelines') el.innerHTML = viewMarketingGuidelines();
+  else if(ui.view==='marketingGuidelinesUpload') el.innerHTML = viewMarketingGuidelinesUpload();
   else if(ui.view==='planograms') el.innerHTML = viewPlanograms();
   else if(ui.view==='sendAreaConversations') el.innerHTML = viewAreaManagerConversations();
   else if(ui.view==='areaConversations') el.innerHTML = viewBranchConversations();
