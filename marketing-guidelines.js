@@ -89,13 +89,14 @@ function mgInjectStyleOnce(){
       padding:6px 12px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;}
     .mg-archive button.active{background:var(--text-primary);border-color:var(--text-primary);color:var(--surface-1);}
 
-    .mg-toc{position:sticky;top:57px;z-index:4;background:var(--page);padding:8px 0;margin:0 0 6px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;}
+    .mg-toc{position:sticky;top:var(--mg-topbar-h,57px);z-index:4;background:var(--page);padding:8px 0;margin:0 0 6px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;}
     .mg-toc::-webkit-scrollbar{display:none;}
     .mg-toc button{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);
       border-radius:99px;padding:6px 12px 6px 8px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;}
     .mg-toc button:hover{border-color:var(--brand-primary);}
+    .mg-toc button.active{border-color:var(--brand-primary);background:rgba(69,122,31,0.10);color:var(--brand-primary-dark);}
+    html[data-theme="dark"] .mg-toc button.active{background:rgba(120,184,64,0.16);color:#a8d878;}
     .mg-toc-num{width:20px;height:20px;border-radius:50%;background:var(--brand-primary);color:#fff;font-size:11.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:none;}
-    @media (max-width:640px){ .mg-toc{top:56px;} }
 
     .mg-sec{background:var(--surface-1);border:1px solid var(--border);border-radius:16px;padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow);scroll-margin-top:120px;}
     .mg-sec-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
@@ -674,16 +675,65 @@ function mgRenderGuideline(g, opts){
       ${(sourceBtn || adminActions) ? `<div class="mg-hero-actions">${sourceBtn}${adminActions}</div>` : ''}
     </div>
     ${(g.sections || []).length > 1 ? `<nav class="mg-toc" aria-label="תוכן עניינים">
-      ${g.sections.map(s => `<button type="button" onclick="mgScrollTo(${Number(s.num) || 0})"><span class="mg-toc-num">${mgEsc(s.num)}</span>${mgEsc(s.title)}</button>`).join('')}
+      ${g.sections.map(s => `<button type="button" onclick="mgScrollTo(${Number(s.num) || 0}, this)"><span class="mg-toc-num">${mgEsc(s.num)}</span>${mgEsc(s.title)}</button>`).join('')}
     </nav>` : ''}
     ${(g.sections || []).map(mgRenderSection).join('')}
     ${g.outro ? `<div class="mg-outro">${mgEsc(g.outro)}</div>` : ''}
   `;
 }
 
-function mgScrollTo(num){
+/* גובה הסרגל העליון של האפליקציה בפועל (משתנה בין מכשירים) — כדי
+   שתוכן העניינים הדביק יישב בדיוק מתחתיו ולא יוסתר. */
+function mgSyncStickyOffset(){
+  const bar = document.querySelector('#app-screen .topbar') || document.querySelector('.topbar');
+  const h = bar ? Math.round(bar.getBoundingClientRect().height) : 57;
+  document.documentElement.style.setProperty('--mg-topbar-h', h + 'px');
+  return h;
+}
+
+/* האלמנט שבאמת נגלל: לפעמים זה החלון, ובאפליקציה הזו לרוב ה-body
+   (בגלל overflow-x:hidden על html/body). מחפשים כלפי מעלה. */
+function mgScrollParent(el){
+  let n = el.parentElement;
+  while(n && n !== document.documentElement){
+    const oy = getComputedStyle(n).overflowY;
+    if((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+    n = n.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+/* קפיצה לסעיף מתוכן העניינים. גלילה ידנית (ולא scrollIntoView), כי
+   בחלק מהטלפונים scrollIntoView לא עובד כשה-body הוא מה שנגלל. */
+function mgScrollTo(num, btn){
   const el = document.getElementById('mg-sec-' + num);
-  if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if(!el) return;
+  const topbarH = mgSyncStickyOffset();
+  const toc = document.querySelector('.mg-toc');
+  const offset = topbarH + (toc ? toc.getBoundingClientRect().height : 0) + 10;
+  const sc = mgScrollParent(el);
+  const isRoot = (sc === document.scrollingElement || sc === document.documentElement || sc === document.body && sc.scrollHeight <= sc.clientHeight + 1);
+  const scTop = isRoot ? 0 : sc.getBoundingClientRect().top;
+  const target = Math.max(0, sc.scrollTop + el.getBoundingClientRect().top - scTop - offset);
+  const before = sc.scrollTop;
+  try { sc.scrollTo({ top: target, behavior: 'smooth' }); } catch(e){ sc.scrollTop = target; }
+  if(isRoot){ try { window.scrollTo({ top: target, behavior: 'smooth' }); } catch(e){} }
+  /* רשת ביטחון: אם הגלילה החלקה לא זזה בכלל — קופצים מיד */
+  setTimeout(function(){
+    if(Math.abs(sc.scrollTop - before) < 2 && Math.abs(target - before) > 2){
+      sc.scrollTop = target;
+      if(isRoot) window.scrollTo(0, target);
+    }
+  }, 350);
+
+  /* מסמנים את הכפתור שנלחץ ומביאים אותו לאמצע הפס האופקי */
+  if(toc){
+    toc.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+    if(btn){
+      const tr = toc.getBoundingClientRect(), br = btn.getBoundingClientRect();
+      toc.scrollLeft += (br.left + br.width / 2) - (tr.left + tr.width / 2);
+    }
+  }
 }
 
 function mgOpenImage(url){
@@ -778,6 +828,7 @@ function mgRenderView(){
     ${list.map(x => `<button type="button" role="tab" aria-selected="${x.id === g.id}" class="${x.id === g.id ? 'active' : ''}" onclick="mgSelect('${mgEsc(x.id)}')">${mgEsc(mgShortLabel(x))}</button>`).join('')}
   </div>` : '';
   root.innerHTML = mgRenderGuideline(g, { isAdmin, archiveHtml });
+  mgSyncStickyOffset();
 }
 
 function mgShortLabel(g){
