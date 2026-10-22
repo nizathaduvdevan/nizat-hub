@@ -25,9 +25,10 @@ function toggleUserMenu(force){
   el.menu.classList.toggle('open', open);
   if(el.backdrop) el.backdrop.classList.toggle('open', open);
   if(el.btn) el.btn.setAttribute('aria-expanded', String(open));
+  /* מעל הסרגל התחתון בזמן שהתפריט פתוח */
+  document.body.classList.toggle('um-open', open);
   if(open){
-    const np = document.getElementById('notif-panel');
-    if(np) np.classList.remove('open');
+    if(typeof closeNotifPanel === 'function') closeNotifPanel();
     syncUserMenu();
     const first = el.menu.querySelector('.um-item:not([style*="display: none"]), .um-logout');
     if(first) setTimeout(() => first.focus({ preventScroll: true }), 30);
@@ -61,6 +62,7 @@ function syncUserMenu(){
     });
   }
   document.addEventListener('click', function(e){
+    if(!e.target.isConnected) return;
     const el = hubUserMenuEls();
     if(el.menu && el.menu.classList.contains('open') && el.wrap && !el.wrap.contains(e.target) && e.target !== el.backdrop) closeUserMenu();
   });

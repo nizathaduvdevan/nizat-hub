@@ -46,7 +46,9 @@
 
 <!-- ===================== APP SCREEN ===================== -->
 <div id="app-screen">
-  <!-- ===== סרגל עליון (כיוון א׳): לוגו · פעמון · כפתור אישי עם תפריט =====
+  <!-- ===== סרגל עליון (כיוון א׳): לוגו · "התראות" · כפתור אישי עם תפריט =====
+       (החיפוש הוסר בינתיים — הוא חיפש רק בכותרות ולא מצא מסכים/מוצרים.
+       search.js נשאר טעון ולא מזיק; אפשר להחזיר כשיהיה חיפוש שימושי.)
        כל הפעולות (מצב כהה, התראות, צפייה כמשתמש, נגישות, התנתקות) עברו
        לתפריט האישי. המזהים הישנים (user-label, user-avatar, theme-toggle,
        push-enable-btn, push-blocked-btn, preview-toggle-btn) נשמרו בתוכו,
@@ -61,10 +63,15 @@
     </div>
     <div class="topbar-left">
       <div class="notif-wrap">
-        <button type="button" class="tb-icon-btn" id="notif-bell" onclick="closeUserMenu();toggleNotifPanel()" aria-label="התראות" title="התראות">
-          <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="notif-badge" class="notif-badge" style="display:none;">0</span>
+        <!-- כפתור התראות: פעמון מלא + המילה "התראות" + מספר החדשות.
+             בטלפון נפתחת מגירה מלמטה, במחשב חלון מתחת לכפתור (notifications.js) -->
+        <button type="button" class="tb-notif-btn" id="notif-bell" onclick="closeUserMenu();toggleNotifPanel()" aria-label="התראות" aria-expanded="false" aria-controls="notif-panel">
+          <span class="tb-notif-ic"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true" style="vertical-align:-0.15em;flex:none;"><path fill="currentColor" d="M12 2.5a1.5 1.5 0 0 1 1.5 1.5v.6A6.5 6.5 0 0 1 18.5 11v3.6l1.7 2.3c.5.7 0 1.6-.8 1.6H4.6c-.8 0-1.3-.9-.8-1.6l1.7-2.3V11a6.5 6.5 0 0 1 5-6.4V4A1.5 1.5 0 0 1 12 2.5Z"/><path fill="currentColor" d="M9.5 19.5h5a2.5 2.5 0 0 1-5 0Z"/></svg></span>
+          <span class="tb-notif-label">התראות</span>
+          <span id="notif-badge" class="notif-badge" style="display:none;">0</span>
         </button>
-        <div id="notif-panel" class="notif-panel"></div>
+        <div class="np-backdrop" id="notif-backdrop" onclick="closeNotifPanel()"></div>
+        <div id="notif-panel" class="notif-panel" role="dialog" aria-label="ההתראות שלי"></div>
       </div>
       <div class="user-menu-wrap" id="user-menu-wrap">
         <button type="button" class="user-pill" id="user-menu-btn" onclick="toggleUserMenu()" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu" aria-label="התפריט שלי">
@@ -111,17 +118,6 @@
       </div>
     </div>
     <div class="um-backdrop" id="um-backdrop" onclick="closeUserMenu()"></div>
-  </div>
-
-  <!-- שדה חיפוש מלא מתחת לסרגל, בכל המסכים -->
-  <div class="topsearch">
-    <div class="search-wrap" id="search-wrap">
-      <label class="search-field">
-        <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        <input id="global-search" type="search" placeholder="חיפוש בתחרויות, הוראות וחומרים…" aria-label="חיפוש" oninput="onSearch(this.value)" onfocus="onSearch(this.value)" autocomplete="off">
-      </label>
-      <div id="search-results" class="search-results"></div>
-    </div>
   </div>
 
   <div id="preview-banner" style="display:none;"></div>

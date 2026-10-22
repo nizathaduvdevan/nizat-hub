@@ -1263,21 +1263,84 @@
   .um-backdrop{display:none;position:fixed;inset:0;z-index:50;background:rgba(11,11,11,0.32);}
   .um-backdrop.open{display:block;}
 
-  .topsearch{padding:12px 30px 0;}
-  .search-wrap{position:relative;max-width:640px;flex:none;margin:0;display:block;}
-  .search-field{display:flex;align-items:center;gap:8px;height:46px;box-sizing:border-box;border-radius:12px;border:1px solid var(--gridline);
-    background:var(--surface-1);padding:0 12px;color:var(--muted);font-size:18px;cursor:text;}
-  .search-field:focus-within{border-color:var(--brand-primary);box-shadow:0 0 0 3px rgba(69,122,31,0.15);}
-  #global-search, html[data-theme="dark"] #global-search, #global-search:focus{border:none;background:transparent;box-shadow:none;outline:none;
-    padding:0;height:100%;width:auto;flex:1;min-width:0;border-radius:0;font-size:15px;color:var(--text-primary);}
-  #global-search::-webkit-search-cancel-button{cursor:pointer;}
-  .search-results{z-index:15;}
-  @media (max-width: 880px){ .topsearch{padding:12px 16px 0;} }
   @media (max-width: 640px){
     .topbar{padding:8px 12px;}
     .brand-logo-sm{height:24px;}
-    .user-pill{max-width:150px;}
+    /* בטלפון הכפתור האישי מצטמצם לאווטאר בלבד — כדי ש"התראות" ייכנס */
+    .user-pill{width:44px;padding:0;justify-content:center;gap:0;}
+    .user-pill-name, .user-pill-chev{display:none;}
   }
   /* במצב כהה הטקסט השחור בלוגו נעלם על הרקע הכהה — הופכים רק את הבהירות,
      כך שהכתב נהיה לבן והדובדבנים נשארים אדומים */
   html[data-theme="dark"] .brand-logo-img{filter:invert(1) hue-rotate(180deg) saturate(1.3);}
+
+  /* ============================================================
+     כפתור "התראות" + מגירת ההתראות (אוקטובר 2026)
+     בטלפון: מגירה מלמטה. במחשב (מעל 640px): חלון מתחת לכפתור.
+  ============================================================ */
+  .tb-notif-btn{display:flex;align-items:center;gap:6px;height:44px;box-sizing:border-box;border-radius:99px;
+    border:1.5px solid var(--gridline);background:var(--surface-1);color:var(--text-primary);
+    padding:0 10px 0 8px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;flex:none;}
+  .tb-notif-btn:hover, .tb-notif-btn[aria-expanded="true"]{border-color:var(--brand-primary);background:rgba(69,122,31,0.06);}
+  .tb-notif-ic{display:flex;color:var(--brand-primary);font-size:20px;}
+  .tb-notif-btn .notif-badge{position:static;border:none;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;
+    border-radius:99px;font-size:12px;font-weight:700;background:#c2302f;color:#fff;align-items:center;justify-content:center;}
+  html[data-theme="dark"] .tb-notif-ic{color:#a8d878;}
+
+  .notif-panel{left:0;width:380px;max-height:70vh;overflow:hidden;border-radius:18px;padding:0;
+    display:none;flex-direction:column;z-index:60;}
+  .notif-panel.open{display:flex;}
+  .np-handle{display:none;}
+  .np-head{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;}
+  .np-head-ic{width:38px;height:38px;border-radius:50%;background:var(--brand-primary);color:#fff;display:flex;
+    align-items:center;justify-content:center;font-size:20px;flex:none;}
+  .np-h{margin:0;flex:1;font-size:19px;font-weight:700;}
+  .np-markall{border:none;background:none;color:var(--brand-primary-dark);font:inherit;font-size:13.5px;font-weight:600;
+    padding:6px 4px;cursor:pointer;flex:none;}
+  html[data-theme="dark"] .np-markall{color:#a8d878;}
+  .np-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0 16px 10px;padding:4px;
+    background:var(--page);border-radius:12px;}
+  .np-tabs button{height:36px;border-radius:9px;border:none;background:transparent;font:inherit;font-size:14px;
+    font-weight:500;color:var(--text-secondary);cursor:pointer;}
+  .np-tabs button.active{background:var(--surface-1);color:var(--text-primary);font-weight:700;box-shadow:0 1px 3px rgba(11,11,11,0.10);}
+  .np-list{flex:1;overflow-y:auto;padding:2px 16px 8px;display:flex;flex-direction:column;gap:8px;min-height:80px;}
+  .np-item{display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:14px;border:1px solid var(--border);
+    background:var(--surface-1);cursor:pointer;text-align:right;}
+  .np-item:hover{border-color:var(--brand-primary);}
+  .np-item.unread{background:rgba(69,122,31,0.06);border-color:rgba(69,122,31,0.30);}
+  html[data-theme="dark"] .np-item.unread{background:rgba(120,184,64,0.08);}
+  .np-ic{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;}
+  .np-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+  .np-title{font-size:15px;font-weight:700;line-height:1.4;display:flex;align-items:center;gap:6px;}
+  .np-item:not(.unread) .np-title{font-weight:500;color:var(--text-secondary);}
+  .np-dot{width:8px;height:8px;border-radius:50%;background:var(--brand-primary);flex:none;}
+  .np-body{font-size:14px;color:var(--text-secondary);line-height:1.5;word-break:break-word;}
+  .np-meta{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-top:2px;}
+  .np-chip{font-size:12px;font-weight:600;color:var(--brand-primary-dark);background:rgba(69,122,31,0.12);border-radius:99px;padding:1px 9px;}
+  html[data-theme="dark"] .np-chip{color:#a8d878;background:rgba(120,184,64,0.16);}
+  .np-del{width:30px;height:30px;border-radius:8px;border:1px solid var(--gridline);background:var(--surface-1);color:var(--muted);
+    font-size:12px;cursor:pointer;flex:none;padding:0;}
+  .np-del:hover{border-color:var(--critical);color:var(--critical);}
+  .np-empty{padding:28px 10px;text-align:center;color:var(--muted);font-size:14.5px;}
+  .np-foot{display:none;}
+  .np-backdrop{display:none;}
+
+  /* מעל הסרגל התחתון כשמגירה/תפריט פתוחים */
+  body.notif-open .topbar, body.um-open .topbar{z-index:120;}
+
+  @media (max-width: 640px){
+    .notif-panel{position:fixed;top:auto;right:0;left:0;bottom:0;width:auto;max-height:82vh;height:auto;
+      border-radius:22px 22px 0 0;border:none;box-shadow:0 -10px 40px rgba(11,11,11,0.22);
+      padding-bottom:env(safe-area-inset-bottom);}
+    .notif-panel.open{animation:sheetUp .24s ease;}
+    .np-handle{display:flex;justify-content:center;padding:10px 0 2px;}
+    .np-handle span{width:44px;height:5px;border-radius:99px;background:var(--gridline);display:block;}
+    .np-head{padding:8px 18px 12px;}
+    .np-tabs{margin:0 18px 10px;}
+    .np-list{padding:2px 18px 8px;}
+    .np-foot{display:block;padding:10px 18px 16px;}
+    .np-close{width:100%;height:48px;border-radius:14px;border:none;background:var(--page);color:var(--text-primary);
+      font:inherit;font-size:15px;font-weight:600;cursor:pointer;}
+    .np-backdrop.open{display:block;position:fixed;inset:0;z-index:55;background:rgba(11,11,11,0.40);}
+    .tb-notif-btn{padding:0 8px 0 6px;font-size:13.5px;}
+  }
