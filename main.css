@@ -97,12 +97,24 @@
     animation:auth-spin .8s linear infinite;}
   @keyframes auth-spin{to{transform:rotate(360deg);}}
 
-  /* מסך הטעינה: אייקון NIZAT HUB ש"נושם" בעדינות, ומתחתיו פס טעינה שזז
-     מימין לשמאל (כיוון הקריאה). למי שהגדיר הפחתת תנועה במכשיר — בלי
-     תנועה, רק הבהוב רך. */
-  .auth-splash img.auth-app-icon{width:96px;height:96px;border-radius:24px;display:block;
-    box-shadow:0 10px 28px rgba(69,122,31,0.28), 0 2px 6px rgba(11,11,11,0.10);
-    animation:auth-icon-breathe 2.4s ease-in-out infinite;}
+  /* מסך הטעינה: לוגו עם גלגל מסתובב, ומתחתיו פס טעינה שזז מימין לשמאל
+     (כיוון הקריאה). למי שהגדיר הפחתת תנועה במכשיר — גלגל איטי מאוד
+     ופס שרק מהבהב. */
+  /* הלוגו: "ניצת הדובדבן" (תמונה) ומתחתיו hub (SVG), באותו יחס כמו בלוגו */
+  .auth-logo{direction:ltr;width:270px;max-width:78vw;display:flex;flex-direction:column;}
+  .auth-splash img.auth-logo-he{display:block;width:100%;height:auto;}
+  .auth-hub{display:block;width:44%;height:auto;margin:-9% 0 0 29%;overflow:visible;}
+  .hub-wheel-cut{fill:var(--page);}
+  .hub-wheel{transform-box:fill-box;transform-origin:center;animation:hub-wheel-spin 2.6s linear infinite;}
+  .hub-seg{fill:#7da932;animation:hub-seg-shade 1.6s ease-in-out infinite;}
+  @keyframes hub-wheel-spin{to{transform:rotate(360deg);}}
+  /* כל פלח עובר בין גוונים של ירוק, עם השהיה שונה — נוצר גל של גוונים סביב הגלגל */
+  @keyframes hub-seg-shade{
+    0%,100%{fill:#a6cf4f;}
+    25%{fill:#7da932;}
+    50%{fill:#4f8a22;}
+    75%{fill:#2f6b2a;}
+  }
   .auth-loadbar{position:relative;width:150px;height:4px;border-radius:99px;overflow:hidden;
     background:rgba(69,122,31,0.15);margin-top:8px;}
   .auth-loadbar span{position:absolute;top:0;bottom:0;left:0;width:40%;border-radius:99px;
@@ -110,16 +122,12 @@
     animation:auth-loadbar-slide 1.15s linear infinite;}
   .auth-loading-text{font-size:13.5px;font-weight:500;color:var(--muted);letter-spacing:.3px;margin-top:-4px;}
   html[data-theme="dark"] .auth-loadbar{background:rgba(120,184,64,0.18);}
-  @keyframes auth-icon-breathe{
-    0%,100%{transform:scale(1);}
-    50%{transform:scale(1.045);}
-  }
   @keyframes auth-loadbar-slide{
     0%{transform:translateX(250%);}
     100%{transform:translateX(-100%);}
   }
   @media (prefers-reduced-motion: reduce){
-    .auth-splash img.auth-app-icon{animation:none;}
+    .hub-wheel{animation:hub-wheel-spin 8s linear infinite;}
     .auth-loadbar span{left:30%;animation:auth-loadbar-fade 1.6s ease-in-out infinite;}
     @keyframes auth-loadbar-fade{0%,100%{opacity:1;}50%{opacity:.35;}}
   }
