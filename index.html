@@ -46,36 +46,81 @@
 
 <!-- ===================== APP SCREEN ===================== -->
 <div id="app-screen">
+  <!-- ===== סרגל עליון (כיוון א׳): לוגו · פעמון · כפתור אישי עם תפריט =====
+       כל הפעולות (מצב כהה, התראות, צפייה כמשתמש, נגישות, התנתקות) עברו
+       לתפריט האישי. המזהים הישנים (user-label, user-avatar, theme-toggle,
+       push-enable-btn, push-blocked-btn, preview-toggle-btn) נשמרו בתוכו,
+       כך ש-auth.js / ui-utils.js ממשיכים לעבוד בלי שינוי. הלוגיקה של
+       התפריט ב-topbar.js, העיצוב בסוף main.css. -->
   <div class="topbar">
     <div class="topbar-right">
       <div class="brand">
         <img src="./images/nizat-logo.png" alt="ניצת הדובדבן" class="brand-logo-img brand-logo-sm">
         <span class="brand-hub-chip">HUB</span>
       </div>
-      <div class="search-wrap" id="search-wrap">
-        <button class="mobile-search-close" onclick="toggleMobileSearch()" title="סגירה">✕</button>
-        <span class="search-ic">⌕</span>
-        <input id="global-search" type="text" placeholder="חיפוש בתחרויות, הוראות וחומרים…" oninput="onSearch(this.value)" onfocus="onSearch(this.value)">
-        <div id="search-results" class="search-results"></div>
-      </div>
     </div>
     <div class="topbar-left">
-      <button class="icon-toggle-btn mobile-search-btn" onclick="toggleMobileSearch()" title="חיפוש"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
-      <button class="icon-toggle-btn" id="preview-toggle-btn" onclick="openPreviewPicker()" title="צפייה כמשתמש" style="display:none;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
-      <button class="icon-toggle-btn" id="push-enable-btn" onclick="enablePushNotifications()" title="הפעלת התראות Push" style="display:none;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>+</button>
-      <button class="icon-toggle-btn" id="push-blocked-btn" onclick="showPushBlockedHelp()" title="התראות חסומות בדפדפן — לחצו לעזרה" style="display:none;color:#c0392b;"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><svg class="ui-icon" width="0.7em" height="0.7em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.05em;"><path d="M12 3 2 20h20Z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg></button>
-      <button class="icon-toggle-btn" id="theme-toggle" onclick="toggleTheme()" title="החלפת מצב תצוגה"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg></button>
       <div class="notif-wrap">
-        <button class="icon-toggle-btn" id="notif-bell" onclick="toggleNotifPanel()" title="התראות">
-          <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-0.15em;"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="notif-badge" class="notif-badge" style="display:none;">0</span>
+        <button type="button" class="tb-icon-btn" id="notif-bell" onclick="closeUserMenu();toggleNotifPanel()" aria-label="התראות" title="התראות">
+          <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="notif-badge" class="notif-badge" style="display:none;">0</span>
         </button>
         <div id="notif-panel" class="notif-panel"></div>
       </div>
-      <div class="user-pill">
-        <div class="avatar" id="user-avatar">ס</div>
-        <span id="user-label">סניף רעננה</span>
+      <div class="user-menu-wrap" id="user-menu-wrap">
+        <button type="button" class="user-pill" id="user-menu-btn" onclick="toggleUserMenu()" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu" aria-label="התפריט שלי">
+          <span class="avatar" id="user-avatar">ס</span>
+          <span class="user-pill-name" id="user-name"></span>
+          <svg class="ui-icon user-pill-chev" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none;"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="user-menu" id="user-menu" role="menu" aria-label="התפריט שלי">
+          <div class="um-head">
+            <span class="um-avatar" id="um-avatar"></span>
+            <div style="min-width:0;">
+              <div class="um-name" id="um-name"></div>
+              <div class="um-sub" id="um-sub"></div>
+              <span id="user-label" hidden>סניף רעננה</span>
+            </div>
+          </div>
+          <button type="button" class="um-item" role="menuitem" onclick="toggleTheme()">
+            <span class="um-ic" id="theme-toggle"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg></span>
+            <span class="um-label">מצב כהה</span>
+            <span class="um-switch" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="um-item" role="menuitem" id="push-enable-btn" onclick="closeUserMenu();enablePushNotifications()" style="display:none;">
+            <span class="um-ic"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
+            <span class="um-label">הפעלת התראות לטלפון</span>
+          </button>
+          <button type="button" class="um-item um-warn" role="menuitem" id="push-blocked-btn" onclick="closeUserMenu();showPushBlockedHelp()" style="display:none;">
+            <span class="um-ic"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
+            <span class="um-label">ההתראות חסומות — איך פותחים?</span>
+          </button>
+          <button type="button" class="um-item" role="menuitem" id="preview-toggle-btn" onclick="closeUserMenu();openPreviewPicker()" style="display:none;">
+            <span class="um-ic"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <span class="um-label">צפייה כמשתמש אחר</span>
+            <span class="um-tag">מנהלים</span>
+          </button>
+          <button type="button" class="um-item" role="menuitem" onclick="event.stopPropagation();closeUserMenu();if(window.nizatA11y)nizatA11y.open();">
+            <span class="um-ic"><svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="4.3" r="1.9" fill="currentColor" stroke="none"/><path d="M5 8.5l7 1.6 7-1.6"/><path d="M12 10.1v5"/><path d="M12 15.1l-3.6 6M12 15.1l3.6 6"/></svg></span>
+            <span class="um-label">נגישות</span>
+          </button>
+          <button type="button" class="um-logout" role="menuitem" onclick="closeUserMenu();logout()">
+            <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg>
+            <span>התנתקות</span>
+          </button>
+        </div>
       </div>
-      <button class="logout-btn" onclick="logout()">התנתקות</button>
+    </div>
+    <div class="um-backdrop" id="um-backdrop" onclick="closeUserMenu()"></div>
+  </div>
+
+  <!-- שדה חיפוש מלא מתחת לסרגל, בכל המסכים -->
+  <div class="topsearch">
+    <div class="search-wrap" id="search-wrap">
+      <label class="search-field">
+        <svg class="ui-icon" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="global-search" type="search" placeholder="חיפוש בתחרויות, הוראות וחומרים…" aria-label="חיפוש" oninput="onSearch(this.value)" onfocus="onSearch(this.value)" autocomplete="off">
+      </label>
+      <div id="search-results" class="search-results"></div>
     </div>
   </div>
 
@@ -156,6 +201,7 @@
 <script src="admin.js"></script>
 <script src="search.js"></script>
 <script src="notifications.js"></script>
+<script src="topbar.js"></script>
 <script src="purchasing-promo-upload.js"></script>
 <script src="purchasing-promo-board.js"></script>
 <script src="new-on-shelf.js"></script>
