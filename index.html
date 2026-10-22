@@ -21,14 +21,11 @@
 
 <!-- ===================== LOGIN SCREEN ===================== -->
 <div id="login-screen" class="auth-pending">
-  <div class="auth-splash" aria-label="טוען">
-    <img src="./images/nizat-logo.png" alt="ניצת הדובדבן">
-    <!-- אנימציית טעינה: שלושה דובדבנים קופצים (במקום העיגול המסתובב). העיצוב ב-main.css -->
-    <div class="auth-cherries" aria-hidden="true">
-      <span class="auth-cherry-wrap"><span class="auth-cherry"><svg viewBox="0 0 24 30" width="22" height="28" aria-hidden="true"><path d="M12 15 C12 10 13.5 6 16.5 3" fill="none" stroke="#3f6e1c" stroke-width="1.6" stroke-linecap="round"/><path d="M16.3 3.4 C18.6 1.8 21.4 2.2 22.6 3.6 C20.6 5.2 18 5.3 16.3 3.4 Z" fill="#5b9a2a"/><circle cx="12" cy="21.5" r="7" fill="#b01828"/><ellipse cx="9.6" cy="19" rx="2" ry="1.4" fill="#fff" opacity=".35" transform="rotate(-30 9.6 19)"/></svg></span><span class="auth-cherry-shadow"></span></span>
-      <span class="auth-cherry-wrap"><span class="auth-cherry"><svg viewBox="0 0 24 30" width="22" height="28" aria-hidden="true"><path d="M12 15 C12 10 13.5 6 16.5 3" fill="none" stroke="#3f6e1c" stroke-width="1.6" stroke-linecap="round"/><path d="M16.3 3.4 C18.6 1.8 21.4 2.2 22.6 3.6 C20.6 5.2 18 5.3 16.3 3.4 Z" fill="#5b9a2a"/><circle cx="12" cy="21.5" r="7" fill="#b01828"/><ellipse cx="9.6" cy="19" rx="2" ry="1.4" fill="#fff" opacity=".35" transform="rotate(-30 9.6 19)"/></svg></span><span class="auth-cherry-shadow"></span></span>
-      <span class="auth-cherry-wrap"><span class="auth-cherry"><svg viewBox="0 0 24 30" width="22" height="28" aria-hidden="true"><path d="M12 15 C12 10 13.5 6 16.5 3" fill="none" stroke="#3f6e1c" stroke-width="1.6" stroke-linecap="round"/><path d="M16.3 3.4 C18.6 1.8 21.4 2.2 22.6 3.6 C20.6 5.2 18 5.3 16.3 3.4 Z" fill="#5b9a2a"/><circle cx="12" cy="21.5" r="7" fill="#b01828"/><ellipse cx="9.6" cy="19" rx="2" ry="1.4" fill="#fff" opacity=".35" transform="rotate(-30 9.6 19)"/></svg></span><span class="auth-cherry-shadow"></span></span>
-    </div>
+  <!-- מסך טעינה: אייקון NIZAT HUB + פס טעינה. העיצוב והאנימציה ב-main.css -->
+  <div class="auth-splash" role="status" aria-label="טוען">
+    <img class="auth-app-icon" src="./icons/icon-192.png" alt="NIZAT HUB">
+    <div class="auth-loadbar" aria-hidden="true"><span></span></div>
+    <div class="auth-loading-text">טוען…</div>
   </div>
   <div class="login-overlay-box">
     <div class="login-title">ברוכים הבאים ל-NIZAT HUB</div>
