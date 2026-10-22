@@ -205,8 +205,11 @@ setInterval(checkStandReminders, 5*60*1000);
 setInterval(function(){
   const modalOverlay = document.getElementById('modal-overlay');
   const modalOpen = modalOverlay && modalOverlay.classList.contains('open');
-  const typing = document.activeElement && ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
-  if(!modalOpen && !typing){
+  const typing = document.activeElement && (['INPUT','TEXTAREA'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
+  /* באמצע עריכת הנחיות שיווק (marketing-guidelines.js) לא מרעננים — אחרת
+     השינויים שעוד לא נשמרו היו נמחקים */
+  const editing = typeof mgIsEditing === 'function' && mgIsEditing();
+  if(!modalOpen && !typing && !editing){
     location.reload();
   }
 }, 10*60*1000);

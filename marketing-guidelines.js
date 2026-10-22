@@ -53,6 +53,8 @@ const MG_MAMMOTH_URLS = [
 /* מצב המסכים */
 let mgState = { list: null, loading: false, error: null, selectedId: null };
 let mgUpload = { file: null, parsed: null, images: {}, busy: false };
+/* מצב עריכה: null, או {target:'published'|'preview', id, g:<עותק עבודה>, dirty} */
+let mgEdit = null;
 
 /* ============================================================
    עיצוב
@@ -195,6 +197,46 @@ function mgInjectStyleOnce(){
     .mg-published-row:last-child{border-bottom:none;}
     .mg-published-row .t{flex:1;min-width:0;font-weight:600;}
     .mg-published-row .m{font-size:12.5px;color:var(--muted);font-weight:400;}
+
+    /* מצב עריכה */
+    .mg-editbar{position:sticky;top:var(--mg-topbar-h,57px);z-index:6;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+      background:#fff7d6;border:1px solid #f0d77a;color:#5c4700;border-radius:14px;padding:10px 12px;margin:0 0 12px;box-shadow:var(--shadow);}
+    html[data-theme="dark"] .mg-editbar{background:#3a3112;border-color:#6b5a1c;color:#f3dd8a;}
+    .mg-editbar-text{font-size:13.5px;font-weight:600;}
+    .mg-editbar-actions{display:flex;gap:8px;}
+    .mg-ed{border:1.5px dashed rgba(69,122,31,0.45);border-radius:8px;padding:4px 8px;min-height:1.6em;outline:none;background:rgba(255,255,255,0.65);
+      cursor:text;line-height:1.7;word-break:break-word;}
+    html[data-theme="dark"] .mg-ed{background:rgba(255,255,255,0.04);}
+    .mg-ed:focus{border-style:solid;border-color:var(--brand-primary);background:var(--surface-1);box-shadow:0 0 0 3px rgba(69,122,31,0.15);}
+    .mg-ed:empty::before{content:attr(data-ph);color:var(--muted);font-weight:400;pointer-events:none;}
+    .mg-ed.single{line-height:1.4;}
+    .mg-ed-h2{font-size:21px;font-weight:700;margin-bottom:4px;}
+    .mg-block-label .mg-ed{flex:1;min-width:0;font-weight:700;}
+    .mg-sec-title .mg-ed{font-size:17px;}
+    .mg-edit-block{position:relative;padding-inline-end:40px;margin-bottom:8px;}
+    .mg-edit-plain{background:var(--page);border-radius:12px;padding:8px 10px;padding-inline-end:40px;}
+    html[data-theme="dark"] .mg-edit-plain{background:#1f1f1d;}
+    .mg-ed-del{position:absolute;top:6px;inset-inline-end:6px;width:30px;height:30px;border-radius:8px;border:1px solid var(--gridline);
+      background:var(--surface-1);cursor:pointer;font-size:14px;line-height:1;padding:0;z-index:2;}
+    .mg-ed-del:hover{border-color:var(--critical);}
+    .mg-ed-add{display:block;width:100%;border:1.5px dashed var(--gridline);background:none;border-radius:10px;padding:8px;margin:4px 0 6px;
+      font:inherit;font-size:13.5px;font-weight:600;color:var(--brand-primary-dark);cursor:pointer;}
+    .mg-ed-add:hover{border-color:var(--brand-primary);background:rgba(69,122,31,0.05);}
+    .mg-ed-add-sec{padding:12px;font-size:14.5px;background:var(--surface-1);}
+    .mg-ed-input{width:100%;margin-top:6px;padding:7px 10px;border-radius:8px;border:1px solid var(--gridline);font:inherit;font-size:13.5px;background:var(--surface-1);color:var(--text-primary);}
+    .mg-btn-sm{padding:6px 10px;font-size:12.5px;flex:none;}
+    .mg-edit-facts{background:var(--page);border-radius:12px;padding:8px 12px;margin:0 0 10px;}
+    html[data-theme="dark"] .mg-edit-facts{background:#1f1f1d;}
+    .mg-edit-facts summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--text-secondary);}
+    .mg-ef-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;}
+    .mg-ef{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:600;}
+    .mg-ef.wide{grid-column:span 2;}
+    .mg-ef input::placeholder{color:var(--muted);opacity:.6;font-size:12.5px;}
+    .mg-ef input{padding:7px 9px;border-radius:8px;border:1px solid var(--gridline);font:inherit;font-size:14px;background:var(--surface-1);color:var(--text-primary);width:100%;}
+    .mg-ef-hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5;}
+    .mg-edit-gallery .mg-edit-img{position:relative;cursor:default;}
+    .mg-edit-img figcaption{padding:6px;}
+    @media (max-width:640px){ .mg-ef-grid{grid-template-columns:1fr 1fr;} }
     @media (max-width:520px){ .mg-form-row{grid-template-columns:1fr;} .mg-sec{padding:14px;} .mg-hero{padding:16px;} }
   `;
   document.head.appendChild(style);
@@ -259,6 +301,13 @@ function mgParsePeriod(str){
   const end = new Date(endYear, endMonth - 1, +m[4], 23, 59, 59);
   if(isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return null;
   return { start, end, text: m[0].replace(/\s+/g, '') };
+}
+
+/* "1-30.11.26" מתוך שני תאריכים */
+function mgPeriodTextFromDates(s, e){
+  if(!s || !e) return '';
+  const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
+  return sameMonth ? `${s.getDate()}-${mgFmtDate(e)}` : `${s.getDate()}.${s.getMonth()+1}-${mgFmtDate(e)}`;
 }
 
 /* סטטוס התקופה ביחס להיום */
@@ -653,6 +702,7 @@ function mgRenderSection(s){
 /* opts: {preview:bool, isAdmin:bool, archiveHtml:string} */
 function mgRenderGuideline(g, opts){
   opts = opts || {};
+  if(opts.edit) return mgRenderEditGuideline(g, opts);
   const status = mgPeriodStatus(g);
   const statusBadge = status === 'live' ? '<span class="mg-badge live">● בתוקף עכשיו</span>'
     : status === 'ended' ? '<span class="mg-badge ended">התקופה הסתיימה</span>'
@@ -661,6 +711,7 @@ function mgRenderGuideline(g, opts){
   const countBadge = (g.sections || []).length ? `<span class="mg-badge">${(g.sections || []).length} סעיפים</span>` : '';
   const updated = (!opts.preview && typeof lastUpdatedHtml === 'function') ? lastUpdatedHtml(g) : '';
   const adminActions = (opts.isAdmin && !opts.preview) ? `
+    <button type="button" class="mg-btn primary" onclick="mgStartEdit('published','${mgEsc(g.id)}')">✏️ עריכה</button>
     <button type="button" class="mg-btn" onclick="goTo('${MG_UPLOAD_VIEW}')">⬆️ העלאת קובץ חדש</button>
     <button type="button" class="mg-btn danger" onclick="mgDelete('${mgEsc(g.id)}')">🗑 מחיקה</button>` : '';
   const sourceBtn = g.sourceFileUrl ? `<a class="mg-btn" href="${mgEsc(g.sourceFileUrl)}" target="_blank" rel="noopener">📄 הקובץ המקורי</a>` : '';
@@ -764,6 +815,9 @@ function mgCopy(text){
 ============================================================ */
 function viewMarketingGuidelines(){
   mgInjectStyleOnce();
+  /* האפליקציה מציירת מחדש את המסך כשמגיעים עדכונים מ-Firestore — שומרים
+     קודם את מה שהוקלד במצב עריכה, כדי שלא יאבד */
+  if(mgEdit && mgEdit.target === 'published') mgEditCollect();
   setTimeout(mgLoad, 0);
   return `
     <div class="page-head">
@@ -827,7 +881,11 @@ function mgRenderView(){
   const archiveHtml = list.length > 1 ? `<div class="mg-archive" role="tablist" aria-label="חודשים קודמים">
     ${list.map(x => `<button type="button" role="tab" aria-selected="${x.id === g.id}" class="${x.id === g.id ? 'active' : ''}" onclick="mgSelect('${mgEsc(x.id)}')">${mgEsc(mgShortLabel(x))}</button>`).join('')}
   </div>` : '';
-  root.innerHTML = mgRenderGuideline(g, { isAdmin, archiveHtml });
+  const editing = !!(mgEdit && mgEdit.target === 'published' && mgEdit.id === g.id && isAdmin);
+  root.innerHTML = editing
+    ? mgRenderGuideline(mgEdit.g, { isAdmin, edit: true })
+    : mgRenderGuideline(g, { isAdmin, archiveHtml });
+  if(editing) mgBindEditor(root);
   mgSyncStickyOffset();
 }
 
@@ -895,6 +953,7 @@ function viewMarketingGuidelinesUpload(){
 function mgRenderUploadUI(){
   const root = document.getElementById('mg-upload-root');
   if(!root) return;
+  if(mgEdit && mgEdit.target === 'preview') mgEditCollect();
   const p = mgUpload.parsed;
   root.innerHTML = `
     <div class="mg-drop" id="mgDropZone" role="button" tabindex="0" aria-label="בחירת קובץ Word">
@@ -936,6 +995,7 @@ function mgClearStatus(){
 }
 
 function mgResetUpload(){
+  if(mgEdit && mgEdit.target === 'preview') mgEdit = null;
   Object.keys(mgUpload.images || {}).forEach(k => { try { URL.revokeObjectURL(mgUpload.images[k].previewUrl); } catch(e){} });
   mgUpload = { file: null, parsed: null, images: {}, busy: false };
 }
@@ -1023,6 +1083,7 @@ function mgRenderParsed(){
       ${existing ? `<div class="mg-status show warn" style="margin:12px 0 0;">⚠️ כבר פורסמו הנחיות לתקופה ${mgEsc(existing.periodText)}. פרסום יחליף אותן.</div>` : ''}
       <div class="mg-hero-actions" style="margin-top:14px;">
         <button type="button" class="mg-btn primary" id="mgPublishBtn" onclick="mgPublish()">✅ פרסם לסניפים</button>
+        <button type="button" class="mg-btn" onclick="mgStartEdit('preview')">✏️ עריכת טקסטים לפני פרסום</button>
         <button type="button" class="mg-btn" onclick="mgResetUpload();mgRenderUploadUI()">ביטול</button>
       </div>
     </div>
@@ -1034,6 +1095,11 @@ function mgRenderPreviewOnly(){
   const prevRoot = document.getElementById('mgPreviewRoot');
   const p = mgUpload.parsed;
   if(!prevRoot || !p) return;
+  if(mgEdit && mgEdit.target === 'preview'){
+    prevRoot.innerHTML = `<div class="mg-preview-label">עריכה לפני פרסום</div>` + mgRenderGuideline(mgEdit.g, { preview: true, edit: true, noHeroMeta: true });
+    mgBindEditor(prevRoot);
+    return;
+  }
   prevRoot.innerHTML = `<div class="mg-preview-label">תצוגה מקדימה — כך הסניפים יראו את זה</div>` + mgRenderGuideline(p, { preview: true });
 }
 
@@ -1044,10 +1110,8 @@ function mgUpdatePeriodFromInputs(){
   const e = mgFromDateInput(document.getElementById('mgEnd').value, true);
   p.periodStart = s;
   p.periodEnd = e;
-  if(s && e){
-    const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
-    p.periodText = sameMonth ? `${s.getDate()}-${mgFmtDate(e)}` : `${s.getDate()}.${s.getMonth()+1}-${mgFmtDate(e)}`;
-  }
+  if(s && e) p.periodText = mgPeriodTextFromDates(s, e);
+  if(mgEdit && mgEdit.target === 'preview') mgEditCollect();
   mgRenderPreviewOnly();
 }
 
@@ -1087,6 +1151,7 @@ function mgUploadImage(key, idx){
 
 function mgPublish(){
   if(typeof previewMode !== 'undefined' && previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  if(mgEdit && mgEdit.target === 'preview' && !mgEditApply()) return;
   const p = mgUpload.parsed;
   if(!p || mgUpload.busy) return;
   if(!p.sections.length && !confirm('לא זוהו סעיפים בקובץ. לפרסם בכל זאת?')) return;
@@ -1130,18 +1195,7 @@ function mgPublish(){
     .then(() => sourceUpload)
     .then(function(sourceUrl){
       mgSetStatus('busy', 'שומר ומפרסם…');
-      const sections = p.sections.map(s => ({
-        num: s.num,
-        title: s.title,
-        icon: s.icon,
-        facts: s.facts,
-        blocks: s.blocks.map(b => {
-          const o = { t: b.t };
-          ['kind','label','html','href','text','items'].forEach(k => { if(b[k] !== undefined) o[k] = b[k]; });
-          return o;
-        }),
-        images: s.images.filter(i => i.finalUrl).map(i => ({ url: i.finalUrl, caption: i.caption || '' }))
-      }));
+      const sections = mgSerializeSections(p.sections, i => i.finalUrl);
       const now = firebase.firestore.FieldValue.serverTimestamp();
       const data = {
         title: (p.title || 'הנחיות שיווק').trim(),
@@ -1226,4 +1280,391 @@ function mgRenderPublishedList(){
         </div>`).join('')}
     </div>
   `;
+}
+
+/* ============================================================
+   מצב עריכה — תיקון כותרות וטקסטים אחרי ההעלאה
+   ------------------------------------------------------------
+   "✏️ עריכה" (במסך ההנחיות, לצוות השיווק) או "✏️ עריכת טקסטים לפני
+   פרסום" (במסך ההעלאה) הופכים כל כותרת וטקסט לניתנים לעריכה במקום.
+   עובדים על עותק (mgEdit.g); שום דבר לא נשמר עד "שמירת שינויים".
+   מה אפשר לעשות:
+     • לשנות כותרת ראשית, תאריכי תוקף, פסקאות פתיחה וחתימה
+     • לשנות כותרת סעיף, תוויות ("המבצע:"), טקסטים, תגיות, קישורים
+       וכיתובי תמונות
+     • לתקן מחיר / מחיר קודם / אחוז הנחה / מק"ט / תוקף שמוצגים בראש סעיף
+     • למחוק פסקה, תמונה או סעיף שלם; להוסיף פסקה או סעיף חדש
+   הטקסט נשמר נקי (רק הדגשה וקישורים), כך שהדבקה מ-Word או מוואטסאפ לא
+   מכניסה עיצוב זר.
+============================================================ */
+function mgClone(g){
+  const c = JSON.parse(JSON.stringify(g, function(k, v){ return (k === 'periodStart' || k === 'periodEnd') ? undefined : v; }));
+  c.periodStart = mgToDate(g.periodStart);
+  c.periodEnd = mgToDate(g.periodEnd);
+  (c.sections || []).forEach(sec => {
+    sec.blocks = sec.blocks || [];
+    sec.images = sec.images || [];
+    sec.facts = sec.facts || { skus: [] };
+  });
+  c.intro = c.intro || [];
+  return c;
+}
+
+function mgIsEditing(){ return !!mgEdit; }
+
+function mgStartEdit(target, id){
+  if(typeof previewMode !== 'undefined' && previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  if(target === 'published'){
+    const g = (mgState.list || []).find(x => x.id === id);
+    if(!g) return;
+    mgEdit = { target, id, g: mgClone(g), dirty: false };
+    mgRenderView();
+    window.scrollTo(0, 0);
+    try { mgScrollParent(document.getElementById('mg-root')).scrollTop = 0; } catch(e){}
+  } else if(target === 'preview'){
+    if(!mgUpload.parsed) return;
+    mgEdit = { target, id: null, g: mgClone(mgUpload.parsed), dirty: false };
+    mgRenderPreviewOnly();
+  }
+}
+
+function mgEditCancel(){
+  if(!mgEdit) return;
+  mgEditCollect();
+  if(mgEdit.dirty && !confirm('לבטל את השינויים שלא נשמרו?')) return;
+  const target = mgEdit.target;
+  mgEdit = null;
+  if(target === 'published') mgRenderView(); else mgRenderPreviewOnly();
+}
+
+/* ---------- ציור מצב העריכה ---------- */
+function mgEd(attrs, html, ph, single){
+  return `<div class="mg-ed${single ? ' single' : ''}" contenteditable="true" ${attrs} data-ph="${mgEsc(ph || 'הקלידו כאן…')}"${single ? ' data-single="1"' : ''}>${html || ''}</div>`;
+}
+function mgDelBtn(onclick, title){
+  return `<button type="button" class="mg-ed-del" onclick="${onclick}" title="${mgEsc(title)}" aria-label="${mgEsc(title)}">🗑</button>`;
+}
+
+function mgRenderEditFacts(sec, si){
+  const f = sec.facts || {};
+  const inp = (key, label, val, ph, wide) => `<label class="mg-ef${wide ? ' wide' : ''}"><span>${label}</span>
+    <input type="text" data-ed="fact" data-s="${si}" data-f="${key}" value="${mgEsc(val == null ? '' : val)}" placeholder="${mgEsc(ph)}"></label>`;
+  return `<details class="mg-edit-facts"${(f.price || f.percent || (f.skus || []).length || f.validity) ? ' open' : ''}>
+    <summary>💲 מחיר, מק"ט ותוקף שמוצגים בראש הסעיף</summary>
+    <div class="mg-ef-grid">
+      ${inp('price', 'מחיר מבצע', f.price, 'למשל 59.90')}
+      ${inp('oldPrice', 'מחיר רגיל', f.oldPrice, 'למשל 94.50')}
+      ${inp('unit', 'ליחידה', f.unit, 'למשל ל־100 גרם')}
+      ${inp('percent', '% הנחה', f.percent, 'למשל 40')}
+      ${inp('skus', 'מק"ט / קוד מוצר', (f.skus || []).join(', '), 'אפשר כמה, מופרדים בפסיק', true)}
+      ${inp('validity', 'בתוקף', f.validity, 'למשל 1-30.11.26')}
+    </div>
+    <div class="mg-ef-hint">שדה ריק = לא מוצג. המחיר מוצג רק אם מולא "מחיר מבצע".</div>
+  </details>`;
+}
+
+function mgRenderEditBlock(b, si, bi){
+  const del = mgDelBtn(`mgEditDeleteBlock(${si},${bi})`, 'מחיקת הפסקה');
+  const at = `data-s="${si}" data-b="${bi}"`;
+  if(b.t === 'label'){
+    return `<div class="mg-block ${mgEsc(b.kind || 'other')} mg-edit-block">${del}
+      <div class="mg-block-label"><span aria-hidden="true">${MG_LABEL_ICONS[b.kind] || MG_LABEL_ICONS.other}</span>
+        ${mgEd(`data-ed="bLabel" ${at}`, mgEsc(b.label), 'תווית (למשל: המבצע)', true)}</div>
+      ${mgEd(`data-ed="bHtml" ${at}`, b.html, 'טקסט')}
+    </div>`;
+  }
+  if(b.t === 'chips'){
+    return `<div class="mg-edit-block mg-edit-plain">${del}
+      <div class="mg-ef-hint" style="margin:0 0 4px;">תגיות — מפרידים ביניהן בנקודה-פסיק ( ; )</div>
+      ${mgEd(`data-ed="bChips" ${at}`, mgEsc((b.items || []).join('; ')), 'מותג א; מותג ב; מותג ג')}
+    </div>`;
+  }
+  if(b.t === 'link'){
+    return `<div class="mg-edit-block mg-edit-plain">${del}
+      <div class="mg-ef-hint" style="margin:0 0 4px;">📂 קישור</div>
+      ${mgEd(`data-ed="bText" ${at}`, mgEsc(b.text), 'הטקסט של הכפתור', true)}
+      <input type="url" class="mg-ed-input" data-ed="bHref" ${at} value="${mgEsc(b.href)}" placeholder="https://…" dir="ltr">
+    </div>`;
+  }
+  if(b.t === 'list' || b.t === 'table'){
+    return `<div class="mg-edit-block mg-edit-plain">${del}
+      <div class="mg-ef-hint" style="margin:0 0 4px;">${b.t === 'list' ? 'רשימה' : 'טבלה'} מהקובץ — אפשר למחוק, אבל לא לערוך כאן</div>
+      ${mgRenderBlock(b)}
+    </div>`;
+  }
+  if(b.t === 'caption'){
+    return `<div class="mg-edit-block mg-edit-plain">${del}
+      ${mgEd(`data-ed="bCaption" ${at}`, b.html, 'כיתוב לתמונות')}
+    </div>`;
+  }
+  return `<div class="mg-edit-block mg-edit-plain">${del}
+    ${mgEd(`data-ed="bHtml" ${at}`, b.html, 'טקסט')}
+  </div>`;
+}
+
+function mgRenderEditSection(sec, si){
+  return `<section class="mg-sec mg-edit-sec" id="mg-sec-${mgEsc(sec.num)}">
+    <div class="mg-sec-head">
+      <div class="mg-sec-num">${mgEsc(sec.num)}</div>
+      <div class="mg-sec-title" style="flex:1;">${mgEd(`data-ed="sTitle" data-s="${si}"`, mgEsc(sec.title), 'כותרת הסעיף', true)}</div>
+      <button type="button" class="mg-btn danger mg-btn-sm" onclick="mgEditDeleteSection(${si})">🗑 מחיקת סעיף</button>
+    </div>
+    ${mgRenderEditFacts(sec, si)}
+    ${(sec.blocks || []).map((b, bi) => mgRenderEditBlock(b, si, bi)).join('')}
+    <button type="button" class="mg-ed-add" onclick="mgEditAddBlock(${si})">＋ הוספת פסקה</button>
+    ${(sec.images || []).length ? `<div class="mg-gallery mg-edit-gallery">
+      ${sec.images.map((img, ii) => `<figure class="mg-img mg-edit-img">
+        ${mgDelBtn(`mgEditDeleteImage(${si},${ii})`, 'מחיקת התמונה')}
+        <img src="${mgEsc(mgImgSrc(img.url || img.src, 600))}" alt="">
+        <figcaption>${mgEd(`data-ed="iCap" data-s="${si}" data-i="${ii}"`, mgEsc(img.caption), 'כיתוב (לא חובה)', true)}</figcaption>
+      </figure>`).join('')}
+    </div>` : ''}
+  </section>`;
+}
+
+/* opts.noHeroMeta: במסך ההעלאה הכותרת והתאריכים נערכים בטופס שמעל */
+function mgRenderEditGuideline(g, opts){
+  const meta = opts.noHeroMeta ? '' : `
+      ${mgEd('data-ed="title"', mgEsc(g.title), 'כותרת ההנחיות', true).replace('class="mg-ed single"', 'class="mg-ed single mg-ed-h2"')}
+      <div class="mg-form-row" style="margin:10px 0 12px;">
+        <div class="field"><label>בתוקף מתאריך</label><input type="date" data-ed="pStart" value="${mgDateInputValue(g.periodStart)}"></div>
+        <div class="field"><label>עד תאריך</label><input type="date" data-ed="pEnd" value="${mgDateInputValue(g.periodEnd)}"></div>
+      </div>`;
+  return `
+    <div class="mg-editbar" role="region" aria-label="סרגל עריכה">
+      <span class="mg-editbar-text">✏️ מצב עריכה — לחצו על כל טקסט כדי לשנות אותו</span>
+      <span class="mg-editbar-actions">
+        <button type="button" class="mg-btn primary" id="mgEditSaveBtn" onclick="mgEditSave()">💾 ${opts.preview ? 'סיום עריכה' : 'שמירת שינויים'}</button>
+        <button type="button" class="mg-btn" onclick="mgEditCancel()">ביטול</button>
+      </span>
+    </div>
+    <div class="mg-hero mg-edit-hero">
+      ${meta}
+      <div class="mg-ef-hint" style="margin:0 0 4px;">פסקאות פתיחה</div>
+      ${(g.intro || []).map((p, i) => `<div class="mg-edit-block mg-edit-plain">${mgDelBtn(`mgEditDeleteIntro(${i})`, 'מחיקת הפסקה')}${mgEd(`data-ed="intro" data-i="${i}"`, p, 'פסקת פתיחה')}</div>`).join('')}
+      <button type="button" class="mg-ed-add" onclick="mgEditAddIntro()">＋ פסקת פתיחה</button>
+    </div>
+    ${(g.sections || []).map(mgRenderEditSection).join('')}
+    <button type="button" class="mg-ed-add mg-ed-add-sec" onclick="mgEditAddSection()">＋ הוספת סעיף</button>
+    <div class="mg-hero mg-edit-hero" style="margin-top:14px;">
+      <div class="mg-ef-hint" style="margin:0 0 4px;">שורת סיום (חתימה)</div>
+      ${mgEd('data-ed="outro"', mgEsc(g.outro), 'למשל: זמינה לכל שאלה, חודש מוצלח!', true)}
+    </div>
+  `;
+}
+
+/* הקלדה: Enter בשורה אחת לא שובר שורה; בטקסט רגיל — ירידת שורה נקייה.
+   הדבקה תמיד כטקסט פשוט. כל שינוי מסמן "יש שינויים שלא נשמרו". */
+function mgBindEditor(root){
+  root.querySelectorAll('[contenteditable="true"]').forEach(function(el){
+    el.addEventListener('keydown', function(e){
+      if(e.key !== 'Enter') return;
+      e.preventDefault();
+      if(el.dataset.single) return;
+      document.execCommand('insertLineBreak');
+    });
+    el.addEventListener('paste', function(e){
+      e.preventDefault();
+      let text = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+      if(el.dataset.single) text = text.replace(/\s*\n\s*/g, ' ');
+      if(!document.execCommand('insertText', false, text)){
+        const sel = window.getSelection();
+        if(sel.rangeCount){ sel.deleteFromDocument(); sel.getRangeAt(0).insertNode(document.createTextNode(text)); }
+      }
+    });
+    el.addEventListener('input', function(){ if(mgEdit) mgEdit.dirty = true; });
+  });
+  root.querySelectorAll('input[data-ed]').forEach(function(inp){
+    inp.addEventListener('input', function(){ if(mgEdit) mgEdit.dirty = true; });
+  });
+}
+
+/* ---------- קריאת מה שהוקלד אל עותק העבודה ---------- */
+function mgPlain(el){ return (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim(); }
+function mgRich(el){
+  return mgCleanInline(el).replace(/(<br>\s*)+$/g, '').replace(/^(\s*<br>)+/g, '').trim();
+}
+
+function mgEditCollect(){
+  if(!mgEdit) return;
+  const g = mgEdit.g;
+  const root = mgEdit.target === 'published' ? document.getElementById('mg-root') : document.getElementById('mgPreviewRoot');
+  if(!root || !root.querySelector('[data-ed]')) return;
+  root.querySelectorAll('[data-ed]').forEach(function(el){
+    const kind = el.dataset.ed;
+    const si = el.dataset.s != null ? +el.dataset.s : null;
+    const bi = el.dataset.b != null ? +el.dataset.b : null;
+    const sec = si != null ? g.sections[si] : null;
+    const blk = (sec && bi != null) ? sec.blocks[bi] : null;
+    switch(kind){
+      case 'title': g.title = mgPlain(el); break;
+      case 'outro': g.outro = mgPlain(el); break;
+      case 'intro': g.intro[+el.dataset.i] = mgRich(el); break;
+      case 'pStart': g.periodStart = mgFromDateInput(el.value, false); break;
+      case 'pEnd': g.periodEnd = mgFromDateInput(el.value, true); break;
+      case 'sTitle': if(sec) sec.title = mgPlain(el); break;
+      case 'bLabel': if(blk) blk.label = mgPlain(el).replace(/:\s*$/, ''); break;
+      case 'bHtml': if(blk) blk.html = mgRich(el); break;
+      case 'bCaption': if(blk) blk.html = mgEsc(mgPlain(el)); break;
+      case 'bChips': if(blk) blk.items = mgPlain(el).split(/[;؛]/).map(x => x.trim()).filter(Boolean); break;
+      case 'bText': if(blk) blk.text = mgPlain(el); break;
+      case 'bHref': if(blk) blk.href = el.value.trim(); break;
+      case 'iCap': if(sec && sec.images[+el.dataset.i]) sec.images[+el.dataset.i].caption = mgPlain(el); break;
+      case 'fact': {
+        if(!sec) break;
+        sec.facts = sec.facts || {};
+        const f = el.dataset.f, v = el.value.trim();
+        if(f === 'skus') sec.facts.skus = v ? v.split(/[,\s]+/).map(x => x.replace(/[^\d]/g, '')).filter(Boolean) : [];
+        else sec.facts[f] = v || null;
+        break;
+      }
+    }
+  });
+}
+
+/* ---------- הוספה ומחיקה ---------- */
+function mgEditRerender(){
+  if(!mgEdit) return;
+  if(mgEdit.target === 'published') mgRenderView(); else mgRenderPreviewOnly();
+}
+function mgEditMutate(fn){
+  mgEditCollect();
+  fn(mgEdit.g);
+  mgEdit.dirty = true;
+  mgEditRenumber(mgEdit.g);
+  mgEditRerender();
+}
+function mgEditRenumber(g){ (g.sections || []).forEach((s, i) => { s.num = i + 1; }); }
+
+function mgEditDeleteBlock(si, bi){ mgEditMutate(g => g.sections[si].blocks.splice(bi, 1)); }
+function mgEditDeleteImage(si, ii){
+  if(!confirm('למחוק את התמונה מהסעיף?')) return;
+  mgEditMutate(g => g.sections[si].images.splice(ii, 1));
+}
+function mgEditDeleteIntro(i){ mgEditMutate(g => g.intro.splice(i, 1)); }
+function mgEditAddIntro(){ mgEditMutate(g => g.intro.push('')); }
+function mgEditAddBlock(si){
+  mgEditMutate(g => g.sections[si].blocks.push({ t: 'text', html: '' }));
+  mgFocusLast(`[data-ed="bHtml"][data-s="${si}"]`);
+}
+function mgEditDeleteSection(si){
+  mgEditCollect();
+  const sec = mgEdit.g.sections[si];
+  if(!confirm(`למחוק את סעיף ${sec.num} ("${sec.title}") כולל הטקסטים והתמונות שלו?`)) return;
+  mgEditMutate(g => g.sections.splice(si, 1));
+}
+function mgEditAddSection(){
+  mgEditMutate(g => g.sections.push({ num: 0, title: '', icon: '📌', facts: { skus: [] }, blocks: [{ t: 'text', html: '' }], images: [] }));
+  mgFocusLast('[data-ed="sTitle"]');
+}
+function mgFocusLast(selector){
+  setTimeout(function(){
+    const all = document.querySelectorAll(selector);
+    const el = all[all.length - 1];
+    if(el){ el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch(e){} }
+  }, 30);
+}
+
+/* מנקה את עותק העבודה לפני שמירה: פסקאות ריקות נמחקות, תווית ריקה הופכת
+   לטקסט רגיל, סוג התווית והאייקון של הסעיף מתעדכנים לפי הטקסט החדש. */
+function mgEditNormalize(g){
+  g.title = (g.title || '').trim() || 'הנחיות שיווק';
+  g.intro = (g.intro || []).filter(p => mgHtmlToText(p));
+  g.outro = (g.outro || '').trim();
+  g.sections = (g.sections || []).filter(s => (s.title || '').trim() || (s.blocks || []).length || (s.images || []).length);
+  g.sections.forEach(function(s){
+    s.title = (s.title || '').trim() || 'סעיף';
+    s.icon = mgSectionIcon(s.title);
+    s.blocks = (s.blocks || []).filter(function(b){
+      if(b.t === 'chips') return (b.items || []).length;
+      if(b.t === 'link') return b.href && /^https?:/i.test(b.href);
+      if(b.t === 'list' || b.t === 'table') return true;
+      return mgHtmlToText(b.html);
+    }).map(function(b){
+      if(b.t === 'label'){
+        if(!(b.label || '').trim()) return { t: 'text', html: b.html };
+        b.kind = mgLabelKind(b.label);
+      }
+      if(b.t === 'link' && !(b.text || '').trim()) b.text = 'פתיחת הקישור';
+      return b;
+    });
+    const f = s.facts || {};
+    s.facts = {
+      price: f.price || null, oldPrice: f.price ? (f.oldPrice || null) : null, unit: f.price ? (f.unit || null) : null,
+      percent: f.percent || null, skus: f.skus || [], validity: f.validity || null
+    };
+  });
+  mgEditRenumber(g);
+  if(g.periodStart && g.periodEnd) g.periodText = mgPeriodTextFromDates(g.periodStart, g.periodEnd);
+  return g;
+}
+
+/* הסעיפים במבנה שנשמר ב-Firestore (משותף לפרסום ולשמירת עריכה) */
+function mgSerializeSections(sections, urlOf){
+  return (sections || []).map(s => ({
+    num: s.num,
+    title: s.title,
+    icon: s.icon || mgSectionIcon(s.title),
+    facts: s.facts || { skus: [] },
+    blocks: (s.blocks || []).map(b => {
+      const o = { t: b.t };
+      ['kind','label','html','href','text','items'].forEach(k => { if(b[k] !== undefined) o[k] = b[k]; });
+      return o;
+    }),
+    images: (s.images || []).filter(i => urlOf(i)).map(i => ({ url: urlOf(i), caption: i.caption || '' }))
+  }));
+}
+
+/* במסך ההעלאה: "סיום עריכה" מעביר את השינויים לטיוטה (לא מפרסם) */
+function mgEditApply(){
+  if(!mgEdit || mgEdit.target !== 'preview') return true;
+  mgEditCollect();
+  const g = mgEditNormalize(mgEdit.g);
+  const p = mgUpload.parsed;
+  p.intro = g.intro; p.outro = g.outro; p.sections = g.sections;
+  mgEdit = null;
+  return true;
+}
+
+function mgEditSave(){
+  if(!mgEdit) return;
+  if(typeof previewMode !== 'undefined' && previewMode){ toast('פעולה לא זמינה במצב תצוגה'); return; }
+  if(mgEdit.target === 'preview'){
+    mgEditApply();
+    mgRenderPreviewOnly();
+    toast('השינויים עודכנו בטיוטה — אפשר לפרסם');
+    return;
+  }
+  mgEditCollect();
+  const id = mgEdit.id;
+  const g = mgEditNormalize(mgEdit.g);
+  const sections = mgSerializeSections(g.sections, i => i.url);
+  const data = {
+    title: g.title,
+    intro: g.intro,
+    outro: g.outro,
+    sections,
+    sectionCount: sections.length,
+    imageCount: sections.reduce((n, s) => n + s.images.length, 0),
+    periodText: g.periodText || '',
+    periodStart: g.periodStart || null,
+    periodEnd: g.periodEnd || null,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedBy: currentUserEmail || null
+  };
+  const btn = document.getElementById('mgEditSaveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'שומר…'; }
+  db.collection(MG_COLLECTION).doc(id).update(data)
+    .then(function(){
+      const item = (mgState.list || []).find(x => x.id === id);
+      if(item) Object.assign(item, data, { updatedAt: new Date() });
+      mgEdit = null;
+      mgRenderView();
+      toast('השינויים נשמרו');
+    })
+    .catch(function(err){
+      console.error('mgEditSave failed', err);
+      if(btn){ btn.disabled = false; btn.textContent = '💾 שמירת שינויים'; }
+      toast('השמירה נכשלה: ' + (err.message || err));
+    });
 }
