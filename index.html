@@ -190,7 +190,7 @@ function viewDepartmentLanding(deptKey){
 /* ---------- Boot ---------- */
 initLogin();
 /* כשהמשתמש חוזר לטאב (למשל אחרי שהלך לשנות הרשאת התראות בהגדרות הדפדפן
-   ולחזר), מרעננים את מצב כפתורי ה-Push בלי לחכות לרענון המלא של 10 הדקות. */
+   ולחזר), מרעננים את מצב כפתורי ה-Push. */
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible' && typeof updatePushButtonsVisibility === 'function') updatePushButtonsVisibility();
 });
@@ -198,21 +198,33 @@ setInterval(tickCountdowns, 1000);
 checkStandReminders();
 setInterval(checkStandReminders, 5*60*1000);
 
-/* רענון עדין ואוטומטי כל 10 דקות — הנתונים עצמם כבר מתעדכנים בזמן אמת דרך
-   Firestore בלי צורך ברענון, אבל עדכוני קוד (גרסה חדשה של האתר) דורשים טעינה
-   מחדש בפועל. לא מרענן אם יש חלון פתוח או שהמשתמש כרגע מקליד, כדי לא לאבד
-   טקסט שלא נשמר (למשל באמצע כתיבת הודעה פרטית). */
-setInterval(function(){
+/* רענון בפתיחת האפליקציה (במקום הרענון הקבוע כל 10 דקות שהיה כאן).
+   הנתונים עצמם מתעדכנים בזמן אמת דרך Firestore, אבל גרסה חדשה של הקוד
+   נטענת רק בטעינה מחדש. לכן:
+     • פתיחה רגילה של האפליקציה — טוענת ממילא את הגרסה העדכנית.
+     • חזרה לאפליקציה שהייתה ברקע (מעבר מוואטסאפ, נעילת מסך וכו') — אם
+       היא הייתה ברקע לפחות REOPEN_RELOAD_MIN דקות, היא נטענת מחדש. מעבר
+       קצר (לבדוק הודעה וחזרה) לא מרענן, כדי לא להקפיץ את מה שקראו.
+   לא מרעננים אם יש חלון פתוח, אם מקלידים, או באמצע עריכת הנחיות שיווק —
+   כדי לא לאבד טקסט שלא נשמר. */
+const REOPEN_RELOAD_MIN = 5;
+let hubHiddenSince = null;
+function hubSafeToReload(){
   const modalOverlay = document.getElementById('modal-overlay');
   const modalOpen = modalOverlay && modalOverlay.classList.contains('open');
   const typing = document.activeElement && (['INPUT','TEXTAREA'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
-  /* באמצע עריכת הנחיות שיווק (marketing-guidelines.js) לא מרעננים — אחרת
-     השינויים שעוד לא נשמרו היו נמחקים */
   const editing = typeof mgIsEditing === 'function' && mgIsEditing();
-  if(!modalOpen && !typing && !editing){
-    location.reload();
+  return !modalOpen && !typing && !editing;
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    hubHiddenSince = Date.now();
+    return;
   }
-}, 10*60*1000);
+  const awayMs = hubHiddenSince ? Date.now() - hubHiddenSince : 0;
+  hubHiddenSince = null;
+  if(awayMs >= REOPEN_RELOAD_MIN*60*1000 && hubSafeToReload()) location.reload();
+});
 </script>
 <!-- PWA UI START: keep this block when editing with Claude -->
 <div id="pwa-install-wrap" hidden style="position:fixed;z-index:99998;left:18px;bottom:18px;max-width:330px;font-family:inherit;direction:rtl;">
